@@ -1,7 +1,7 @@
 # Agent Voice: Global One-Line TTS Summaries for Coding Agents
 
 Date: 2026-06-12
-Status: Design approved by user; awaiting spec review
+Status: Ready for user review after 3 spec review iterations and final blocker patch
 
 ## Goal
 
@@ -28,7 +28,7 @@ The system must not disrupt agent workflows. Agent integrations must enqueue eve
   2. Pi fast mode using a Codex/OpenAI model
   3. OpenCode
   4. Local heuristic fallback
-- TTS via the existing Kokoro Python service under `../kokoro-tts/Python/kokoro_tts_service.py` plus `afplay` for playback.
+- TTS via the existing Kokoro Python service. The global config stores an absolute script path, autodetected from `/Users/meidhy/junk/repo/kokoro-tts/Python/kokoro_tts_service.py` on this machine when present, plus `afplay` for playback.
 
 ### Out of scope for v1
 
@@ -37,6 +37,36 @@ The system must not disrupt agent workflows. Agent integrations must enqueue eve
 - Cloud-hosted storage or telemetry.
 - Perfect native integration for every agent if the agent does not expose final response text; wrapper fallback is acceptable.
 - Complex summarization policies such as semantic importance scoring.
+
+## Product and safety decisions
+
+These decisions are fixed for v1 so implementation does not need to guess.
+
+- Global install must be **idempotent, reversible, and fail-safe**.
+- `agent-voice install` must not silently overwrite existing agent configuration. It must create timestamped backups before editing any global config file.
+- If an agent's native hook/plugin schema cannot be verified, install must not force a fragile native integration. It should install the reliable wrapper fallback and print the native integration as disabled/experimental.
+- The default speech policy is `every_turn`, but users can disable the entire system, individual agents, or path patterns from config.
+- Captured text may be sent to the configured external summarizer CLI. This is intentional for the requested design, but must be explicit in config/docs.
+- A fully local mode is supported by setting summarizer priority to `["heuristic"]`; in that mode no captured text is sent to an external model provider.
+- Logs must not include raw agent output unless `privacy.logRawText` is explicitly enabled.
+- Simple redaction runs before logs and summarization by default for common secret-shaped values such as API keys, bearer tokens, and private key blocks.
+- The canonical event text stored in the spool is the redacted and truncated text. Raw unredacted text must not be written to spool, logs, or failed-job sidecars when `privacy.redactSecrets` is enabled.
+- `privacy.storeRawText` controls post-processing retention only. Incoming/processing jobs necessarily contain the redacted text until processed; after processing, `storeRawText: false` strips `text` from `done` and `failed` records.
+- Adapters always fail open. If any adapter cannot enqueue within its small local budget, it drops the voice event and exits successfully.
+- Internal summarizer subprocesses must not recursively trigger voice events. The daemon sets `AGENT_VOICE_DISABLE=1`, and every adapter/wrapper must skip enqueue when that environment variable is present.
+
+## Native-support tiers
+
+Each agent has an explicit v1 support tier.
+
+| Agent | v1 support decision |
+| --- | --- |
+| Claude Code | Native global Stop hook is primary. If final text is missing from the hook payload, enqueue a generic completion sentence and log metadata only. |
+| Pi | Native global extension is primary. Use the final message event if available; otherwise keep the last assistant text seen during the turn and enqueue it on `agent_end`. |
+| Codex CLI | Reliable wrapper support is required for v1. Native `notify`/turn-ended integration is optional and only enabled if final text or a reliable session lookup is verified. |
+| OpenCode | Reliable wrapper support is required for v1. Native plugin/hook integration is optional and only enabled if completed assistant text is verified. |
+
+Wrappers are not a separate product direction; they are the supported fallback for agents whose native global notification cannot provide final response text.
 
 ## Recommended architecture
 
@@ -68,16 +98,19 @@ The CLI is the user-facing control surface and adapter entrypoint.
 Commands:
 
 ```bash
-agent-voice install
-agent-voice uninstall
+agent-voice install [--agents claude,pi,codex,opencode] [--kokoro-script /abs/path]
+agent-voice uninstall [--restore-backups]
 agent-voice start
 agent-voice stop
 agent-voice status
-agent-voice enqueue --agent claude
+agent-voice enqueue --format text --agent claude --cwd "$PWD" < final-response.txt
+agent-voice enqueue --format event-json < canonical-event.json
+agent-voice enqueue --format claude-stop-hook --agent claude < claude-hook-payload.json
 agent-voice test "Claude finished editing the auth module."
 agent-voice enable claude
 agent-voice disable codex
-agent-voice config
+agent-voice config get
+agent-voice config set summarizer.timeoutSeconds 8
 ```
 
 Responsibilities:
@@ -87,6 +120,16 @@ Responsibilities:
 - Install/uninstall global adapters.
 - Provide a stable `enqueue` command for hooks and wrappers.
 - Provide manual test/speak flows for validation.
+
+`enqueue` is the stable adapter protocol:
+
+- `--format` is required; there is no implicit default.
+- `--format text`: stdin is raw final assistant text; `--agent` is required.
+- `--format event-json`: stdin is already the canonical event format; `--agent` is ignored unless it matches the event JSON agent.
+- `--format claude-stop-hook`: stdin is a Claude Stop hook payload and the CLI extracts final text when available; `--agent claude` is required.
+- Future agent-specific formats may be added only if they can be tested with sample payload fixtures.
+- If format-specific extraction cannot find final text, `enqueue` creates a generic completion sentence only when that adapter's support tier explicitly allows it; otherwise it writes no event and exits `0`.
+- `enqueue` performs only validation, redaction, truncation, and the atomic spool write. It must not start the daemon, call a summarizer, call Kokoro, or play audio.
 
 ### Daemon
 
@@ -104,6 +147,24 @@ Responsibilities:
 - Serialize playback so summaries do not overlap.
 - Log failures without affecting agents.
 
+Daemon lifecycle and protocol:
+
+- The daemon is started as `agent-voice daemon --foreground` by the LaunchAgent.
+- v1 does **not** expose an HTTP server or Unix socket. The spool directory is the only adapter-to-daemon protocol.
+- `agent-voice start` loads the LaunchAgent or starts the foreground daemon only when no healthy daemon lock exists.
+- `agent-voice stop` asks launchd to unload/stop the daemon, then sends a graceful signal if needed.
+- On `SIGTERM`/`SIGINT`, the daemon finishes or safely requeues the current job, terminates Kokoro if owned by this daemon, removes its PID/lock file, and exits.
+- `agent-voice status` reports daemon PID, LaunchAgent status, queue counts by state, Kokoro readiness, last processed event, and last error.
+
+Recovery behavior:
+
+- On startup, move stale files from `processing` back to `incoming` if their lock metadata is older than the configured processing timeout.
+- Treat malformed event files as failed jobs and move them to `failed` with a sidecar error file that does not include raw text.
+- Use a daemon PID/lock file so `start` is idempotent and does not create multiple active speakers.
+- If Kokoro exits or emits invalid JSON, restart the Kokoro subprocess once for the current job, then fail the job if it still fails.
+- If `afplay` fails, mark only that job failed and continue.
+- Apply retention cleanup to `done`, `failed`, and `skipped` during daemon startup and periodically while running.
+
 ### Async spool queue
 
 Adapters must not talk to the daemon over a blocking path. They enqueue by writing a local file only.
@@ -120,15 +181,26 @@ Directory layout:
     processing/
     done/
     failed/
+    skipped/
+  backups/
+  run/
+    agent-voice.pid
+```
+
+Spool filenames use sortable timestamps plus event IDs, for example:
+
+```text
+2026-06-12T00-00-00.000Z_claude_550e8400-e29b-41d4-a716-446655440000.json
 ```
 
 Enqueue algorithm:
 
 1. Build an event JSON object.
-2. Write it to a unique temp file in the same filesystem.
-3. `fsync` best-effort where practical.
-4. Atomic rename into `spool/incoming/*.json`.
-5. Exit `0` even if enqueue fails after best-effort logging.
+2. Apply configured max-size limits and redaction.
+3. Write it to a unique temp file in the same filesystem.
+4. `fsync` best-effort where practical.
+5. Atomic rename into `spool/incoming/*.json`.
+6. Exit `0` even if enqueue fails after best-effort logging.
 
 This guarantees agents wait only for a local file write and atomic rename, never for LLM or TTS work.
 
@@ -157,6 +229,17 @@ Default priority:
    - Prefer first concise sentence that names the result.
    - Truncate to configured max spoken length.
 
+Safe execution requirements:
+
+- Invoke summarizers with argument arrays, not shell-interpolated command strings.
+- Pass the summarization prompt through stdin or an equivalent safe API; never interpolate agent text into a shell command.
+- Set `AGENT_VOICE_DISABLE=1` for all summarizer subprocesses so wrappers/adapters do not enqueue recursive voice events.
+- Use an isolated non-project working directory such as `~/.agent-voice/run/summarizer` unless a summarizer requires otherwise.
+- Disable tools/session persistence where supported: Codex uses `--ephemeral`; Pi uses `--no-tools --no-session`.
+- Enforce timeout by killing the whole subprocess group.
+- Limit subprocess stdout/stderr capture to configured byte caps and redact before logging.
+- If a configured summarizer executable is missing, skip it and try the next priority entry.
+
 Summarizer prompt shape:
 
 ```text
@@ -176,11 +259,7 @@ Timeouts:
 
 ### TTS player
 
-Use the existing Kokoro Python service directly:
-
-```text
-../kokoro-tts/Python/kokoro_tts_service.py
-```
+Use the existing Kokoro Python service directly through the absolute path stored in config.
 
 Protocol:
 
@@ -196,11 +275,18 @@ Expected response:
 
 Playback flow:
 
-1. Send summary text to warm Kokoro subprocess.
-2. Decode returned base64 WAV.
-3. Write a temporary `.wav` file.
-4. Play with `afplay`.
-5. Delete the temp file.
+1. Send summary text to warm Kokoro subprocess as one JSON line.
+2. Read JSON lines until an `audio` response or `error` response is received; tolerate non-audio status/progress lines.
+3. Decode returned base64 WAV.
+4. Write a temporary `.wav` file under `~/.agent-voice/run/audio`.
+5. Play with `afplay` using argument arrays.
+6. Delete the temp file best-effort.
+
+TTS failure handling:
+
+- If Kokoro is not ready, wait up to `tts.timeoutSeconds` for readiness.
+- If Kokoro fails a job, restart once and retry that job once.
+- If audio playback fails after a valid WAV is produced, do not retry summarization; mark playback failed for that job.
 
 ## Event format
 
@@ -275,31 +361,49 @@ Risk:
 
 ### Codex CLI
 
-Preferred native integration:
+Required v1 support:
 
-- Use Codex global `notify` / turn-ended command if it can expose sufficient final output or session metadata.
+- Provide `voice-codex`, a wrapper for non-interactive Codex runs where final stdout can be captured reliably.
+- Install a Codex native notification only if implementation discovery verifies a stable way to obtain either final response text or a session ID that can be mapped to final response text.
 
-Fallback:
+Wrapper behavior:
 
-- Provide a wrapper command such as `voice-codex` that runs Codex and captures final output where practical.
+```bash
+voice-codex [codex args...]
+voice-codex exec [codex exec args...]
+```
 
-Risk:
+- Pass all arguments through to `codex`.
+- Preserve the wrapped command's stdout, stderr, stdin, TTY behavior, and exit code as much as practical.
+- For `codex exec` and other non-interactive output modes, capture the final output and enqueue it after process exit.
+- For fully interactive TUI sessions where final output cannot be captured reliably, enqueue a generic completion event unless native session lookup is verified.
 
-- Codex notification may provide metadata rather than final response text. If so, native integration may only support a generic completion message until a session-output lookup or wrapper path is implemented.
+Risk accepted for v1:
+
+- Codex may not expose final assistant text through global notification. The v1 acceptance bar is therefore reliable wrapper capture for non-interactive runs plus non-disruptive generic completion for unsupported native interactive cases.
 
 ### OpenCode
 
-Preferred native integration:
+Required v1 support:
 
-- Use an OpenCode plugin/hook if it exposes completed assistant messages.
+- Provide `voice-opencode`, a wrapper for non-interactive OpenCode runs where final stdout can be captured reliably.
+- Install an OpenCode native plugin/hook only if implementation discovery verifies a stable completed-assistant-message event.
 
-Fallback:
+Wrapper behavior:
 
-- Provide a wrapper command such as `voice-opencode`.
+```bash
+voice-opencode [opencode args...]
+voice-opencode run [opencode run args...]
+```
 
-Risk:
+- Pass all arguments through to `opencode`.
+- Preserve stdout, stderr, stdin, TTY behavior, and exit code as much as practical.
+- For `opencode run`, capture final output and enqueue it after process exit.
+- For fully interactive TUI sessions where final output cannot be captured reliably, enqueue a generic completion event unless native plugin support is verified.
 
-- OpenCode plugin/hook API needs verification during implementation. Wrapper fallback may be the reliable v1 path if native final-text access is not available.
+Risk accepted for v1:
+
+- OpenCode plugin/hook API may not expose final assistant text. The v1 acceptance bar is reliable wrapper capture for non-interactive runs plus non-disruptive generic completion for unsupported native interactive cases.
 
 ## Configuration
 
@@ -315,48 +419,121 @@ Initial config shape:
 {
   "enabled": true,
   "agents": {
-    "claude": { "enabled": true },
-    "codex": { "enabled": true },
-    "pi": { "enabled": true },
-    "opencode": { "enabled": true }
+    "claude": { "enabled": true, "mode": "native" },
+    "codex": { "enabled": true, "mode": "wrapper-required-native-optional" },
+    "pi": { "enabled": true, "mode": "native" },
+    "opencode": { "enabled": true, "mode": "wrapper-required-native-optional" }
   },
   "speakPolicy": "every_turn",
+  "ignoreCwdPatterns": [],
   "summarizer": {
     "priority": ["codex-fast", "pi-fast", "opencode", "heuristic"],
     "codexModel": "gpt-5.3-codex",
+    "piModel": "openai/gpt-5.3-codex",
+    "opencodeModel": null,
     "timeoutSeconds": 12,
     "maxInputChars": 12000,
     "maxSummaryChars": 180
   },
   "tts": {
-    "kokoroScript": "../kokoro-tts/Python/kokoro_tts_service.py",
+    "kokoroScript": "/Users/meidhy/junk/repo/kokoro-tts/Python/kokoro_tts_service.py",
     "python": "python3",
     "voice": "af_heart",
     "timeoutSeconds": 30
   },
   "spool": {
-    "retentionDays": 7
+    "processingTimeoutSeconds": 120,
+    "retentionDays": 7,
+    "maxEventBytes": 262144,
+    "maxAttempts": 3,
+    "retryBackoffSeconds": 30
   },
   "privacy": {
     "storeRawText": true,
-    "logRawText": false
+    "logRawText": false,
+    "redactSecrets": true
   }
 }
 ```
+
+The Kokoro script path must be stored as an absolute path. `agent-voice install` may autodetect `/Users/meidhy/junk/repo/kokoro-tts/Python/kokoro_tts_service.py` on this machine, but it must prompt or fail with a clear message if the path does not exist and `--kokoro-script` was not provided.
 
 ## Installation
 
 `agent-voice install` should:
 
 1. Create `~/.agent-voice` directories and default config.
-2. Install a macOS LaunchAgent to keep the daemon running.
-3. Install global adapters for enabled agents:
-   - Claude Code global hook.
+2. Resolve and validate the absolute Kokoro script path.
+3. Install a macOS LaunchAgent at `~/Library/LaunchAgents/com.agent-voice.daemon.plist` to keep the daemon running.
+4. Install global adapters for enabled agents:
+   - Claude Code global Stop hook.
    - Pi global extension.
-   - Codex notification hook if viable; wrapper fallback otherwise.
-   - OpenCode plugin/hook if viable; wrapper fallback otherwise.
-4. Run a basic `agent-voice status` health check.
-5. Print exactly what was installed and how to uninstall.
+   - Codex wrapper commands, plus native notification only if verified.
+   - OpenCode wrapper commands, plus native plugin/hook only if verified.
+5. Create timestamped backups under `~/.agent-voice/backups/` before modifying any existing global config file.
+6. Run a basic `agent-voice status` health check.
+7. Print exactly what was installed, skipped, backed up, and how to uninstall.
+
+LaunchAgent requirements:
+
+- Label: `com.agent-voice.daemon`.
+- Path: `~/Library/LaunchAgents/com.agent-voice.daemon.plist`.
+- `ProgramArguments`: absolute path to the installed `agent-voice` executable plus `daemon --foreground`.
+- `RunAtLoad`: `true`.
+- `KeepAlive`: crash-only restart behavior; do not respawn rapidly on clean user stop.
+- `WorkingDirectory`: `~/.agent-voice`.
+- `StandardOutPath`: `~/.agent-voice/logs/launchd.out.log`.
+- `StandardErrorPath`: `~/.agent-voice/logs/launchd.err.log`.
+- Environment includes `AGENT_VOICE_HOME=~/.agent-voice`; it must not set `AGENT_VOICE_DISABLE` because that variable is only for child summarizer/wrapper recursion prevention.
+- Install loads the LaunchAgent with `launchctl bootstrap gui/$UID <plist>` when available; uninstall unloads it with `launchctl bootout gui/$UID <plist>` and falls back to older `launchctl load/unload` only if needed.
+- `agent-voice stop` records an intentional-stop marker before unloading/stopping so KeepAlive does not immediately restart it.
+- `agent-voice start` removes the intentional-stop marker before loading/starting.
+
+Uninstall requirements:
+
+- `agent-voice uninstall` removes the LaunchAgent, daemon process, installed adapter files, and wrapper symlinks/scripts created by this tool.
+- It must not delete `~/.agent-voice/spool`, logs, or backups unless an explicit cleanup flag is provided.
+- With `--restore-backups`, it restores config files from the latest matching backup where safe.
+- It must print anything it could not remove automatically.
+
+Installation must be idempotent: rerunning `install` updates files owned by this tool, keeps backups, and does not duplicate hooks or LaunchAgents.
+
+Ownership and backup rules:
+
+- Files created by this tool must include a clear `agent-voice` marker comment/header where the target format allows it.
+- For JSON/TOML config edits, installer backups must include the original file path, timestamp, and sha256 hash in a backup manifest.
+- Installer must not remove or rewrite unrelated existing hooks/plugins/extensions.
+- When adding to an existing hook list, append a clearly marked command rather than replacing the list.
+- If a config merge is ambiguous, skip that native adapter and report the wrapper/manual install path instead of guessing.
+- Uninstall removes only files or config entries with matching ownership markers/manifests.
+
+## Queue and retry behavior
+
+The daemon treats each spool file as a durable job.
+
+Job states:
+
+```text
+incoming → processing → done
+                 ├──→ failed
+                 ├──→ skipped
+                 └──→ incoming (retryable failure while attempts remain and nextAttemptAt has arrived)
+```
+
+Rules:
+
+- Each job records `attempts`, `lastAttemptAt`, `nextAttemptAt`, and the last redacted error summary in metadata.
+- `attempts` increments when a job moves from `incoming` to `processing`, not when the file is initially enqueued.
+- Retryable failures: total TTS/playback failure after the per-job Kokoro restart attempt, temporary `afplay` failure, and unexpected daemon-owned subprocess failures after heuristic fallback cannot complete the job.
+- External summarizer failures are not independently retried as jobs if the heuristic fallback succeeds; the job is successful and must move to `done`.
+- Retry timing is deterministic for v1: `nextAttemptAt = now + retryBackoffSeconds * attempts`, capped by `processingTimeoutSeconds`.
+- A job with future `nextAttemptAt` remains in `incoming` but is skipped by the daemon until the timestamp arrives.
+- If `attempts >= maxAttempts`, retryable failure becomes terminal and the job moves to `failed` with redacted error metadata.
+- Non-retryable failures: malformed event JSON, text missing after adapter extraction when generic completion is not allowed, event exceeding `maxEventBytes`, and unsupported event version.
+- Disabled or ignored jobs are not failures. If the global system is disabled, the agent is disabled, or `cwd` matches `ignoreCwdPatterns`, the daemon moves the job to `skipped` with reason `disabled_system`, `disabled_agent`, or `ignored_cwd`.
+- Re-enabling an agent affects future jobs only. Skipped jobs are not automatically replayed; a later explicit `agent-voice requeue --from skipped --reason disabled_agent` may be added outside v1.
+- Queued jobs remain durable across daemon restarts.
+- Processing order is oldest-first by spool filename among jobs whose `nextAttemptAt` is absent or due.
 
 ## Failure handling
 
@@ -375,14 +552,19 @@ Daemon:
 - Fall back to heuristic summary.
 - Move failed jobs to `spool/failed` with error metadata.
 - Continue processing later jobs after failure.
+- Recover stale `processing` jobs on restart.
+- Avoid duplicate daemon instances with a lock/PID file.
+- If the user disables the system or a specific agent while jobs are queued, move matching due jobs to `skipped` with a redacted reason instead of retrying or failing them.
 
 ## Privacy and safety
 
-- Everything is local except the selected summarizer CLI, which may send text to its configured model provider.
-- Raw captured text is stored in the local spool by default for reliability and debugging.
-- Provide `storeRawText: false` as a later hardening mode or v1 stretch goal if simple.
-- Logs must not include raw agent output unless `logRawText` is explicitly enabled.
+- Everything is local except the selected summarizer CLI, which may send redacted captured text to its configured model provider.
+- Incoming and processing spool files store redacted, truncated text because the daemon needs that text to summarize and speak.
+- Raw unredacted agent output must not be persisted when `privacy.redactSecrets` is enabled.
+- When `storeRawText` is `false`, completed `done` and `failed` job records must remove the `text` field and keep only metadata, summary, attempts, timestamps, and redacted errors.
+- Logs must not include raw agent output unless `logRawText` is explicitly enabled; even then, secret redaction still applies when `redactSecrets` is enabled.
 - Truncate captured text to `maxInputChars` before summarization.
+- Redaction is best-effort and not a formal DLP guarantee; docs must say that external summarizers may receive sensitive information if redaction misses it.
 
 ## Testing strategy
 
@@ -390,17 +572,30 @@ Unit tests:
 
 - Config loading and defaults.
 - Atomic spool writes.
-- Event validation.
+- Event validation and unsupported-version rejection.
+- Secret redaction before spool write and before logging.
+- `storeRawText: false` stripping text from completed job records.
 - Summarizer fallback order.
+- Safe subprocess invocation without shell interpolation.
+- `AGENT_VOICE_DISABLE=1` recursion guard in wrappers/adapters.
 - TTS text cleanup.
 - Deduplication by event ID.
+- Retry classification, `nextAttemptAt` backoff timing, and max-attempt behavior.
+- Disabled-system, disabled-agent, and ignored-cwd jobs moving to `skipped`.
+- LaunchAgent plist content, bootstrap/bootout command selection, and intentional-stop marker behavior.
+- Enqueue CLI required-format validation and format-specific `--agent` rules.
+- Retention cleanup.
 
 Integration tests:
 
 - Enqueue sample events for each agent.
 - Run daemon against a mock Kokoro process.
 - Run summarizer with mocked command failures to verify fallback.
-- Optional local real Kokoro smoke test using `../kokoro-tts/Python/kokoro_tts_service.py`.
+- Verify daemon restart requeues stale `processing` jobs.
+- Verify install is idempotent and uninstall removes only owned files/entries.
+- Verify LaunchAgent plist generation without loading it in tests.
+- Verify wrappers preserve exit code and enqueue only when `AGENT_VOICE_DISABLE` is absent.
+- Optional local real Kokoro smoke test using the configured absolute Kokoro script path.
 
 Manual tests:
 
@@ -418,7 +613,7 @@ These should be resolved during implementation discovery, not by changing the co
 2. Exact Pi extension event payload to use for final assistant text.
 3. Whether Codex global notification exposes final response text or only event metadata.
 4. Whether OpenCode exposes a stable plugin/hook event for completed assistant messages.
-5. Best absolute default path for the Kokoro service, since `../kokoro-tts` is relative to this repo but global install should store an absolute path.
+5. Whether install should autodetect only `/Users/meidhy/junk/repo/kokoro-tts/Python/kokoro_tts_service.py` or also search sibling directories before requiring `--kokoro-script`.
 
 ## Acceptance criteria
 
@@ -428,3 +623,6 @@ These should be resolved during implementation discovery, not by changing the co
 - The daemon summarizes with Codex fast mode first, then Pi fast mode, then OpenCode, then heuristic fallback.
 - Kokoro stays warm in the daemon and speech does not require the Kokoro macOS app to be open.
 - Failures in summarization, TTS, or playback never disrupt the source agent.
+- Install/uninstall are idempotent and reversible for files/config entries owned by this tool.
+- Privacy controls are internally consistent: redaction happens before spool/log/summarizer, and `storeRawText: false` strips text from completed jobs.
+- Queue retry and daemon restart behavior are covered by tests.
