@@ -63,6 +63,11 @@ public struct AgentVoiceCLI: Sendable {
         return try JSONDecoder().decode(DoctorReport.self, from: Data(result.stdout.utf8))
     }
 
+    public func history(limit: Int = 50) async throws -> AgentVoiceHistorySnapshot {
+        let result = try await run(["history", "--json", "--limit", String(limit)])
+        return try JSONDecoder().decode(AgentVoiceHistorySnapshot.self, from: Data(result.stdout.utf8))
+    }
+
     public func pause() async throws {
         _ = try await run(["pause"])
     }

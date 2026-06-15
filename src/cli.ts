@@ -19,6 +19,7 @@ import {
 } from "./config";
 import { buildDoctorReport } from "./doctor";
 import { createEvent, type AgentVoiceEvent, validateEvent } from "./events";
+import { buildHistorySnapshot, formatHistoryJson } from "./history";
 import { resolvePaths } from "./paths";
 import type { ProcessorDeps } from "./processor";
 import { summarize } from "./summarizers";
@@ -50,6 +51,7 @@ Usage:
   agent-voice start
   agent-voice stop
   agent-voice status [--json]
+  agent-voice history --json [--limit 50]
   agent-voice pause
   agent-voice resume
   agent-voice enqueue --format text --agent claude --cwd "$PWD"
@@ -73,6 +75,13 @@ function getOption(args: string[], name: string): string | undefined {
 	const index = args.indexOf(name);
 	if (index === -1) return undefined;
 	return args[index + 1];
+}
+
+function parseBoundedIntegerOption(raw: string | undefined, min: number, max: number): number | null {
+	if (!raw || !/^\d+$/.test(raw)) return null;
+	const value = Number(raw);
+	if (!Number.isInteger(value) || value < min || value > max) return null;
+	return value;
 }
 
 function parseJson(input: string): unknown {
@@ -202,6 +211,19 @@ export async function runCli(
 			return result(2, "", "doctor currently requires --json\n");
 		}
 		return result(0, `${JSON.stringify(buildDoctorReport(paths, io.daemonDeps), null, 2)}\n`);
+	}
+
+	if (command === "history") {
+		if (!args.includes("--json")) {
+			return result(2, "", "history currently requires --json\n");
+		}
+		const hasLimit = args.includes("--limit");
+		const rawLimit = getOption(args, "--limit");
+		const limit = hasLimit ? parseBoundedIntegerOption(rawLimit, 1, 200) : 50;
+		if (limit === null) {
+			return result(2, "", "--limit must be an integer between 1 and 200\n");
+		}
+		return result(0, formatHistoryJson(buildHistorySnapshot(paths, limit)));
 	}
 
 	if (command === "enqueue") {
