@@ -2,7 +2,7 @@
 
 > Local Bun/TypeScript CLI and daemon that queues completed coding-agent turns, summarizes each turn into one short sentence, and speaks it through a local Kokoro TTS script.
 
-`agent-voice` is currently best used as a local, running daemon/server-style tool. It avoids global agent config mutation by default: you start the daemon, enqueue events from hooks or manual commands, and inspect the local spool when something goes wrong.
+`agent-voice` is currently best used as a local, running daemon/server-style tool. It avoids global agent config mutation by default: you start the daemon, enqueue events from hooks or manual commands, and inspect the local SQLite queue when something goes wrong.
 
 ## What works today
 
@@ -92,7 +92,7 @@ Use this when you want the local daemon to keep running in the background:
 
 ### Direct TTS smoke test
 
-This bypasses the spool and immediately summarizes and speaks one message:
+This bypasses the queue and immediately summarizes and speaks one message:
 
 ```bash
 ./bin/agent-voice test 'Claude finished editing the auth module.'
@@ -145,14 +145,10 @@ Important files under `AGENT_VOICE_HOME`:
 
 ```text
 config.json             # user-editable settings
+queue.db                # SQLite queue (jobs table: pending/processing/done/failed/skipped)
 run/daemon.pid          # daemon lock
 run/intentional-stop    # stop marker
 run/audio/              # temporary WAV files during playback
-spool/incoming/         # queued events
-spool/processing/       # claimed jobs
-spool/done/             # completed jobs with summary metadata
-spool/failed/           # exhausted failures
-spool/skipped/          # disabled, ignored, or duplicate jobs
 ```
 
 Useful config commands:
@@ -168,7 +164,7 @@ Useful config commands:
 
 ## Privacy and data flow
 
-`agent-voice` is designed to keep the queue, config, generated audio files, and Kokoro TTS local to your machine. Completed agent text is written as JSON files under `AGENT_VOICE_HOME/spool`, summarized, spoken, and then moved to `done`, `failed`, or `skipped`.
+`agent-voice` is designed to keep the queue, config, generated audio files, and Kokoro TTS local to your machine. Completed agent text is stored as rows in the SQLite queue at `AGENT_VOICE_HOME/queue.db`, summarized, spoken, and then marked `done`, `failed`, or `skipped`.
 
 Be aware of the summarizer step: by default, `agent-voice` tries `codex exec`, then `pi --fast`, then optional `opencode run` before falling back to heuristic local cleanup. Those CLI tools may contact their configured model providers. If you want strictly local/no-network summarization, set the priority in `config.json` to only `heuristic`.
 
@@ -178,8 +174,8 @@ The daemon sets `AGENT_VOICE_DISABLE=1` for summarizer subprocesses to reduce re
 
 - **No sound:** run `./bin/agent-voice test 'hello'`; verify macOS audio output, `afplay`, and `tts.kokoroScript`.
 - **Kokoro times out:** increase `tts.timeoutSeconds`, confirm the script prints `{"status":"ready"}`, and run it manually with Python.
-- **Queue is not moving:** run `./bin/agent-voice status`; if `incoming` grows, start `./bin/agent-voice daemon --foreground` and watch errors.
-- **Jobs go to `failed`:** inspect the JSON files in `~/.agent-voice/spool/failed`; `metadata.lastError` usually contains the failing summarizer, TTS, or playback message.
+- **Queue is not moving:** run `./bin/agent-voice status`; if `pending` grows, start `./bin/agent-voice daemon --foreground` and watch errors.
+- **Jobs go to `failed`:** inspect the failed rows in `~/.agent-voice/queue.db` (e.g. `SELECT id, last_error FROM jobs WHERE status='failed'`); `last_error` usually contains the failing summarizer, TTS, or playback message.
 - **Daemon already running:** run `./bin/agent-voice status`; stop it with `./bin/agent-voice stop` or remove a truly stale `run/daemon.pid` after confirming the PID is dead.
 - **Summarizer CLI missing:** this is non-fatal. The daemon falls back through the priority list and eventually uses the heuristic summarizer.
 - **Privacy-sensitive project:** use a separate `AGENT_VOICE_HOME`, lower `summarizer.maxInputChars`, add `ignoreCwdPatterns` in `config.json`, or switch summarization to `heuristic` only.
@@ -197,8 +193,9 @@ Repo layout:
 bin/agent-voice          # cwd-independent Bun shim
 src/cli.ts               # command parser and command handlers
 src/daemon.ts            # foreground/detached daemon lifecycle
-src/spool.ts             # atomic file spool
-src/queue.ts             # skip, dedupe, retry, and claim logic
+src/db.ts                # SQLite connection, PRAGMAs, and schema
+src/store.ts             # SQLite queue API (enqueue, claim, recover, retention, history)
+src/queue.ts             # skip, retry, and due/backoff logic
 src/processor.ts         # summarize + speak job processor
 src/summarizers.ts       # Codex/Pi/OpenCode/heuristic summarizers
 src/tts.ts               # Kokoro JSONL client and afplay playback
