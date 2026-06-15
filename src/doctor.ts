@@ -1,0 +1,78 @@
+import { existsSync } from "node:fs";
+import { loadConfig } from "./config";
+import { getDaemonStatus, type DaemonCliDeps } from "./daemon";
+import type { AgentVoicePaths } from "./paths";
+
+export interface DoctorCheck {
+	id: string;
+	ok: boolean;
+	severity: "info" | "warning" | "error";
+	message: string;
+	action?: string;
+}
+
+export interface DoctorReport {
+	version: 1;
+	checks: DoctorCheck[];
+}
+
+export function buildDoctorReport(
+	paths: AgentVoicePaths,
+	deps: DaemonCliDeps = {},
+): DoctorReport {
+	const checks: DoctorCheck[] = [];
+	let config;
+	try {
+		config = loadConfig(paths);
+		checks.push({
+			id: "config.load",
+			ok: true,
+			severity: "info",
+			message: "Config loaded",
+		});
+	} catch (error) {
+		checks.push({
+			id: "config.load",
+			ok: false,
+			severity: "error",
+			message: error instanceof Error ? error.message : String(error),
+			action: "Open setup and repair config.json",
+		});
+	}
+
+	if (config) {
+		const exists = existsSync(config.tts.kokoroScript);
+		checks.push({
+			id: "tts.kokoroScript.exists",
+			ok: exists,
+			severity: exists ? "info" : "error",
+			message: exists
+				? "Kokoro script exists"
+				: `Kokoro script not found: ${config.tts.kokoroScript}`,
+			...(exists ? {} : { action: "Choose the Kokoro Python service script" }),
+		});
+	}
+
+	const daemon = getDaemonStatus(paths, deps);
+	checks.push({
+		id: "daemon.running",
+		ok: daemon.running,
+		severity: daemon.running ? "info" : "warning",
+		message: daemon.running
+			? `Daemon running pid=${daemon.pid}`
+			: "Daemon is not running",
+		...(daemon.running ? {} : { action: "Start daemon" }),
+	});
+
+	checks.push({
+		id: "queue.failed.empty",
+		ok: daemon.queues.failed === 0,
+		severity: daemon.queues.failed === 0 ? "info" : "warning",
+		message: `${daemon.queues.failed} failed jobs`,
+		...(daemon.queues.failed === 0
+			? {}
+			: { action: "Open dashboard failed jobs" }),
+	});
+
+	return { version: 1, checks };
+}

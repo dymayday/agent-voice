@@ -17,6 +17,7 @@ import {
 	saveConfig,
 	setConfigValue,
 } from "./config";
+import { buildDoctorReport } from "./doctor";
 import { createEvent, type AgentVoiceEvent, validateEvent } from "./events";
 import { resolvePaths } from "./paths";
 import type { ProcessorDeps } from "./processor";
@@ -60,6 +61,7 @@ Usage:
   agent-voice config get
   agent-voice config set summarizer.timeoutSeconds 8
   agent-voice summarizer mode heuristic|default
+  agent-voice doctor --json
   agent-voice daemon --foreground
 `;
 
@@ -193,6 +195,13 @@ export async function runCli(
 		const config = loadConfig(paths);
 		saveConfig(paths, setSummarizerMode(config, mode));
 		return result(0, `summarizer mode=${mode}\n`);
+	}
+
+	if (command === "doctor") {
+		if (!args.includes("--json")) {
+			return result(2, "", "doctor currently requires --json\n");
+		}
+		return result(0, `${JSON.stringify(buildDoctorReport(paths, io.daemonDeps), null, 2)}\n`);
 	}
 
 	if (command === "enqueue") {
