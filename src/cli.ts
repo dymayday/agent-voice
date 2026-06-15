@@ -23,6 +23,7 @@ import type { ProcessorDeps } from "./processor";
 import { summarize } from "./summarizers";
 import { openDb } from "./db";
 import { enqueue } from "./store";
+import { buildAppStatusSnapshot, formatAppStatusJson } from "./status";
 import { KokoroClient, playWav } from "./tts";
 
 export interface CliIo {
@@ -46,7 +47,7 @@ Usage:
   agent-voice uninstall [--restore-backups]
   agent-voice start
   agent-voice stop
-  agent-voice status
+  agent-voice status [--json]
   agent-voice enqueue --format text --agent claude --cwd "$PWD"
   agent-voice enqueue --format event-json
   agent-voice enqueue --format claude-stop-hook --agent claude
@@ -254,6 +255,12 @@ export async function runCli(
 	}
 
 	if (command === "status") {
+		if (args.includes("--json")) {
+			return result(
+				0,
+				formatAppStatusJson(buildAppStatusSnapshot(paths, io.daemonDeps)),
+			);
+		}
 		return result(0, formatDaemonStatus(getDaemonStatus(paths, io.daemonDeps)));
 	}
 
