@@ -1,5 +1,16 @@
 import { extractClaudeStopHook } from "./adapters/claude";
 import {
+	clearDaemonLock,
+	enterForegroundDaemon,
+	formatDaemonStatus,
+	getDaemonStatus,
+	runDaemonLoop,
+	runDaemonOnce,
+	startDaemon,
+	stopDaemon,
+	type DaemonCliDeps,
+} from "./daemon";
+import {
 	defaultConfig,
 	isAgentName,
 	loadConfig,
@@ -8,13 +19,17 @@ import {
 } from "./config";
 import { createEvent, type AgentVoiceEvent, validateEvent } from "./events";
 import { resolvePaths } from "./paths";
+import type { ProcessorDeps } from "./processor";
+import { summarize } from "./summarizers";
 import { enqueueEvent } from "./spool";
+import { KokoroClient, playWav } from "./tts";
 
 export interface CliIo {
 	stdout?: string;
 	stderr?: string;
 	stdin?: string;
 	env?: Record<string, string | undefined>;
+	daemonDeps?: DaemonCliDeps;
 }
 
 export interface CliResult {
@@ -66,6 +81,30 @@ function loadConfigForEnqueue(paths: ReturnType<typeof resolvePaths>) {
 
 function truncateInput(text: string, maxInputChars: number): string {
 	return text.slice(0, maxInputChars);
+}
+
+function defaultProcessorDeps(
+	config: ReturnType<typeof loadConfig>,
+	paths: ReturnType<typeof resolvePaths>,
+): ProcessorDeps {
+	const kokoro = new KokoroClient(config);
+	return {
+		summarize,
+		speak: async (summary, voice) => {
+			const audio = await kokoro.speak(summary, voice);
+			await playWav(audio, paths, undefined, {
+				timeoutMs: config.tts.timeoutSeconds * 1000,
+			});
+		},
+	};
+}
+
+function processorDepsFor(
+	config: ReturnType<typeof loadConfig>,
+	paths: ReturnType<typeof resolvePaths>,
+	deps: DaemonCliDeps | undefined,
+): ProcessorDeps {
+	return deps?.processorDeps ?? defaultProcessorDeps(config, paths);
 }
 
 export async function runCli(
@@ -204,6 +243,96 @@ export async function runCli(
 				0,
 				"",
 				`enqueue failed: ${error instanceof Error ? error.message : String(error)}\n`,
+			);
+		}
+	}
+
+	if (command === "status") {
+		return result(0, formatDaemonStatus(getDaemonStatus(paths, io.daemonDeps)));
+	}
+
+	if (command === "start") {
+		try {
+			const started = await startDaemon(paths, io.daemonDeps);
+			if (!started.ok) return result(1, "", `${started.reason}\n`);
+			return result(0, `started pid=${started.pid}\n`);
+		} catch (error) {
+			return result(
+				1,
+				"",
+				`${error instanceof Error ? error.message : String(error)}\n`,
+			);
+		}
+	}
+
+	if (command === "stop") {
+		try {
+			const stopped = await stopDaemon(paths, io.daemonDeps);
+			return result(
+				0,
+				stopped.stopped ? `stopped pid=${stopped.pid}\n` : "not running\n",
+			);
+		} catch (error) {
+			return result(
+				1,
+				"",
+				`${error instanceof Error ? error.message : String(error)}\n`,
+			);
+		}
+	}
+
+	if (command === "daemon") {
+		if (!args.includes("--foreground")) {
+			return result(2, "", "daemon requires --foreground\n");
+		}
+		const config = loadConfig(paths);
+		const deps = {
+			...(io.daemonDeps ?? {}),
+			processorDeps: processorDepsFor(config, paths, io.daemonDeps),
+		};
+		try {
+			const started = enterForegroundDaemon(paths, deps);
+			if (!started.ok) return result(1, "", `${started.reason}\n`);
+			try {
+				if (args.includes("--once")) {
+					const processed = await runDaemonOnce(paths, config, deps);
+					return result(0, `${processed.kind}\n`);
+				}
+				const loop = await runDaemonLoop(paths, config, deps);
+				return result(
+					0,
+					`processed=${loop.processed} idle=${loop.idle} retry_scheduled=${loop.retryScheduled} failed=${loop.failed}\n`,
+				);
+			} finally {
+				clearDaemonLock(paths);
+			}
+		} catch (error) {
+			return result(
+				1,
+				"",
+				`${error instanceof Error ? error.message : String(error)}\n`,
+			);
+		}
+	}
+
+	if (command === "test") {
+		const config = loadConfig(paths);
+		const text = args.slice(1).join(" ") || io.stdin || "Agent voice test.";
+		const event = createEvent({
+			agent: "claude",
+			text,
+			metadata: { format: "test" },
+		});
+		const deps = processorDepsFor(config, paths, io.daemonDeps);
+		try {
+			const summary = await deps.summarize(event, config);
+			await deps.speak(summary, config.tts.voice, event);
+			return result(0, `${summary}\n`);
+		} catch (error) {
+			return result(
+				1,
+				"",
+				`${error instanceof Error ? error.message : String(error)}\n`,
 			);
 		}
 	}
