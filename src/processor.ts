@@ -1,171 +1,66 @@
-import { readFileSync } from "node:fs";
+import type { Database } from "bun:sqlite";
 import type { AgentVoiceConfig } from "./config";
 import type { AgentVoiceEvent } from "./events";
-import type { AgentVoicePaths } from "./paths";
+import { scheduleRetry } from "./queue";
 import {
-	claimNextDueJob,
-	recoverStaleProcessing,
-	scheduleRetry,
-	type QueueJob,
-} from "./queue";
-import { moveJob, replaceJob } from "./spool";
+	claimNextDue,
+	markDone,
+	markFailed,
+	markSpoken,
+	recoverStale,
+	requeueForRetry,
+	type StoredJob,
+} from "./store";
 
 export interface ProcessorDeps {
-	summarize: (
-		event: AgentVoiceEvent,
-		config: AgentVoiceConfig,
-	) => Promise<string>;
-	speak: (
-		summary: string,
-		voice: string,
-		event: AgentVoiceEvent,
-	) => Promise<void>;
+	summarize: (event: AgentVoiceEvent, config: AgentVoiceConfig) => Promise<string>;
+	speak: (summary: string, voice: string, event: AgentVoiceEvent) => Promise<void>;
 }
 
 export type ProcessNextJobResult =
 	| { kind: "idle"; recovered: string[] }
-	| { kind: "processed"; processingPath: string; donePath: string }
-	| { kind: "retry_scheduled"; processingPath: string; incomingPath: string }
-	| { kind: "failed"; processingPath: string; failedPath: string };
-
-function readJob(path: string): QueueJob {
-	return JSON.parse(readFileSync(path, "utf8")) as QueueJob;
-}
-
-function withMetadata(
-	job: QueueJob,
-	metadata: Record<string, unknown>,
-): QueueJob {
-	return {
-		...job,
-		metadata: {
-			...(job.metadata ?? {}),
-			...metadata,
-		},
-	};
-}
+	| { kind: "processed"; id: string }
+	| { kind: "retry_scheduled"; id: string }
+	| { kind: "failed"; id: string };
 
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
-function spokenSummary(job: QueueJob): string | null {
-	const summary = job.metadata?.summary;
-	const spokenAt = job.metadata?.spokenAt;
-	return typeof summary === "string" && typeof spokenAt === "string"
-		? summary
-		: null;
-}
-
-function finishJob(
-	paths: AgentVoicePaths,
-	processingPath: string,
-	job: QueueJob,
-	metadata: Record<string, unknown>,
-): { processingPath: string; donePath: string } {
-	const donePath = moveJob(paths, processingPath, "done");
-	if (Object.keys(metadata).length > 0) {
-		replaceJob(paths, donePath, withMetadata(job, metadata));
-	}
-	return { processingPath, donePath };
-}
-
-function failJob(
-	paths: AgentVoicePaths,
-	processingPath: string,
-	job: QueueJob,
-	metadata: Record<string, unknown>,
-): { processingPath: string; failedPath: string } {
-	const failedPath = moveJob(paths, processingPath, "failed");
-	replaceJob(paths, failedPath, withMetadata(job, metadata));
-	return { processingPath, failedPath };
+function summarizerName(config: AgentVoiceConfig): string {
+	return config.summarizer.priority[0] ?? "heuristic";
 }
 
 export async function processNextJob(
-	paths: AgentVoicePaths,
+	db: Database,
 	config: AgentVoiceConfig,
 	deps: ProcessorDeps,
 	now = new Date(),
 ): Promise<ProcessNextJobResult> {
-	const recovered = recoverStaleProcessing(paths, config, now);
-	const claimed = claimNextDueJob(paths, config, now);
+	const recovered = recoverStale(db, config, now);
+	const claimed: StoredJob | null = claimNextDue(db, config, now);
 	if (!claimed) return { kind: "idle", recovered };
 
-	let latestJob = readJob(claimed.processingPath);
-	let spokenJobForFailure: QueueJob | null = null;
 	try {
-		const existingSummary = spokenSummary(latestJob);
-		if (existingSummary) {
-			return {
-				kind: "processed",
-				...finishJob(paths, claimed.processingPath, latestJob, {
-					summary: existingSummary,
-				}),
-			};
+		// Resume after a crash that happened post-speak: summary already persisted.
+		if (claimed.summary) {
+			markDone(db, claimed.id, now);
+			return { kind: "processed", id: claimed.id };
 		}
 
-		const summary = await deps.summarize(latestJob, config);
-		await deps.speak(summary, config.tts.voice, latestJob);
-		latestJob = readJob(claimed.processingPath);
-		const spokenJob = withMetadata(latestJob, {
-			summary,
-			spokenAt: now.toISOString(),
-		});
-		spokenJobForFailure = spokenJob;
-		replaceJob(paths, claimed.processingPath, spokenJob);
-		return {
-			kind: "processed",
-			...finishJob(paths, claimed.processingPath, spokenJob, {}),
-		};
+		const summary = await deps.summarize(claimed, config);
+		await deps.speak(summary, config.tts.voice, claimed);
+		markSpoken(db, claimed.id, summary, summarizerName(config));
+		markDone(db, claimed.id, now);
+		return { kind: "processed", id: claimed.id };
 	} catch (error) {
-		latestJob = readJob(claimed.processingPath);
 		const lastError = errorMessage(error);
-		const alreadySpokenSummary = spokenSummary(latestJob);
-		const spokenFailureSummary = spokenJobForFailure
-			? spokenSummary(spokenJobForFailure)
-			: null;
-		const failedSpokenSummary = alreadySpokenSummary ?? spokenFailureSummary;
-		if (failedSpokenSummary) {
-			return {
-				kind: "failed",
-				...failJob(
-					paths,
-					claimed.processingPath,
-					spokenJobForFailure ?? latestJob,
-					{ summary: failedSpokenSummary, lastError },
-				),
-			};
+		const retry = scheduleRetry(claimed, config, now, lastError);
+		if (retry.state === "incoming" && retry.job.nextAttemptAt) {
+			requeueForRetry(db, claimed.id, retry.job.nextAttemptAt, lastError);
+			return { kind: "retry_scheduled", id: claimed.id };
 		}
-
-		const retry = scheduleRetry(latestJob, config, now, lastError);
-		if (retry.state === "incoming") {
-			const incomingPath = moveJob(paths, claimed.processingPath, "incoming");
-			replaceJob(paths, incomingPath, retry.job);
-			return {
-				kind: "retry_scheduled",
-				processingPath: claimed.processingPath,
-				incomingPath,
-			};
-		}
-
-		return {
-			kind: "failed",
-			...failJob(paths, claimed.processingPath, retry.job, {}),
-		};
+		markFailed(db, claimed.id, now, lastError);
+		return { kind: "failed", id: claimed.id };
 	}
-}
-
-export function requeueProcessingJob(
-	paths: AgentVoicePaths,
-	processingPath: string,
-	reason: string,
-): string {
-	const job = readJob(processingPath);
-	const incomingPath = moveJob(paths, processingPath, "incoming");
-	replaceJob(
-		paths,
-		incomingPath,
-		withMetadata(job, { requeuedReason: reason }),
-	);
-	return incomingPath;
 }
