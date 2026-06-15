@@ -62,6 +62,20 @@ final class AgentVoiceCLITests: XCTestCase {
         XCTAssertEqual(requests.first?.environment["AGENT_VOICE_HOME"], "/tmp/custom-agent-voice")
     }
 
+    func testAddsCommonCliLookupPathsToEnvironment() async throws {
+        let runner = RecordingRunner(stdout: statusJSON)
+        let cli = AgentVoiceCLI(
+            executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"),
+            baseEnvironment: ["PATH": "/usr/bin:/bin"],
+            runner: runner
+        )
+
+        _ = try await cli.status()
+
+        let requests = await runner.capturedRequests()
+        XCTAssertEqual(requests.first?.environment["PATH"], "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin")
+    }
+
     func testPauseAndResumeCommands() async throws {
         let runner = RecordingRunner(results: [
             ProcessResult(exitCode: 0, stdout: "paused\n", stderr: ""),

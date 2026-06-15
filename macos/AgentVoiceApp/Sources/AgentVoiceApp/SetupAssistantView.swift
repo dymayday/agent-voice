@@ -141,7 +141,7 @@ struct SetupAssistantView: View {
     }
 
     private var repairChecks: some View {
-        let checks = SetupAssistantModel.checks(from: nil, status: model.status)
+        let checks = SetupAssistantModel.checks(from: model.doctorReport, status: model.status)
         return VStack(alignment: .leading, spacing: 8) {
             Text("Repair checks")
                 .font(.headline)

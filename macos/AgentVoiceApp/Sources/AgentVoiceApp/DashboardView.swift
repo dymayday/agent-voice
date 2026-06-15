@@ -8,6 +8,7 @@ struct DashboardView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 header
+                errorBanner
                 daemonCard
                 kokoroCard
                 queueCards
@@ -35,6 +36,17 @@ struct DashboardView: View {
             Spacer()
             Button("Refresh") {
                 Task { await model.refresh() }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var errorBanner: some View {
+        if let lastError = model.lastError {
+            card("Last error") {
+                Text(lastError)
+                    .foregroundStyle(.red)
+                    .textSelection(.enabled)
             }
         }
     }

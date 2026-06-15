@@ -41,15 +41,18 @@ public struct AgentVoiceCLIError: Error, Equatable {
 public struct AgentVoiceCLI: Sendable {
     public let executableURL: URL
     public let agentVoiceHome: URL?
+    public let baseEnvironment: [String: String]
     public let runner: any ProcessRunning
 
     public init(
         executableURL: URL,
         agentVoiceHome: URL? = nil,
+        baseEnvironment: [String: String] = ProcessInfo.processInfo.environment,
         runner: any ProcessRunning = FoundationProcessRunner()
     ) {
         self.executableURL = executableURL
         self.agentVoiceHome = agentVoiceHome
+        self.baseEnvironment = baseEnvironment
         self.runner = runner
     }
 
@@ -94,7 +97,8 @@ public struct AgentVoiceCLI: Sendable {
 
     @discardableResult
     public func run(_ arguments: [String]) async throws -> ProcessResult {
-        var environment = ProcessInfo.processInfo.environment
+        var environment = baseEnvironment
+        environment["PATH"] = cliLookupPath(from: environment["PATH"])
         if let agentVoiceHome {
             environment["AGENT_VOICE_HOME"] = agentVoiceHome.path
         }
@@ -105,6 +109,17 @@ public struct AgentVoiceCLI: Sendable {
             throw AgentVoiceCLIError(exitCode: result.exitCode, stderr: result.stderr)
         }
         return result
+    }
+
+    private func cliLookupPath(from existingPath: String?) -> String {
+        let fallbackPath = "/usr/bin:/bin:/usr/sbin:/sbin"
+        var pathParts = (existingPath?.isEmpty == false ? existingPath! : fallbackPath)
+            .split(separator: ":")
+            .map(String.init)
+        for directory in ["/usr/local/bin", "/opt/homebrew/bin"] where !pathParts.contains(directory) {
+            pathParts.insert(directory, at: 0)
+        }
+        return pathParts.joined(separator: ":")
     }
 }
 

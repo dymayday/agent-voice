@@ -30,9 +30,23 @@ final class AppModelTests: XCTestCase {
           ]
         }
         """
+        let doctorJSON = """
+        {
+          "version": 1,
+          "checks": [
+            {
+              "id": "daemon.running",
+              "ok": true,
+              "severity": "info",
+              "message": "Daemon running"
+            }
+          ]
+        }
+        """
         let runner = RecordingRunner(results: [
             ProcessResult(exitCode: 0, stdout: statusJSON, stderr: ""),
-            ProcessResult(exitCode: 0, stdout: historyJSON, stderr: "")
+            ProcessResult(exitCode: 0, stdout: historyJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: doctorJSON, stderr: "")
         ])
         let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
         let model = AppModel(cli: cli)
@@ -41,9 +55,14 @@ final class AppModelTests: XCTestCase {
 
         XCTAssertEqual(model.status?.ui.state, .ready)
         XCTAssertEqual(model.history?.jobs.first?.summary, "Claude finished.")
+        XCTAssertEqual(model.doctorReport?.checks.first?.id, "daemon.running")
         XCTAssertNil(model.lastError)
         let requests = await runner.capturedRequests()
-        XCTAssertEqual(requests.map(\.arguments), [["status", "--json"], ["history", "--json", "--limit", "50"]])
+        XCTAssertEqual(requests.map(\.arguments), [
+            ["status", "--json"],
+            ["history", "--json", "--limit", "50"],
+            ["doctor", "--json"]
+        ])
     }
 
     func testPauseDelegatesToCLIAndRecordsErrors() async throws {
@@ -60,10 +79,14 @@ final class AppModelTests: XCTestCase {
         let historyJSON = """
         { "version": 1, "jobs": [] }
         """
+        let doctorJSON = """
+        { "version": 1, "checks": [] }
+        """
         let runner = RecordingRunner(results: [
             ProcessResult(exitCode: 0, stdout: "paused\n", stderr: ""),
             ProcessResult(exitCode: 0, stdout: statusJSON, stderr: ""),
-            ProcessResult(exitCode: 0, stdout: historyJSON, stderr: "")
+            ProcessResult(exitCode: 0, stdout: historyJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: doctorJSON, stderr: "")
         ])
         let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
         let model = AppModel(cli: cli)
@@ -75,7 +98,7 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(requests.first?.arguments, ["pause"])
     }
 
-    func testMutatingActionsRefreshStatusAndHistory() async throws {
+    func testMutatingActionsRefreshStatusHistoryAndDoctor() async throws {
         let pausedStatusJSON = """
         {
           "version": 1,
@@ -89,10 +112,24 @@ final class AppModelTests: XCTestCase {
         let historyJSON = """
         { "version": 1, "jobs": [] }
         """
+        let doctorJSON = """
+        {
+          "version": 1,
+          "checks": [
+            {
+              "id": "queue.failed.empty",
+              "ok": true,
+              "severity": "info",
+              "message": "No failed jobs"
+            }
+          ]
+        }
+        """
         let runner = RecordingRunner(results: [
             ProcessResult(exitCode: 0, stdout: "paused\n", stderr: ""),
             ProcessResult(exitCode: 0, stdout: pausedStatusJSON, stderr: ""),
-            ProcessResult(exitCode: 0, stdout: historyJSON, stderr: "")
+            ProcessResult(exitCode: 0, stdout: historyJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: doctorJSON, stderr: "")
         ])
         let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
         let model = AppModel(cli: cli)
@@ -101,12 +138,14 @@ final class AppModelTests: XCTestCase {
 
         XCTAssertEqual(model.status?.ui.state, .paused)
         XCTAssertEqual(model.history?.jobs.count, 0)
+        XCTAssertEqual(model.doctorReport?.checks.first?.id, "queue.failed.empty")
         XCTAssertNil(model.lastError)
         let requests = await runner.capturedRequests()
         XCTAssertEqual(requests.map(\.arguments), [
             ["pause"],
             ["status", "--json"],
-            ["history", "--json", "--limit", "50"]
+            ["history", "--json", "--limit", "50"],
+            ["doctor", "--json"]
         ])
     }
 }

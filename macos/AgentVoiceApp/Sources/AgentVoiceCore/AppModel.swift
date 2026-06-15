@@ -5,6 +5,7 @@ import Foundation
 public final class AppModel: ObservableObject {
     @Published public private(set) var status: AgentVoiceStatusSnapshot?
     @Published public private(set) var history: AgentVoiceHistorySnapshot?
+    @Published public private(set) var doctorReport: DoctorReport?
     @Published public private(set) var lastError: String?
 
     public let cli: AgentVoiceCLI
@@ -22,6 +23,7 @@ public final class AppModel: ObservableObject {
         do {
             status = try await cli.status()
             history = try await cli.history(limit: 50)
+            doctorReport = try await cli.doctor()
             lastError = nil
         } catch {
             lastError = String(describing: error)
