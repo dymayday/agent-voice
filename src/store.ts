@@ -246,10 +246,12 @@ export function listHistory(db: Database, filter: HistoryFilter = {}): StoredJob
 		clauses.push("created_at >= $since");
 		params.$since = filter.since;
 	}
-	const limit = filter.limit ?? 200;
+	const limit = Math.floor(Number(filter.limit ?? 200));
+	if (!Number.isFinite(limit)) throw new Error(`Invalid history limit: ${filter.limit}`);
+	params.$limit = Math.max(1, Math.min(1000, limit));
 	const rows = db
 		.query(
-			`SELECT * FROM jobs WHERE ${clauses.join(" AND ")} ORDER BY created_at DESC LIMIT ${limit}`,
+			`SELECT * FROM jobs WHERE ${clauses.join(" AND ")} ORDER BY created_at DESC LIMIT $limit`,
 		)
 		.all(params) as JobRow[];
 	return rows.map(rowToStoredJob);
