@@ -109,6 +109,64 @@ export function countByStatus(db: Database): Record<JobStatus, number> {
 	return counts;
 }
 
+function markSkippedInternal(db: Database, id: string, reason: SkipReason, now: Date): void {
+	db.query(
+		"UPDATE jobs SET status='skipped', skip_reason=$reason, finished_at=$now WHERE id=$id",
+	).run({ $reason: reason, $now: now.toISOString(), $id: id });
+}
+
+export function claimNextDue(
+	db: Database,
+	config: AgentVoiceConfig,
+	now = new Date(),
+): StoredJob | null {
+	const iso = now.toISOString();
+	const select = db.query(
+		`SELECT * FROM jobs
+       WHERE status='pending' AND (next_attempt_at IS NULL OR next_attempt_at <= $now)
+       ORDER BY created_at LIMIT 1`,
+	);
+	const claim = db.query(
+		`UPDATE jobs SET status='processing', attempts=attempts+1, last_attempt_at=$now, claimed_at=$now
+       WHERE id=$id AND status='pending' RETURNING *`,
+	);
+
+	while (true) {
+		const candidate = select.get({ $now: iso }) as JobRow | null;
+		if (!candidate) return null;
+		const job = rowToStoredJob(candidate);
+		const skip = shouldSkipJob(job, config);
+		if (skip.skip) {
+			markSkippedInternal(db, candidate.id, skip.reason, now);
+			continue;
+		}
+		const claimed = claim.get({ $now: iso, $id: candidate.id }) as JobRow | null;
+		if (!claimed) continue; // lost a race (single daemon: should not happen)
+		return rowToStoredJob(claimed);
+	}
+}
+
+export function recoverStale(
+	db: Database,
+	config: AgentVoiceConfig,
+	now = new Date(),
+): string[] {
+	const timeoutMs = config.spool.processingTimeoutSeconds * 1000;
+	const rows = db.query("SELECT * FROM jobs WHERE status='processing'").all() as JobRow[];
+	const recovered: string[] = [];
+	const reset = db.query(
+		"UPDATE jobs SET status='pending', next_attempt_at=NULL WHERE id=? AND status='processing'",
+	);
+	for (const row of rows) {
+		const ref = row.last_attempt_at ?? row.created_at;
+		const refMs = Date.parse(ref);
+		if (!Number.isNaN(refMs) && now.getTime() - refMs <= timeoutMs) continue;
+		reset.run(row.id);
+		recovered.push(row.id);
+	}
+	return recovered;
+}
+
 // Internal helpers shared by later tasks.
 export { rowToStoredJob };
 export type { JobRow };
