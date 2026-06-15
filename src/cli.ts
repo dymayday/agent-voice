@@ -21,7 +21,8 @@ import { createEvent, type AgentVoiceEvent, validateEvent } from "./events";
 import { resolvePaths } from "./paths";
 import type { ProcessorDeps } from "./processor";
 import { summarize } from "./summarizers";
-import { enqueueEvent } from "./spool";
+import { openDb } from "./db";
+import { enqueue } from "./store";
 import { KokoroClient, playWav } from "./tts";
 
 export interface CliIo {
@@ -236,7 +237,12 @@ export async function runCli(
 		}
 
 		try {
-			enqueueEvent(paths, event);
+			const db = openDb(paths.db);
+			try {
+				enqueue(db, event);
+			} finally {
+				db.close();
+			}
 			return result(0, "");
 		} catch (error) {
 			return result(

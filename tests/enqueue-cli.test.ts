@@ -1,17 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import {
-	existsSync,
-	mkdtempSync,
-	readFileSync,
-	readdirSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runCli } from "../src/cli";
+import { openDb } from "../src/db";
 import { createEvent } from "../src/events";
 import { resolvePaths } from "../src/paths";
+import { countByStatus } from "../src/store";
 
 async function withTempHome<T>(
 	fn: (home: string) => T | Promise<T>,
@@ -24,15 +19,28 @@ async function withTempHome<T>(
 	}
 }
 
-function readIncomingEvents(home: string): unknown[] {
+function pendingCount(home: string): number {
 	const paths = resolvePaths({ AGENT_VOICE_HOME: home });
-	if (!existsSync(paths.spool.incoming)) return [];
-	return readdirSync(paths.spool.incoming)
-		.filter((name) => name.endsWith(".json"))
-		.sort()
-		.map((name) =>
-			JSON.parse(readFileSync(join(paths.spool.incoming, name), "utf8")),
-		);
+	if (!existsSync(paths.db)) return 0;
+	const db = openDb(paths.db);
+	try {
+		return countByStatus(db).pending;
+	} finally {
+		db.close();
+	}
+}
+
+function pendingJobs(home: string): Record<string, unknown>[] {
+	const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+	if (!existsSync(paths.db)) return [];
+	const db = openDb(paths.db);
+	try {
+		return db
+			.query("SELECT * FROM jobs WHERE status='pending' ORDER BY created_at")
+			.all() as Record<string, unknown>[];
+	} finally {
+		db.close();
+	}
 }
 
 describe("agent-voice enqueue CLI", () => {
@@ -45,7 +53,7 @@ describe("agent-voice enqueue CLI", () => {
 
 			expect(result.exitCode).toBe(2);
 			expect(result.stderr).toContain("--format is required");
-			expect(readIncomingEvents(home)).toEqual([]);
+			expect(pendingCount(home)).toBe(0);
 		});
 	});
 
@@ -69,7 +77,7 @@ describe("agent-voice enqueue CLI", () => {
 
 			expect(result.exitCode).toBe(0);
 			expect(result.stderr).toBe("");
-			const events = readIncomingEvents(home) as Record<string, unknown>[];
+			const events = pendingJobs(home);
 			expect(events).toHaveLength(1);
 			expect(events[0]).toMatchObject({
 				version: 1,
@@ -103,7 +111,7 @@ describe("agent-voice enqueue CLI", () => {
 
 			expect(rejected.exitCode).toBe(2);
 			expect(rejected.stderr).toContain("does not match event agent");
-			expect(readIncomingEvents(home)).toHaveLength(1);
+			expect(pendingCount(home)).toBe(1);
 		});
 	});
 
@@ -130,7 +138,7 @@ describe("agent-voice enqueue CLI", () => {
 			});
 
 			expect(result.exitCode).toBe(0);
-			const events = readIncomingEvents(home) as Record<string, unknown>[];
+			const events = pendingJobs(home);
 			expect(events[0].text).toBe(rawText);
 			const serialized = JSON.stringify(events);
 			expect(serialized).toContain("Bearer sk-secret123");
@@ -162,12 +170,15 @@ describe("agent-voice enqueue CLI", () => {
 			);
 
 			expect(result.exitCode).toBe(0);
-			const events = readIncomingEvents(home);
+			const events = pendingJobs(home);
 			expect(events).toHaveLength(1);
 			expect(events[0]).toMatchObject({
 				agent: "claude",
 				text: "Claude finished responding.",
-				metadata: { generic: true, format: "claude-stop-hook" },
+			});
+			expect(JSON.parse(events[0].metadata as string)).toMatchObject({
+				generic: true,
+				format: "claude-stop-hook",
 			});
 		});
 	});
@@ -187,12 +198,15 @@ describe("agent-voice enqueue CLI", () => {
 			);
 
 			expect(result.exitCode).toBe(0);
-			const events = readIncomingEvents(home);
+			const events = pendingJobs(home);
 			expect(events).toHaveLength(1);
 			expect(events[0]).toMatchObject({
 				agent: "claude",
 				text: "Claude finished responding.",
-				metadata: { generic: true, format: "claude-stop-hook" },
+			});
+			expect(JSON.parse(events[0].metadata as string)).toMatchObject({
+				generic: true,
+				format: "claude-stop-hook",
 			});
 		});
 	});
@@ -212,17 +226,20 @@ describe("agent-voice enqueue CLI", () => {
 			);
 
 			expect(result.exitCode).toBe(0);
-			const events = readIncomingEvents(home) as Record<string, unknown>[];
+			const events = pendingJobs(home);
 			expect(events).toHaveLength(1);
 			expect(events[0]).toMatchObject({
 				agent: "claude",
-				metadata: { generic: false, format: "claude-stop-hook" },
+			});
+			expect(JSON.parse(events[0].metadata as string)).toMatchObject({
+				generic: false,
+				format: "claude-stop-hook",
 			});
 			expect(events[0].text).toBe(rawText);
 		});
 	});
 
-	test("enqueue performs only local spool work", async () => {
+	test("enqueue performs only local store work", async () => {
 		await withTempHome(async (home) => {
 			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
 			const result = await runCli(
@@ -234,11 +251,17 @@ describe("agent-voice enqueue CLI", () => {
 			);
 
 			expect(result.exitCode).toBe(0);
-			expect(readIncomingEvents(home)).toHaveLength(1);
-			expect(readdirSync(paths.spool.processing)).toEqual([]);
-			expect(readdirSync(paths.spool.done)).toEqual([]);
-			expect(readdirSync(paths.spool.failed)).toEqual([]);
-			expect(readdirSync(paths.spool.skipped)).toEqual([]);
+			const db = openDb(paths.db);
+			try {
+				const counts = countByStatus(db);
+				expect(counts.pending).toBe(1);
+				expect(counts.processing).toBe(0);
+				expect(counts.done).toBe(0);
+				expect(counts.failed).toBe(0);
+				expect(counts.skipped).toBe(0);
+			} finally {
+				db.close();
+			}
 			expect(existsSync(join(paths.run, "agent-voice.pid"))).toBe(false);
 		});
 	});
@@ -269,7 +292,7 @@ describe("agent-voice enqueue CLI", () => {
 			expect(await proc.exited).toBe(0);
 			expect(await new Response(proc.stderr).text()).toBe("");
 			expect(await new Response(proc.stdout).text()).toBe("");
-			const events = readIncomingEvents(home) as Record<string, unknown>[];
+			const events = pendingJobs(home);
 			expect(events).toHaveLength(1);
 			expect(events[0].text).toBe(rawText);
 		});
@@ -294,7 +317,7 @@ describe("agent-voice enqueue CLI", () => {
 			expect(await proc.exited).toBe(0);
 			expect(await new Response(proc.stderr).text()).toBe("");
 			expect(await new Response(proc.stdout).text()).toBe("");
-			const events = readIncomingEvents(home) as Record<string, unknown>[];
+			const events = pendingJobs(home);
 			expect(events).toHaveLength(1);
 			expect(events[0].text).toBe(rawText);
 		});
@@ -302,7 +325,8 @@ describe("agent-voice enqueue CLI", () => {
 
 	test("entrypoint reads claude-stop-hook stdin and preserves response text", async () => {
 		await withTempHome(async (home) => {
-			const rawText = "Claude streamed raw hook text through the entrypoint.  \n";
+			const rawText =
+				"Claude streamed raw hook text through the entrypoint.  \n";
 			const proc = Bun.spawn(
 				[
 					process.execPath,
@@ -321,16 +345,38 @@ describe("agent-voice enqueue CLI", () => {
 				},
 			);
 			proc.stdin.write(
-				JSON.stringify({ hook_event_name: "Stop", assistant_response: rawText }),
+				JSON.stringify({
+					hook_event_name: "Stop",
+					assistant_response: rawText,
+				}),
 			);
 			proc.stdin.end();
 
 			expect(await proc.exited).toBe(0);
 			expect(await new Response(proc.stderr).text()).toBe("");
 			expect(await new Response(proc.stdout).text()).toBe("");
-			const events = readIncomingEvents(home) as Record<string, unknown>[];
+			const events = pendingJobs(home);
 			expect(events).toHaveLength(1);
 			expect(events[0].text).toBe(rawText);
+		});
+	});
+
+	test("duplicate enqueue of the same event is a no-op", async () => {
+		await withTempHome(async (home) => {
+			const event = createEvent({ agent: "pi", text: "Once." });
+			const first = await runCli(["enqueue", "--format", "event-json"], {
+				env: { AGENT_VOICE_HOME: home },
+				stdin: JSON.stringify(event),
+			});
+			expect(first.exitCode).toBe(0);
+
+			const second = await runCli(["enqueue", "--format", "event-json"], {
+				env: { AGENT_VOICE_HOME: home },
+				stdin: JSON.stringify(event),
+			});
+			expect(second.exitCode).toBe(0);
+
+			expect(pendingCount(home)).toBe(1);
 		});
 	});
 
