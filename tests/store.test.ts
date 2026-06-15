@@ -155,3 +155,97 @@ describe("store: terminal transitions", () => {
 		}
 	});
 });
+
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pruneRetention, listHistory } from "../src/store";
+
+describe("store: retention + history", () => {
+	test("pruneRetention deletes old terminal rows, keeps recent + in-flight", () => {
+		const db = openDb(":memory:");
+		try {
+			const old = createEvent({ agent: "claude", text: "Old." });
+			const recent = createEvent({ agent: "codex", text: "Recent." });
+			const live = createEvent({ agent: "pi", text: "Live." });
+			enqueue(db, old);
+			enqueue(db, recent);
+			enqueue(db, live);
+			db.query("UPDATE jobs SET status='done', finished_at=? WHERE id=?").run("2026-06-01T00:00:00.000Z", old.id);
+			db.query("UPDATE jobs SET status='done', finished_at=? WHERE id=?").run("2026-06-15T00:00:00.000Z", recent.id);
+
+			const deleted = pruneRetention(db, 7, new Date("2026-06-15T12:00:00.000Z"));
+			expect(deleted).toBe(1);
+			expect(countByStatus(db).done).toBe(1);
+			expect(countByStatus(db).pending).toBe(1);
+		} finally {
+			db.close();
+		}
+	});
+
+	test("listHistory filters by agent", () => {
+		const db = openDb(":memory:");
+		try {
+			const a = createEvent({ agent: "claude", text: "A." });
+			const b = createEvent({ agent: "codex", text: "B." });
+			enqueue(db, a);
+			enqueue(db, b);
+			db.query("UPDATE jobs SET status='done' WHERE id=?").run(a.id);
+			db.query("UPDATE jobs SET status='done' WHERE id=?").run(b.id);
+			const claudeHistory = listHistory(db, { agent: "claude" });
+			expect(claudeHistory.map((j) => j.id)).toEqual([a.id]);
+		} finally {
+			db.close();
+		}
+	});
+
+	test("non-degradation: claim time is flat with large history", () => {
+		const db = openDb(":memory:");
+		try {
+			const insert = db.query(
+				`INSERT INTO jobs (id, version, agent, event, text, status, attempts, created_at, enqueued_at, finished_at)
+         VALUES (?, 1, 'claude', 'turn_end', 'x', 'done', 1, ?, ?, ?)`,
+			);
+			const txn = db.transaction(() => {
+				for (let i = 0; i < 50_000; i++) {
+					const ts = `2026-01-01T00:00:${String(i % 60).padStart(2, "0")}.000Z`;
+					insert.run(`hist-${i}`, ts, ts, ts);
+				}
+			});
+			txn();
+			const live = createEvent({ agent: "claude", text: "Pick me." });
+			enqueue(db, live);
+
+			const start = performance.now();
+			const claimed = claimNextDue(db, defaultConfig, new Date("2026-12-01T00:00:00.000Z"));
+			const elapsedMs = performance.now() - start;
+
+			expect(claimed?.id).toBe(live.id);
+			// Partial index keeps the hot path off the 50k history rows.
+			expect(elapsedMs).toBeLessThan(25);
+		} finally {
+			db.close();
+		}
+	});
+
+	test("concurrent connections: enqueue while claim, no loss or dup", () => {
+		const home = mkdtempSync(join(tmpdir(), "agent-voice-store-conc-"));
+		const dbPath = join(home, "queue.db");
+		const writer = openDb(dbPath);
+		const reader = openDb(dbPath);
+		try {
+			const e1 = createEvent({ agent: "claude", text: "One." });
+			const e2 = createEvent({ agent: "codex", text: "Two." });
+			enqueue(writer, { ...e1, createdAt: "2026-06-12T00:00:01.000Z" });
+			const claimed = claimNextDue(reader, defaultConfig, new Date("2026-06-12T00:01:00.000Z"));
+			enqueue(writer, { ...e2, createdAt: "2026-06-12T00:00:02.000Z" });
+			expect(claimed?.id).toBe(e1.id);
+			expect(countByStatus(reader).pending).toBe(1);
+			expect(countByStatus(reader).processing).toBe(1);
+		} finally {
+			writer.close();
+			reader.close();
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+});

@@ -213,6 +213,52 @@ export function markSkipped(db: Database, id: string, reason: SkipReason, now = 
 	markSkippedInternal(db, id, reason, now);
 }
 
+export function pruneRetention(db: Database, retentionDays: number, now = new Date()): number {
+	if (!Number.isFinite(retentionDays) || retentionDays < 0) {
+		throw new Error(`Invalid retentionDays: ${retentionDays}`);
+	}
+	const cutoff = new Date(now.getTime() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
+	const res = db
+		.query(
+			`DELETE FROM jobs
+         WHERE status IN ('done','failed','skipped')
+           AND finished_at IS NOT NULL AND finished_at < $cutoff`,
+		)
+		.run({ $cutoff: cutoff });
+	db.exec("PRAGMA incremental_vacuum");
+	return res.changes;
+}
+
+export interface HistoryFilter {
+	agent?: string;
+	since?: string;
+	limit?: number;
+}
+
+export function listHistory(db: Database, filter: HistoryFilter = {}): StoredJob[] {
+	const clauses = ["status IN ('done','failed','skipped')"];
+	const params: Record<string, string | number> = {};
+	if (filter.agent) {
+		clauses.push("agent = $agent");
+		params.$agent = filter.agent;
+	}
+	if (filter.since) {
+		clauses.push("created_at >= $since");
+		params.$since = filter.since;
+	}
+	const limit = filter.limit ?? 200;
+	const rows = db
+		.query(
+			`SELECT * FROM jobs WHERE ${clauses.join(" AND ")} ORDER BY created_at DESC LIMIT ${limit}`,
+		)
+		.all(params) as JobRow[];
+	return rows.map(rowToStoredJob);
+}
+
+export function runMaintenance(db: Database): void {
+	db.exec("PRAGMA optimize");
+}
+
 // Internal helpers shared by later tasks.
 export { rowToStoredJob };
 export type { JobRow };
