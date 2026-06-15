@@ -24,13 +24,7 @@ struct AgentVoiceApplication: App {
         }
 
         WindowGroup("Setup", id: "setup") {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Agent Voice Setup")
-                    .font(.title2)
-                Text("Setup assistant coming next.")
-                    .foregroundStyle(.secondary)
-            }
-            .padding()
+            SetupAssistantView(model: model)
         }
     }
 }
