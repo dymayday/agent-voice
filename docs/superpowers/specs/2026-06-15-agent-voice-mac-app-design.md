@@ -1,11 +1,11 @@
 # Agent Voice Mac App Design
 
 Date: 2026-06-15
-Status: Draft after spec-review fix pass
+Status: Draft after SQLite queue correction pass
 
 ## Goal
 
-Turn `agent-voice` from a CLI-first local daemon into a native-feeling macOS app while preserving the current architecture: coding agents enqueue completed turns to the local spool, the daemon summarizes each turn into one sentence, and Kokoro speaks the result locally.
+Turn `agent-voice` from a CLI-first local daemon into a native-feeling macOS app while preserving the current architecture: coding agents enqueue completed turns to the local SQLite queue (`queue.db`), the daemon summarizes each turn into one sentence, and Kokoro speaks the result locally.
 
 The Mac app should make the system easier to trust, start, pause, inspect, and repair. It should not replace the CLI/daemon protocol, hide operational truth, or become another chat interface.
 
@@ -33,12 +33,12 @@ Generated exploration files may remain local brainstorming artifacts, but the ap
 
 ## Non-goals
 
-- Do not reimplement summarization, queueing, or TTS inside the UI process.
+- Do not reimplement summarization, SQLite queueing, or TTS inside the UI process.
 - Do not add cloud sync, accounts, telemetry, or hosted storage.
 - Do not require the Mac app for headless CLI use.
 - Do not make the UI a full chat client.
 - Do not silently mutate global agent configs during first launch.
-- Do not add privacy/redaction behavior; the local project intentionally preserves raw local event text and metadata.
+- Do not add privacy/redaction behavior; the local project intentionally preserves raw local event text and queue data.
 - Do not claim adapter installation exists until `agent-voice install` and wrapper behavior are implemented and tested.
 
 ## Recommended implementation approach
@@ -50,7 +50,7 @@ Build a native SwiftUI macOS app that orchestrates the existing CLI/daemon.
 - Fits a menu bar utility better than Electron or a browser shell.
 - Gives first-class access to `MenuBarExtra`, `Settings`, launch-at-login UI, notifications, and macOS materials.
 - Keeps the app lightweight enough to feel like infrastructure, not another workspace.
-- Can shell out to the existing `agent-voice` executable while the daemon and spool protocol remain unchanged.
+- Can shell out to the existing `agent-voice` executable while the daemon and SQLite queue contract remain unchanged.
 
 ### Alternatives considered
 
@@ -75,9 +75,9 @@ agent-voice CLI
        ↓
 ~/.agent-voice/
   ├─ config.json
+  ├─ queue.db
   ├─ run/daemon.pid
-  ├─ run/intentional-stop
-  └─ spool/{incoming,processing,done,failed,skipped}
+  └─ run/intentional-stop
        ↓
 agent-voice daemon
   ├─ summarizer fallback chain
@@ -85,9 +85,9 @@ agent-voice daemon
   └─ afplay playback
 ```
 
-The SwiftUI app should treat the CLI and filesystem state as the source of truth. It may cache recent status for UI responsiveness, but it must refresh from `agent-voice status`, `config get`, and spool directories.
+The SwiftUI app should treat the CLI JSON commands as the source of truth. It may cache recent status for UI responsiveness, but it must refresh from `agent-voice status --json`, `agent-voice history --json`, and `config get`.
 
-The app must not own a second daemon implementation. It starts and stops the existing daemon through CLI commands and reads status from the daemon lock/spool state.
+The app must not own a second daemon implementation. It starts and stops the existing daemon through CLI commands and reads status from the daemon lock and SQLite queue state exposed by CLI status/history commands.
 
 ## Implementation scope slices
 
@@ -95,7 +95,7 @@ The app must not own a second daemon implementation. It starts and stops the exi
 
 - Native app runs from this repo during development.
 - CLI bridge points at repo-local `./bin/agent-voice` or a user-selected executable path.
-- Menu bar, setup, and dashboard can be implemented against current CLI plus read-only spool inspection.
+- Menu bar, setup, and dashboard can be implemented against current CLI plus tested app-facing status/history JSON commands.
 - No global adapter installation is performed.
 
 ### Slice 2: App-facing CLI improvements
@@ -103,7 +103,8 @@ The app must not own a second daemon implementation. It starts and stops the exi
 Add tested CLI commands the app can safely parse:
 
 - `agent-voice status --json`
-- `agent-voice config get --json` or guarantee current `config get` JSON remains stable.
+- `agent-voice history --json`
+- Guarantee current `agent-voice config get` continues to emit stable JSON for app parsing; do not add a separate JSON flag in this slice.
 - `agent-voice doctor --json`
 - `agent-voice pause` / `agent-voice resume`
 - A safe way to set summarizer priority, because current `config set` intentionally rejects array replacement.
@@ -129,8 +130,8 @@ Required elements:
 - Pause actions supported by the current implementation stage:
   - Slice 1: pause until resumed via `config.enabled=false` / resume via `config.enabled=true`.
   - Later slice: timed pause after explicit CLI/config support exists.
-- Last spoken summary with source agent and timestamp when available from done-job metadata.
-- Queue count badge when incoming/failed jobs are non-zero.
+- Last spoken summary with source agent and timestamp when available from done-job queue data.
+- Queue count badge when pending/failed jobs are non-zero.
 - Quick actions:
   - Open Dashboard
   - Run Voice Test
@@ -153,25 +154,25 @@ Required sections:
 
 - Daemon card: PID, running/stopped/stale, start/stop controls.
 - Kokoro card: configured script path, script existence, voice, test button, last successful app-run voice test if available.
-- Queue cards: incoming, processing, done, failed, skipped.
+- Queue cards: pending, processing, done, failed, skipped.
 - Recent events list derived from done jobs:
   - timestamp
   - agent
-  - summary spoken when `metadata.summary` exists
-  - spoken timestamp when `metadata.spokenAt` exists
+  - summary spoken when `summary` exists
+  - spoken timestamp when `finishedAt` exists
   - final state
 - Failed jobs list derived from failed jobs:
   - agent
   - attempt count / retry state when present
-  - `metadata.lastError` when present
-  - reveal in Finder
+  - `lastError` when present
+  - open/reveal Agent Voice home or queue database
 - Agent status grid for Claude, Codex, Pi, OpenCode using config `agents.<name>.enabled` and `agents.<name>.mode`.
 
 Behavior:
 
 - The dashboard must avoid pretending the system is healthier than it is.
-- Failed job details may expose local metadata paths. That is acceptable for this local tool.
-- Provide reveal/open actions instead of hiding spool files from advanced users.
+- Failed job details may expose local queue database and Agent Voice home paths. That is acceptable for this local tool.
+- Provide open/reveal actions for the local Agent Voice home and queue database instead of hiding operational state from advanced users.
 - Use read-only inspection first; destructive cleanup actions should be explicit and confirmed.
 - Do not claim Kokoro is currently ready unless a fresh voice test or future doctor command verifies it. Current `status` does not report Kokoro readiness.
 
@@ -199,31 +200,31 @@ Rules:
 
 ## Status model
 
-The app should derive high-level UI state from CLI status and filesystem checks.
+The app should derive high-level UI state from CLI status, history, and doctor checks.
 
 | UI state | Current evidence | Meaning | Primary action |
 | --- | --- | --- | --- |
 | Ready | Daemon lock is healthy, no failed jobs, config enabled | System appears able to process queued events | No action |
-| Processing | `spool/processing` has at least one job | A job is being summarized, spoken, or recovered | Show current source agent |
+| Processing | status/history reports at least one `processing` job | A job is being summarized, spoken, or recovered | Show current source agent |
 | Paused | `config.enabled=false` or a future pause flag is active | User intentionally disabled speech processing | Resume |
 | Needs Attention | failed jobs exist, Kokoro script missing, invalid config, or stale lock | User action is likely required | Open repair step |
 | Daemon Stopped | No healthy daemon lock | No background processor is active | Start daemon |
 
 The app may use polling for v1. A future version can add a daemon status JSON command or local IPC, but v1 should not require a server/socket redesign.
 
-## Spool-derived event definitions
+## Queue-derived event definitions
 
-Until app-facing JSON commands exist, the dashboard may derive read-only state from spool files. Definitions must match current job files.
+The dashboard should derive read-only state from app-facing CLI JSON commands backed by `queue.db`. Definitions must match the current SQLite jobs table exposed through `status --json` and `history --json`.
 
-- **Queue counts:** number of `*.json` files in each spool state directory.
-- **Incoming event:** a queued `AgentVoiceEvent` or queue job in `spool/incoming`.
-- **Processing event:** a claimed queue job in `spool/processing`; use `agent`, `createdAt`, `cwd`, `attempts`, and `lastAttemptAt` when present.
-- **Done event:** a job in `spool/done`; display `metadata.summary` and `metadata.spokenAt` when present. Hide raw `text` behind explicit reveal/open actions.
-- **Failed event:** a job in `spool/failed`; display `metadata.lastError`, `attempts`, `agent`, `createdAt`, and reveal path.
-- **Skipped event:** a job in `spool/skipped`; display skip reason when present.
-- **Recent events ordering:** prefer `metadata.spokenAt`, then `createdAt`, then filesystem modified time.
+- **Queue counts:** `pending`, `processing`, `done`, `failed`, and `skipped` counts from `status --json`.
+- **Pending event:** a queued job in SQLite status `pending`; compact UI may show count only.
+- **Processing event:** a claimed job in SQLite status `processing`; use `agent`, `createdAt`, `cwd`, `attempts`, and `lastAttemptAt` if exposed by a future command.
+- **Done event:** a history job in SQLite status `done`; display `summary` and `finishedAt` when present. Hide raw `text` behind explicit reveal/open actions.
+- **Failed event:** a history job in SQLite status `failed`; display `lastError`, `attempts`, `agent`, `createdAt`, and the queue database/home location.
+- **Skipped event:** a history job in SQLite status `skipped`; display `skipReason` when present.
+- **Recent events ordering:** prefer `finishedAt`, then `createdAt`.
 
-The app should tolerate malformed, missing, or older job metadata without crashing. Unknown fields should be ignored.
+The app should tolerate missing optional fields and older history JSON without crashing. Unknown fields should be ignored.
 
 ## CLI bridge contract
 
@@ -254,9 +255,10 @@ Current caveats:
 ### Commands required before polished app dependency
 
 - `agent-voice status --json`
+- `agent-voice history --json`
 - `agent-voice doctor --json`
 - `agent-voice pause` / `agent-voice resume`
-- `agent-voice config set-json <path> <json>` or a narrow command for summarizer priority.
+- a narrow command for summarizer priority, such as `agent-voice summarizer mode heuristic|default`.
 - `agent-voice install` / `agent-voice uninstall` only if the app will install adapters or LaunchAgents.
 
 These additions should be implemented in the CLI with tests before the SwiftUI app depends on them.
@@ -274,7 +276,7 @@ These additions should be implemented in the CLI with tests before the SwiftUI a
 
 The Mac app should use direct wording:
 
-- Captured completed-turn text is local and stored under `~/.agent-voice/spool`.
+- Captured completed-turn text is local and stored in `~/.agent-voice/queue.db`.
 - The configured summarizer CLIs may send text to their model providers.
 - The Kokoro TTS path is local.
 - Heuristic-only mode avoids external summarizer CLIs once the config can be set safely.
@@ -308,6 +310,7 @@ Concrete staged decision:
 Add tests for any new app-facing CLI commands:
 
 - JSON status output.
+- JSON history output.
 - Pause/resume behavior.
 - Doctor/repair checks.
 - Stable exit codes and parseable errors.
@@ -316,7 +319,7 @@ Add tests for any new app-facing CLI commands:
 ### SwiftUI app tests
 
 - Unit-test status parsing and state derivation.
-- Unit-test spool reader tolerance for old/malformed job metadata.
+- Unit-test history JSON decoding and optional-field tolerance.
 - Unit-test CLI bridge command construction with fake process runners.
 - Unit-test setup assistant state machine and mutation rules.
 - Snapshot or UI-test the three key surfaces if the project adds a Swift test target.
@@ -328,7 +331,7 @@ Add tests for any new app-facing CLI commands:
 - Start daemon from menu bar.
 - Enqueue sample event and hear speech.
 - Stop daemon and verify menu bar shows stopped state.
-- Create a fake failed job and verify dashboard surfaces it.
+- Create a fake failed SQLite job and verify dashboard surfaces it through `history --json`.
 - Verify no global agent config is changed unless the user explicitly confirms an install action.
 
 ## Implementation sequence preview
@@ -337,11 +340,11 @@ This is not the implementation plan. It is the likely sequence after spec approv
 
 1. Add app-facing JSON CLI/status commands.
 2. Add pause/resume or equivalent global enabled-state command.
-3. Add any needed config command for summarizer priority.
+3. Add a narrow summarizer mode command for priority switching.
 4. Create SwiftUI app shell and CLI bridge.
 5. Add menu bar sentinel.
 6. Add setup assistant.
-7. Add dashboard console and spool reader.
+7. Add dashboard console and history models.
 8. Add icon asset catalog and development packaging basics.
 9. Add launch-at-login / install flow only after UI and CLI bridge are stable.
 
@@ -351,7 +354,7 @@ The design is accepted when:
 
 - The user agrees the Mac app uses A+B+C: menu bar, dashboard, setup assistant.
 - The selected icon is `assets/app-icon/agent-voice-local-voice-orb.png`.
-- The app preserves the current spool/daemon architecture.
+- The app preserves the current SQLite queue/daemon architecture.
 - The app distinguishes commands available today from commands required before polished app dependency.
 - The app does not silently install or mutate global agent configs.
 - The next step can be a concrete implementation plan with tests.
