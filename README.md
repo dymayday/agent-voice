@@ -98,6 +98,22 @@ This bypasses the queue and immediately summarizes and speaks one message:
 ./bin/agent-voice test 'Claude finished editing the auth module.'
 ```
 
+## macOS app preview
+
+The native macOS app is developed under `macos/AgentVoiceApp`. It is a SwiftUI menu-bar utility that shells out to the existing `agent-voice` CLI and preserves the local SQLite queue/daemon architecture.
+
+Development commands:
+
+```bash
+swift test --package-path macos/AgentVoiceApp
+swift build --package-path macos/AgentVoiceApp
+bash scripts/generate-macos-icon.sh
+bash scripts/build-macos-app.sh
+open "dist/Agent Voice.app"
+```
+
+The app preview does not install global agent hooks or wrappers. Use the existing manual daemon flow unless an install feature is explicitly implemented.
+
 ## Enqueue formats
 
 ### Plain text
