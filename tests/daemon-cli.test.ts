@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runCli } from "../src/cli";
@@ -10,10 +10,10 @@ import {
 	writeDaemonLock,
 	writeIntentionalStop,
 } from "../src/daemon";
+import { openDb } from "../src/db";
 import { createEvent } from "../src/events";
 import { resolvePaths } from "../src/paths";
-import { enqueueEvent, listJobs } from "../src/spool";
-import type { QueueJob } from "../src/queue";
+import { countByStatus, enqueue } from "../src/store";
 
 async function withTempHome<T>(
 	fn: (home: string) => T | Promise<T>,
@@ -26,15 +26,14 @@ async function withTempHome<T>(
 	}
 }
 
-function readJob(path: string): QueueJob {
-	return JSON.parse(readFileSync(path, "utf8")) as QueueJob;
-}
-
 describe("agent-voice daemon CLI", () => {
 	test("daemon --foreground --once processes one due job in test mode", async () => {
 		await withTempHome(async (home) => {
 			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
-			enqueueEvent(paths, createEvent({ agent: "claude", text: "Speak me." }));
+			const event = createEvent({ agent: "claude", text: "Speak me." });
+			const seed = openDb(paths.db);
+			enqueue(seed, event);
+			seed.close();
 			const spoken: string[] = [];
 
 			const result = await runCli(["daemon", "--foreground", "--once"], {
@@ -52,10 +51,13 @@ describe("agent-voice daemon CLI", () => {
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("processed");
 			expect(spoken).toEqual(["af_heart:Claude finished one job."]);
-			expect(listJobs(paths, "done")).toHaveLength(1);
-			expect(readJob(listJobs(paths, "done")[0]).metadata?.summary).toBe(
-				"Claude finished one job.",
-			);
+			const check = openDb(paths.db);
+			expect(countByStatus(check).done).toBe(1);
+			const summary = check
+				.query("SELECT summary FROM jobs WHERE id=?")
+				.get(event.id) as { summary: string };
+			expect(summary.summary).toBe("Claude finished one job.");
+			check.close();
 			expect(existsSync(daemonLockPath(paths))).toBe(false);
 		});
 	});
@@ -64,7 +66,9 @@ describe("agent-voice daemon CLI", () => {
 		await withTempHome(async (home) => {
 			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
 			writeDaemonLock(paths, 4321);
-			enqueueEvent(paths, createEvent({ agent: "pi", text: "Queued." }));
+			const seed = openDb(paths.db);
+			enqueue(seed, createEvent({ agent: "pi", text: "Queued." }));
+			seed.close();
 
 			const result = await runCli(["status"], {
 				env: { AGENT_VOICE_HOME: home },
@@ -73,7 +77,7 @@ describe("agent-voice daemon CLI", () => {
 
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("running pid=4321");
-			expect(result.stdout).toContain("incoming=1");
+			expect(result.stdout).toContain("pending=1");
 			expect(result.stdout).toContain("processing=0");
 		});
 	});
@@ -171,7 +175,9 @@ describe("agent-voice daemon CLI", () => {
 		await withTempHome(async (home) => {
 			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
 			writeDaemonLock(paths, process.pid);
-			enqueueEvent(paths, createEvent({ agent: "claude", text: "Speak me." }));
+			const seed = openDb(paths.db);
+			enqueue(seed, createEvent({ agent: "claude", text: "Speak me." }));
+			seed.close();
 			const spoken: string[] = [];
 
 			const result = await runCli(["daemon", "--foreground", "--once"], {
@@ -188,9 +194,7 @@ describe("agent-voice daemon CLI", () => {
 
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("processed");
-			expect(spoken).toEqual([
-				"af_heart:Claude finished one prelocked job.",
-			]);
+			expect(spoken).toEqual(["af_heart:Claude finished one prelocked job."]);
 			expect(existsSync(daemonLockPath(paths))).toBe(false);
 		});
 	});

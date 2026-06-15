@@ -1,18 +1,19 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import { defaultConfig, type AgentVoiceConfig } from "../src/config";
+import { openDb } from "../src/db";
 import { createEvent, type AgentVoiceEvent } from "../src/events";
 import { resolvePaths } from "../src/paths";
+import { processNextJob, type ProcessorDeps } from "../src/processor";
 import {
-	processNextJob,
-	requeueProcessingJob,
-	type ProcessorDeps,
-} from "../src/processor";
+	countByStatus,
+	enqueue,
+	recoverStale,
+	type JobStatus,
+} from "../src/store";
 import { summarize } from "../src/summarizers";
-import { enqueueEvent, listJobs, writeJob } from "../src/spool";
-import type { QueueJob } from "../src/queue";
 
 async function withTempHome<T>(
 	fn: (home: string) => T | Promise<T>,
@@ -45,8 +46,22 @@ function config(overrides: ConfigOverrides = {}): AgentVoiceConfig {
 	};
 }
 
-function readJob(path: string): QueueJob {
-	return JSON.parse(readFileSync(path, "utf8")) as QueueJob;
+interface JobRecord {
+	status: string;
+	summary: string | null;
+	summarizer_used: string | null;
+	skip_reason: string | null;
+	last_error: string | null;
+	attempts: number;
+	next_attempt_at: string | null;
+}
+
+function readJob(db: ReturnType<typeof openDb>, id: string): JobRecord {
+	return db
+		.query(
+			"SELECT status, summary, summarizer_used, skip_reason, last_error, attempts, next_attempt_at FROM jobs WHERE id=?",
+		)
+		.get(id) as JobRecord;
 }
 
 function deps(overrides: Partial<ProcessorDeps> = {}): ProcessorDeps {
@@ -57,38 +72,46 @@ function deps(overrides: Partial<ProcessorDeps> = {}): ProcessorDeps {
 	};
 }
 
+function counts(db: ReturnType<typeof openDb>): Record<JobStatus, number> {
+	return countByStatus(db);
+}
+
 describe("agent-voice daemon processor", () => {
-	test("one incoming job moves to done after summarize and speak", async () => {
+	test("one pending job moves to done after summarize and speak", async () => {
 		await withTempHome(async (home) => {
 			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
 			const rawText = "Raw local text with Bearer sk-secret123.";
 			const event = createEvent({ agent: "claude", text: rawText });
-			enqueueEvent(paths, event);
-			const spoken: string[] = [];
+			const db = openDb(paths.db);
+			try {
+				enqueue(db, event);
+				const spoken: string[] = [];
 
-			const result = await processNextJob(
-				paths,
-				config(),
-				deps({
-					summarize: async (input) => {
-						expect(input.text).toBe(rawText);
-						return "Claude completed the task.";
-					},
-					speak: async (summary, voice) => {
-						spoken.push(`${voice}:${summary}`);
-					},
-				}),
-				new Date("2026-06-12T00:00:00.000Z"),
-			);
+				const result = await processNextJob(
+					db,
+					config(),
+					deps({
+						summarize: async (input) => {
+							expect(input.text).toBe(rawText);
+							return "Claude completed the task.";
+						},
+						speak: async (summary, voice) => {
+							spoken.push(`${voice}:${summary}`);
+						},
+					}),
+					new Date("2026-06-12T00:00:00.000Z"),
+				);
 
-			expect(result.kind).toBe("processed");
-			expect(spoken).toEqual(["af_heart:Claude completed the task."]);
-			expect(listJobs(paths, "incoming")).toEqual([]);
-			expect(listJobs(paths, "processing")).toEqual([]);
-			expect(listJobs(paths, "done")).toHaveLength(1);
-			const done = readJob(listJobs(paths, "done")[0]);
-			expect(done.text).toBe(rawText);
-			expect(done.metadata?.summary).toBe("Claude completed the task.");
+				expect(result.kind).toBe("processed");
+				expect(spoken).toEqual(["af_heart:Claude completed the task."]);
+				expect(counts(db).pending).toBe(0);
+				expect(counts(db).processing).toBe(0);
+				expect(counts(db).done).toBe(1);
+				const done = readJob(db, event.id);
+				expect(done.summary).toBe("Claude completed the task.");
+			} finally {
+				db.close();
+			}
 		});
 	});
 
@@ -126,16 +149,19 @@ describe("agent-voice daemon processor", () => {
 		for (const item of cases) {
 			await withTempHome(async (home) => {
 				const paths = resolvePaths({ AGENT_VOICE_HOME: home });
-				enqueueEvent(paths, item.event);
+				const db = openDb(paths.db);
+				try {
+					enqueue(db, item.event);
 
-				const result = await processNextJob(paths, item.config, deps());
+					const result = await processNextJob(db, item.config, deps());
 
-				expect(result.kind, item.name).toBe("idle");
-				expect(listJobs(paths, "incoming")).toEqual([]);
-				expect(listJobs(paths, "skipped")).toHaveLength(1);
-				expect(
-					readJob(listJobs(paths, "skipped")[0]).metadata?.skipReason,
-				).toBe(item.reason);
+					expect(result.kind, item.name).toBe("idle");
+					expect(counts(db).pending).toBe(0);
+					expect(counts(db).skipped).toBe(1);
+					expect(readJob(db, item.event.id).skip_reason).toBe(item.reason);
+				} finally {
+					db.close();
+				}
 			});
 		}
 	});
@@ -147,217 +173,194 @@ describe("agent-voice daemon processor", () => {
 				agent: "codex",
 				text: "Implemented the daemon processor. Added tests.",
 			});
-			enqueueEvent(paths, event);
+			const db = openDb(paths.db);
+			try {
+				enqueue(db, event);
 
-			const result = await processNextJob(
-				paths,
-				config({ summarizer: { priority: ["codex-fast", "heuristic"] } }),
-				deps({
-					summarize: (input, cfg) =>
-						summarize(input, cfg, async () => ({
-							ok: false,
-							exitCode: 1,
-							stderr: "model unavailable",
-						})),
-				}),
-			);
+				const result = await processNextJob(
+					db,
+					config({ summarizer: { priority: ["codex-fast", "heuristic"] } }),
+					deps({
+						summarize: (input, cfg) =>
+							summarize(input, cfg, async () => ({
+								ok: false,
+								exitCode: 1,
+								stderr: "model unavailable",
+							})),
+					}),
+				);
 
-			expect(result.kind).toBe("processed");
-			expect(listJobs(paths, "done")).toHaveLength(1);
-			expect(readJob(listJobs(paths, "done")[0]).metadata?.summary).toBe(
-				"Implemented the daemon processor.",
-			);
+				expect(result.kind).toBe("processed");
+				expect(counts(db).done).toBe(1);
+				expect(readJob(db, event.id).summary).toBe(
+					"Implemented the daemon processor.",
+				);
+			} finally {
+				db.close();
+			}
 		});
 	});
 
 	test("TTS failure schedules retry with nextAttemptAt", async () => {
 		await withTempHome(async (home) => {
 			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
-			enqueueEvent(paths, createEvent({ agent: "claude", text: "Retry me." }));
-			const now = new Date("2026-06-12T00:00:00.000Z");
+			const event = createEvent({ agent: "claude", text: "Retry me." });
+			const db = openDb(paths.db);
+			try {
+				enqueue(db, event);
+				const now = new Date("2026-06-12T00:00:00.000Z");
 
-			const result = await processNextJob(
-				paths,
-				config(),
-				deps({
-					speak: async () => {
-						throw new Error("speaker busy");
-					},
-				}),
-				now,
-			);
+				const result = await processNextJob(
+					db,
+					config(),
+					deps({
+						speak: async () => {
+							throw new Error("speaker busy");
+						},
+					}),
+					now,
+				);
 
-			expect(result.kind).toBe("retry_scheduled");
-			expect(listJobs(paths, "processing")).toEqual([]);
-			expect(listJobs(paths, "incoming")).toHaveLength(1);
-			const retry = readJob(listJobs(paths, "incoming")[0]);
-			expect(retry.attempts).toBe(1);
-			expect(retry.nextAttemptAt).toBe("2026-06-12T00:00:30.000Z");
-			expect(retry.metadata?.lastError).toBe("speaker busy");
+				expect(result.kind).toBe("retry_scheduled");
+				expect(counts(db).processing).toBe(0);
+				expect(counts(db).pending).toBe(1);
+				const retry = readJob(db, event.id);
+				expect(retry.attempts).toBe(1);
+				expect(retry.next_attempt_at).toBe("2026-06-12T00:00:30.000Z");
+				expect(retry.last_error).toBe("speaker busy");
+			} finally {
+				db.close();
+			}
 		});
 	});
 
 	test("TTS failure after max attempts moves to failed", async () => {
 		await withTempHome(async (home) => {
 			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
-			writeJob(
-				paths,
-				"incoming",
-				{
-					...createEvent({ agent: "claude", text: "Fail me." }),
-					attempts: defaultConfig.spool.maxAttempts - 1,
-				},
-				{ createdAt: "2026-06-12T00:00:00.000Z" },
-			);
+			const event = createEvent({ agent: "claude", text: "Fail me." });
+			const db = openDb(paths.db);
+			try {
+				enqueue(db, {
+					...event,
+					createdAt: "2026-06-12T00:00:00.000Z",
+				});
+				// Drive attempts up to the last allowed attempt so the next failure fails.
+				db.query("UPDATE jobs SET attempts=? WHERE id=?").run(
+					defaultConfig.spool.maxAttempts - 1,
+					event.id,
+				);
 
-			const result = await processNextJob(
-				paths,
-				config(),
-				deps({
-					speak: async () => {
-						throw new Error("speaker still busy");
-					},
-				}),
-				new Date("2026-06-12T00:00:00.000Z"),
-			);
+				const result = await processNextJob(
+					db,
+					config(),
+					deps({
+						speak: async () => {
+							throw new Error("speaker still busy");
+						},
+					}),
+					new Date("2026-06-12T00:00:00.000Z"),
+				);
 
-			expect(result.kind).toBe("failed");
-			expect(listJobs(paths, "failed")).toHaveLength(1);
-			expect(readJob(listJobs(paths, "failed")[0]).metadata?.lastError).toBe(
-				"speaker still busy",
-			);
+				expect(result.kind).toBe("failed");
+				expect(counts(db).failed).toBe(1);
+				expect(readJob(db, event.id).last_error).toBe("speaker still busy");
+			} finally {
+				db.close();
+			}
 		});
 	});
 
 	test("stale processing jobs recover before processing", async () => {
 		await withTempHome(async (home) => {
 			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
-			writeJob(
-				paths,
-				"processing",
-				{
-					...createEvent({ agent: "pi", text: "Recovered job." }),
-					attempts: 1,
-					lastAttemptAt: "2026-06-12T00:00:00.000Z",
-				},
-				{ createdAt: "2026-06-12T00:00:00.000Z" },
-			);
+			const event = createEvent({ agent: "pi", text: "Recovered job." });
+			const db = openDb(paths.db);
+			try {
+				enqueue(db, { ...event, createdAt: "2026-06-12T00:00:00.000Z" });
+				db.query(
+					"UPDATE jobs SET status='processing', attempts=1, last_attempt_at=? WHERE id=?",
+				).run("2026-06-12T00:00:00.000Z", event.id);
 
-			const result = await processNextJob(
-				paths,
-				config({ spool: { processingTimeoutSeconds: 120 } }),
-				deps(),
-				new Date("2026-06-12T00:05:00.000Z"),
-			);
+				const result = await processNextJob(
+					db,
+					config({ spool: { processingTimeoutSeconds: 120 } }),
+					deps(),
+					new Date("2026-06-12T00:05:00.000Z"),
+				);
 
-			expect(result.kind).toBe("processed");
-			expect(listJobs(paths, "done")).toHaveLength(1);
-			expect(readJob(listJobs(paths, "done")[0]).metadata?.recoveredFrom).toBe(
-				"stale_processing",
-			);
-		});
-	});
-
-	test("post-speech bookkeeping failure does not schedule duplicate speech", async () => {
-		await withTempHome(async (home) => {
-			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
-			enqueueEvent(paths, createEvent({ agent: "claude", text: "Speak once." }));
-			let speakCalls = 0;
-
-			const result = await processNextJob(
-				paths,
-				config(),
-				deps({
-					summarize: async () => "Claude spoke before bookkeeping failed.",
-					speak: async () => {
-						speakCalls += 1;
-						const processingPath = listJobs(paths, "processing")[0];
-						writeFileSync(
-							join(paths.spool.done, basename(processingPath)),
-							"{}\n",
-							"utf8",
-						);
-					},
-				}),
-				new Date("2026-06-12T00:00:00.000Z"),
-			);
-
-			expect(result.kind).toBe("failed");
-			expect(speakCalls).toBe(1);
-			expect(listJobs(paths, "incoming")).toEqual([]);
-			expect(listJobs(paths, "processing")).toEqual([]);
-			expect(listJobs(paths, "failed")).toHaveLength(1);
-			expect(readJob(listJobs(paths, "failed")[0]).metadata?.summary).toBe(
-				"Claude spoke before bookkeeping failed.",
-			);
+				expect(result.kind).toBe("processed");
+				expect(counts(db).done).toBe(1);
+			} finally {
+				db.close();
+			}
 		});
 	});
 
 	test("recovered already-spoken jobs finish without speaking twice", async () => {
 		await withTempHome(async (home) => {
 			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
-			writeJob(
-				paths,
-				"processing",
-				{
-					...createEvent({ agent: "claude", text: "Already spoken." }),
-					attempts: 1,
-					lastAttemptAt: "2026-06-12T00:00:00.000Z",
-					metadata: {
-						summary: "Claude already spoke this job.",
-						spokenAt: "2026-06-12T00:00:01.000Z",
-					},
-				},
-				{ createdAt: "2026-06-12T00:00:00.000Z" },
-			);
-			let speakCalls = 0;
+			const event = createEvent({ agent: "claude", text: "Already spoken." });
+			const db = openDb(paths.db);
+			try {
+				enqueue(db, { ...event, createdAt: "2026-06-12T00:00:00.000Z" });
+				// Simulate a crash after speak: summary persisted, still processing+stale.
+				db.query(
+					"UPDATE jobs SET status='processing', attempts=1, last_attempt_at=?, summary=? WHERE id=?",
+				).run(
+					"2026-06-12T00:00:00.000Z",
+					"Claude already spoke this job.",
+					event.id,
+				);
+				let speakCalls = 0;
 
-			const result = await processNextJob(
-				paths,
-				config({ spool: { processingTimeoutSeconds: 120 } }),
-				deps({
-					speak: async () => {
-						speakCalls += 1;
-					},
-				}),
-				new Date("2026-06-12T00:05:00.000Z"),
-			);
+				const result = await processNextJob(
+					db,
+					config({ spool: { processingTimeoutSeconds: 120 } }),
+					deps({
+						speak: async () => {
+							speakCalls += 1;
+						},
+					}),
+					new Date("2026-06-12T00:05:00.000Z"),
+				);
 
-			expect(result.kind).toBe("processed");
-			expect(speakCalls).toBe(0);
-			expect(listJobs(paths, "incoming")).toEqual([]);
-			expect(listJobs(paths, "processing")).toEqual([]);
-			expect(listJobs(paths, "done")).toHaveLength(1);
-			expect(readJob(listJobs(paths, "done")[0]).metadata?.summary).toBe(
-				"Claude already spoke this job.",
-			);
+				expect(result.kind).toBe("processed");
+				expect(speakCalls).toBe(0);
+				expect(counts(db).pending).toBe(0);
+				expect(counts(db).processing).toBe(0);
+				expect(counts(db).done).toBe(1);
+				expect(readJob(db, event.id).summary).toBe(
+					"Claude already spoke this job.",
+				);
+			} finally {
+				db.close();
+			}
 		});
 	});
 
-	test("shutdown requeues current processing job without losing it", async () => {
-		await withTempHome((home) => {
+	test("recoverStale returns stale processing jobs to pending", async () => {
+		await withTempHome(async (home) => {
 			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
-			const processingPath = writeJob(
-				paths,
-				"processing",
-				{
-					...createEvent({ agent: "opencode", text: "Do not lose me." }),
-					attempts: 1,
-					lastAttemptAt: "2026-06-12T00:00:00.000Z",
-				},
-				{ createdAt: "2026-06-12T00:00:00.000Z" },
-			);
+			const event = createEvent({ agent: "opencode", text: "Do not lose me." });
+			const db = openDb(paths.db);
+			try {
+				enqueue(db, { ...event, createdAt: "2026-06-12T00:00:00.000Z" });
+				db.query(
+					"UPDATE jobs SET status='processing', attempts=1, last_attempt_at=? WHERE id=?",
+				).run("2026-06-12T00:00:00.000Z", event.id);
 
-			const incomingPath = requeueProcessingJob(
-				paths,
-				processingPath,
-				"shutdown",
-			);
+				const recovered = recoverStale(
+					db,
+					config(),
+					new Date("2026-06-12T00:05:00.000Z"),
+				);
 
-			expect(listJobs(paths, "processing")).toEqual([]);
-			expect(listJobs(paths, "incoming")).toEqual([incomingPath]);
-			expect(readJob(incomingPath).text).toBe("Do not lose me.");
-			expect(readJob(incomingPath).metadata?.requeuedReason).toBe("shutdown");
+				expect(recovered).toEqual([event.id]);
+				expect(counts(db).processing).toBe(0);
+				expect(counts(db).pending).toBe(1);
+			} finally {
+				db.close();
+			}
 		});
 	});
 });

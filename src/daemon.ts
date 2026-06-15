@@ -14,7 +14,8 @@ import {
 	type ProcessNextJobResult,
 	type ProcessorDeps,
 } from "./processor";
-import { listJobs, type SpoolState } from "./spool";
+import { openDb } from "./db";
+import { countByStatus, pruneRetention, runMaintenance, type JobStatus } from "./store";
 
 export interface DetachedDaemonRequest {
 	command: string;
@@ -27,29 +28,20 @@ export interface DaemonCliDeps {
 	processorDeps?: ProcessorDeps;
 	isPidAlive?: (pid: number) => boolean;
 	startBackground?: (paths: AgentVoicePaths) => Promise<number> | number;
-	spawnDetached?: (
-		request: DetachedDaemonRequest,
-	) => Promise<number> | number;
+	spawnDetached?: (request: DetachedDaemonRequest) => Promise<number> | number;
 	stopProcess?: (pid: number, paths: AgentVoicePaths) => Promise<void> | void;
 	killProcess?: (pid: number, signal: NodeJS.Signals) => void;
 	now?: () => Date;
 	maxIterations?: number;
 	pollIntervalMs?: number;
+	pruneEveryIterations?: number;
 }
 
 export interface DaemonStatus {
 	running: boolean;
 	pid: number | null;
-	queues: Record<SpoolState, number>;
+	queues: Record<JobStatus, number>;
 }
-
-const STATES: SpoolState[] = [
-	"incoming",
-	"processing",
-	"done",
-	"failed",
-	"skipped",
-];
 
 export function daemonLockPath(paths: AgentVoicePaths): string {
 	return join(paths.run, "daemon.pid");
@@ -135,16 +127,15 @@ export function getDaemonStatus(
 ): DaemonStatus {
 	const pid = readDaemonLock(paths);
 	const isPidAlive = deps.isPidAlive ?? defaultIsPidAlive;
-	const queues = Object.fromEntries(
-		STATES.map((state) => [state, listJobs(paths, state).length]),
-	) as Record<SpoolState, number>;
-
-	return {
-		pid,
-		running: pid !== null && isPidAlive(pid),
-		queues,
-	};
+	const db = openDb(paths.db);
+	try {
+		return { pid, running: pid !== null && isPidAlive(pid), queues: countByStatus(db) };
+	} finally {
+		db.close();
+	}
 }
+
+const STATUS_ORDER: JobStatus[] = ["pending", "processing", "done", "failed", "skipped"];
 
 export function formatDaemonStatus(status: DaemonStatus): string {
 	const state = status.running
@@ -152,7 +143,7 @@ export function formatDaemonStatus(status: DaemonStatus): string {
 		: status.pid
 			? `stale pid=${status.pid}`
 			: "stopped";
-	const queues = STATES.map((key) => `${key}=${status.queues[key]}`).join(" ");
+	const queues = STATUS_ORDER.map((key) => `${key}=${status.queues[key]}`).join(" ");
 	return `${state}\n${queues}\n`;
 }
 
@@ -168,12 +159,12 @@ export async function runDaemonOnce(
 	config: AgentVoiceConfig,
 	deps: DaemonCliDeps,
 ): Promise<ProcessNextJobResult> {
-	return await processNextJob(
-		paths,
-		config,
-		requireProcessorDeps(deps),
-		deps.now?.() ?? new Date(),
-	);
+	const db = openDb(paths.db);
+	try {
+		return await processNextJob(db, config, requireProcessorDeps(deps), deps.now?.() ?? new Date());
+	} finally {
+		db.close();
+	}
 }
 
 export interface DaemonLoopResult {
@@ -196,25 +187,30 @@ export async function runDaemonLoop(
 ): Promise<DaemonLoopResult> {
 	requireProcessorDeps(deps);
 	const summary: DaemonLoopResult = {
-		iterations: 0,
-		processed: 0,
-		idle: 0,
-		retryScheduled: 0,
-		failed: 0,
+		iterations: 0, processed: 0, idle: 0, retryScheduled: 0, failed: 0,
 	};
 	const maxIterations = deps.maxIterations ?? Number.POSITIVE_INFINITY;
 	const pollIntervalMs = deps.pollIntervalMs ?? 1000;
-
-	while (summary.iterations < maxIterations && !hasIntentionalStop(paths)) {
-		const result = await runDaemonOnce(paths, config, deps);
-		summary.iterations += 1;
-		if (result.kind === "processed") summary.processed += 1;
-		if (result.kind === "idle") summary.idle += 1;
-		if (result.kind === "retry_scheduled") summary.retryScheduled += 1;
-		if (result.kind === "failed") summary.failed += 1;
-		if (result.kind === "idle") await sleep(pollIntervalMs);
+	const pruneEvery = deps.pruneEveryIterations ?? 300;
+	const db = openDb(paths.db);
+	try {
+		while (summary.iterations < maxIterations && !hasIntentionalStop(paths)) {
+			const now = deps.now?.() ?? new Date();
+			const result = await processNextJob(db, config, requireProcessorDeps(deps), now);
+			summary.iterations += 1;
+			if (result.kind === "processed") summary.processed += 1;
+			if (result.kind === "idle") summary.idle += 1;
+			if (result.kind === "retry_scheduled") summary.retryScheduled += 1;
+			if (result.kind === "failed") summary.failed += 1;
+			if (summary.iterations % pruneEvery === 0) {
+				pruneRetention(db, config.spool.retentionDays, now);
+				runMaintenance(db);
+			}
+			if (result.kind === "idle") await sleep(pollIntervalMs);
+		}
+	} finally {
+		db.close();
 	}
-
 	return summary;
 }
 
