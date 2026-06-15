@@ -55,7 +55,7 @@ public final class AppModel: ObservableObject {
     private func perform(_ operation: () async throws -> Void) async {
         do {
             try await operation()
-            lastError = nil
+            await refresh()
         } catch {
             lastError = String(describing: error)
         }

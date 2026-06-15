@@ -47,7 +47,24 @@ final class AppModelTests: XCTestCase {
     }
 
     func testPauseDelegatesToCLIAndRecordsErrors() async throws {
-        let runner = RecordingRunner(stdout: "paused\n")
+        let statusJSON = """
+        {
+          "version": 1,
+          "daemon": { "state": "running", "running": true, "pid": 123 },
+          "queues": { "pending": 0, "processing": 0, "done": 0, "failed": 0, "skipped": 0 },
+          "config": { "enabled": false, "agents": {} },
+          "paths": { "home": "/tmp/av", "config": "/tmp/av/config.json", "db": "/tmp/av/queue.db" },
+          "ui": { "state": "paused", "attention": ["system_paused"] }
+        }
+        """
+        let historyJSON = """
+        { "version": 1, "jobs": [] }
+        """
+        let runner = RecordingRunner(results: [
+            ProcessResult(exitCode: 0, stdout: "paused\n", stderr: ""),
+            ProcessResult(exitCode: 0, stdout: statusJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: historyJSON, stderr: "")
+        ])
         let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
         let model = AppModel(cli: cli)
 
@@ -56,5 +73,40 @@ final class AppModelTests: XCTestCase {
         XCTAssertNil(model.lastError)
         let requests = await runner.capturedRequests()
         XCTAssertEqual(requests.first?.arguments, ["pause"])
+    }
+
+    func testMutatingActionsRefreshStatusAndHistory() async throws {
+        let pausedStatusJSON = """
+        {
+          "version": 1,
+          "daemon": { "state": "running", "running": true, "pid": 123 },
+          "queues": { "pending": 0, "processing": 0, "done": 0, "failed": 0, "skipped": 0 },
+          "config": { "enabled": false, "agents": {} },
+          "paths": { "home": "/tmp/av", "config": "/tmp/av/config.json", "db": "/tmp/av/queue.db" },
+          "ui": { "state": "paused", "attention": ["system_paused"] }
+        }
+        """
+        let historyJSON = """
+        { "version": 1, "jobs": [] }
+        """
+        let runner = RecordingRunner(results: [
+            ProcessResult(exitCode: 0, stdout: "paused\n", stderr: ""),
+            ProcessResult(exitCode: 0, stdout: pausedStatusJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: historyJSON, stderr: "")
+        ])
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+        let model = AppModel(cli: cli)
+
+        await model.pause()
+
+        XCTAssertEqual(model.status?.ui.state, .paused)
+        XCTAssertEqual(model.history?.jobs.count, 0)
+        XCTAssertNil(model.lastError)
+        let requests = await runner.capturedRequests()
+        XCTAssertEqual(requests.map(\.arguments), [
+            ["pause"],
+            ["status", "--json"],
+            ["history", "--json", "--limit", "50"]
+        ])
     }
 }
