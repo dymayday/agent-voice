@@ -24,12 +24,17 @@ type JsonStatus = {
 		failed: number;
 		skipped: number;
 	};
-	config: { enabled: boolean; agents: Record<string, { enabled: boolean; mode: string }> };
+	config: {
+		enabled: boolean;
+		agents: Record<string, { enabled: boolean; mode: string }>;
+	};
 	paths: { home: string; config: string; db: string };
 	ui: { state: string; attention: string[] };
 };
 
-async function withTempHome<T>(fn: (home: string) => Promise<T> | T): Promise<T> {
+async function withTempHome<T>(
+	fn: (home: string) => Promise<T> | T,
+): Promise<T> {
 	const home = mkdtempSync(join(tmpdir(), "agent-voice-status-test-"));
 	try {
 		return await fn(home);
@@ -128,10 +133,11 @@ describe("agent-voice status --json", () => {
 		});
 	});
 
-	test("status json does not create a missing config file", async () => {
+	test("status json does not create missing config or queue files", async () => {
 		await withTempHome(async (home) => {
 			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
 			expect(existsSync(paths.config)).toBe(false);
+			expect(existsSync(paths.db)).toBe(false);
 
 			const result = await runCli(["status", "--json"], {
 				env: { AGENT_VOICE_HOME: home },
@@ -140,6 +146,33 @@ describe("agent-voice status --json", () => {
 
 			expect(result.exitCode).toBe(0);
 			expect(existsSync(paths.config)).toBe(false);
+			expect(existsSync(paths.db)).toBe(false);
+			expect(existsSync(`${paths.db}-wal`)).toBe(false);
 		});
+	});
+
+	test("status json handles a missing home directory without creating it", async () => {
+		const parent = mkdtempSync(
+			join(tmpdir(), "agent-voice-status-missing-home-"),
+		);
+		try {
+			const home = join(parent, "missing-home");
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			expect(existsSync(home)).toBe(false);
+
+			const result = await runCli(["status", "--json"], {
+				env: { AGENT_VOICE_HOME: home },
+				daemonDeps: { isPidAlive: () => false },
+			});
+
+			expect(result.exitCode).toBe(0);
+			const parsed = JSON.parse(result.stdout) as JsonStatus;
+			expect(parsed.queues.pending).toBe(0);
+			expect(parsed.ui.state).toBe("daemon_stopped");
+			expect(existsSync(home)).toBe(false);
+			expect(existsSync(paths.db)).toBe(false);
+		} finally {
+			rmSync(parent, { recursive: true, force: true });
+		}
 	});
 });

@@ -14,8 +14,14 @@ import {
 	type ProcessNextJobResult,
 	type ProcessorDeps,
 } from "./processor";
+import { Database } from "bun:sqlite";
 import { openDb } from "./db";
-import { countByStatus, pruneRetention, runMaintenance, type JobStatus } from "./store";
+import {
+	countByStatus,
+	pruneRetention,
+	runMaintenance,
+	type JobStatus,
+} from "./store";
 
 export interface DetachedDaemonRequest {
 	command: string;
@@ -41,6 +47,10 @@ export interface DaemonStatus {
 	running: boolean;
 	pid: number | null;
 	queues: Record<JobStatus, number>;
+}
+
+export interface DaemonStatusOptions {
+	readOnly?: boolean;
 }
 
 export function daemonLockPath(paths: AgentVoicePaths): string {
@@ -121,29 +131,66 @@ function defaultSpawnDetached(request: DetachedDaemonRequest): number {
 	return child.pid;
 }
 
-export function getDaemonStatus(
+const STATUS_ORDER: JobStatus[] = [
+	"pending",
+	"processing",
+	"done",
+	"failed",
+	"skipped",
+];
+
+function emptyQueueCounts(): Record<JobStatus, number> {
+	return Object.fromEntries(
+		STATUS_ORDER.map((status) => [status, 0]),
+	) as Record<JobStatus, number>;
+}
+
+function readQueueCounts(
 	paths: AgentVoicePaths,
-	deps: DaemonCliDeps = {},
-): DaemonStatus {
-	const pid = readDaemonLock(paths);
-	const isPidAlive = deps.isPidAlive ?? defaultIsPidAlive;
+	options: DaemonStatusOptions,
+): Record<JobStatus, number> {
+	if (options.readOnly) {
+		if (!existsSync(paths.db)) return emptyQueueCounts();
+		const db = new Database(paths.db, { readonly: true });
+		try {
+			return countByStatus(db);
+		} finally {
+			db.close();
+		}
+	}
+
 	const db = openDb(paths.db);
 	try {
-		return { pid, running: pid !== null && isPidAlive(pid), queues: countByStatus(db) };
+		return countByStatus(db);
 	} finally {
 		db.close();
 	}
 }
 
-const STATUS_ORDER: JobStatus[] = ["pending", "processing", "done", "failed", "skipped"];
+export function getDaemonStatus(
+	paths: AgentVoicePaths,
+	deps: DaemonCliDeps = {},
+	options: DaemonStatusOptions = {},
+): DaemonStatus {
+	const pid = readDaemonLock(paths);
+	const isPidAlive = deps.isPidAlive ?? defaultIsPidAlive;
+	return {
+		pid,
+		running: pid !== null && isPidAlive(pid),
+		queues: readQueueCounts(paths, options),
+	};
+}
 
 export function formatDaemonStatus(status: DaemonStatus): string {
-	const state = status.running
-		? `running pid=${status.pid}`
-		: status.pid
-			? `stale pid=${status.pid}`
-			: "stopped";
-	const queues = STATUS_ORDER.map((key) => `${key}=${status.queues[key]}`).join(" ");
+	let state = "stopped";
+	if (status.running) {
+		state = `running pid=${status.pid}`;
+	} else if (status.pid) {
+		state = `stale pid=${status.pid}`;
+	}
+	const queues = STATUS_ORDER.map((key) => `${key}=${status.queues[key]}`).join(
+		" ",
+	);
 	return `${state}\n${queues}\n`;
 }
 
@@ -161,7 +208,12 @@ export async function runDaemonOnce(
 ): Promise<ProcessNextJobResult> {
 	const db = openDb(paths.db);
 	try {
-		return await processNextJob(db, config, requireProcessorDeps(deps), deps.now?.() ?? new Date());
+		return await processNextJob(
+			db,
+			config,
+			requireProcessorDeps(deps),
+			deps.now?.() ?? new Date(),
+		);
 	} finally {
 		db.close();
 	}
@@ -187,7 +239,11 @@ export async function runDaemonLoop(
 ): Promise<DaemonLoopResult> {
 	requireProcessorDeps(deps);
 	const summary: DaemonLoopResult = {
-		iterations: 0, processed: 0, idle: 0, retryScheduled: 0, failed: 0,
+		iterations: 0,
+		processed: 0,
+		idle: 0,
+		retryScheduled: 0,
+		failed: 0,
 	};
 	const maxIterations = deps.maxIterations ?? Number.POSITIVE_INFINITY;
 	const pollIntervalMs = deps.pollIntervalMs ?? 1000;
@@ -196,7 +252,12 @@ export async function runDaemonLoop(
 	try {
 		while (summary.iterations < maxIterations && !hasIntentionalStop(paths)) {
 			const now = deps.now?.() ?? new Date();
-			const result = await processNextJob(db, config, requireProcessorDeps(deps), now);
+			const result = await processNextJob(
+				db,
+				config,
+				requireProcessorDeps(deps),
+				now,
+			);
 			summary.iterations += 1;
 			if (result.kind === "processed") summary.processed += 1;
 			if (result.kind === "idle") summary.idle += 1;

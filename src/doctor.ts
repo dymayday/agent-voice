@@ -57,7 +57,7 @@ export function buildDoctorReport(
 		});
 	}
 
-	const daemon = getDaemonStatus(paths, deps);
+	const daemon = getDaemonStatus(paths, deps, { readOnly: true });
 	checks.push({
 		id: "daemon.running",
 		ok: daemon.running,

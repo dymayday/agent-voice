@@ -1,6 +1,10 @@
 import type { AgentVoiceConfig } from "./config";
 import { loadConfig } from "./config";
-import { getDaemonStatus, type DaemonCliDeps, type DaemonStatus } from "./daemon";
+import {
+	getDaemonStatus,
+	type DaemonCliDeps,
+	type DaemonStatus,
+} from "./daemon";
 import type { AgentVoicePaths } from "./paths";
 import type { JobStatus } from "./store";
 
@@ -25,7 +29,9 @@ export interface AppStatusSnapshot {
 	};
 }
 
-function daemonState(status: DaemonStatus): AppStatusSnapshot["daemon"]["state"] {
+function daemonState(
+	status: DaemonStatus,
+): AppStatusSnapshot["daemon"]["state"] {
 	if (status.running) return "running";
 	return status.pid ? "stale" : "stopped";
 }
@@ -53,7 +59,7 @@ export function buildAppStatusSnapshot(
 	paths: AgentVoicePaths,
 	deps: DaemonCliDeps = {},
 ): AppStatusSnapshot {
-	const daemon = getDaemonStatus(paths, deps);
+	const daemon = getDaemonStatus(paths, deps, { readOnly: true });
 	const config = loadConfig(paths, { createIfMissing: false });
 	const base: Omit<AppStatusSnapshot, "ui"> = {
 		version: 1,

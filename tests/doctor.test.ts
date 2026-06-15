@@ -6,7 +6,9 @@ import { runCli } from "../src/cli";
 import { loadConfig, saveConfig } from "../src/config";
 import { resolvePaths } from "../src/paths";
 
-async function withTempHome<T>(fn: (home: string) => Promise<T> | T): Promise<T> {
+async function withTempHome<T>(
+	fn: (home: string) => Promise<T> | T,
+): Promise<T> {
 	const home = mkdtempSync(join(tmpdir(), "agent-voice-doctor-test-"));
 	try {
 		return await fn(home);
@@ -36,9 +38,9 @@ describe("agent-voice doctor --json", () => {
 			const parsed = JSON.parse(result.stdout) as {
 				checks: Array<{ id: string; ok: boolean }>;
 			};
-			expect(parsed.checks.find((check) => check.id === "config.load")?.ok).toBe(
-				true,
-			);
+			expect(
+				parsed.checks.find((check) => check.id === "config.load")?.ok,
+			).toBe(true);
 			expect(
 				parsed.checks.find((check) => check.id === "tts.kokoroScript.exists")
 					?.ok,
@@ -49,10 +51,11 @@ describe("agent-voice doctor --json", () => {
 		});
 	});
 
-	test("reports missing config without creating it", async () => {
+	test("reports missing config without creating config or queue files", async () => {
 		await withTempHome(async (home) => {
 			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
 			expect(existsSync(paths.config)).toBe(false);
+			expect(existsSync(paths.db)).toBe(false);
 
 			const result = await runCli(["doctor", "--json"], {
 				env: { AGENT_VOICE_HOME: home },
@@ -63,10 +66,42 @@ describe("agent-voice doctor --json", () => {
 			const parsed = JSON.parse(result.stdout) as {
 				checks: Array<{ id: string; ok: boolean; severity: string }>;
 			};
-			const configCheck = parsed.checks.find((check) => check.id === "config.load");
+			const configCheck = parsed.checks.find(
+				(check) => check.id === "config.load",
+			);
 			expect(configCheck).toMatchObject({ ok: false, severity: "warning" });
 			expect(existsSync(paths.config)).toBe(false);
+			expect(existsSync(paths.db)).toBe(false);
+			expect(existsSync(`${paths.db}-wal`)).toBe(false);
 		});
+	});
+
+	test("doctor json handles a missing home directory without creating it", async () => {
+		const parent = mkdtempSync(
+			join(tmpdir(), "agent-voice-doctor-missing-home-"),
+		);
+		try {
+			const home = join(parent, "missing-home");
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			expect(existsSync(home)).toBe(false);
+
+			const result = await runCli(["doctor", "--json"], {
+				env: { AGENT_VOICE_HOME: home },
+				daemonDeps: { isPidAlive: () => false },
+			});
+
+			expect(result.exitCode).toBe(0);
+			const parsed = JSON.parse(result.stdout) as {
+				checks: Array<{ id: string; ok: boolean; severity: string }>;
+			};
+			expect(
+				parsed.checks.find((check) => check.id === "queue.failed.empty"),
+			).toMatchObject({ ok: true });
+			expect(existsSync(home)).toBe(false);
+			expect(existsSync(paths.db)).toBe(false);
+		} finally {
+			rmSync(parent, { recursive: true, force: true });
+		}
 	});
 
 	test("plain doctor is rejected until text output is designed", async () => {
