@@ -167,6 +167,52 @@ export function recoverStale(
 	return recovered;
 }
 
+export function markSpoken(
+	db: Database,
+	id: string,
+	summary: string,
+	summarizerUsed: string | null,
+): void {
+	db.query("UPDATE jobs SET summary=$summary, summarizer_used=$used WHERE id=$id").run({
+		$summary: summary,
+		$used: summarizerUsed,
+		$id: id,
+	});
+}
+
+export function markDone(db: Database, id: string, now = new Date()): void {
+	db.query("UPDATE jobs SET status='done', finished_at=$now WHERE id=$id").run({
+		$now: now.toISOString(),
+		$id: id,
+	});
+}
+
+export function requeueForRetry(
+	db: Database,
+	id: string,
+	nextAttemptAt: string,
+	lastError: string,
+): void {
+	db.query(
+		"UPDATE jobs SET status='pending', next_attempt_at=$next, last_error=$err, claimed_at=NULL WHERE id=$id",
+	).run({ $next: nextAttemptAt, $err: lastError, $id: id });
+}
+
+export function markFailed(
+	db: Database,
+	id: string,
+	now: Date,
+	lastError: string,
+): void {
+	db.query(
+		"UPDATE jobs SET status='failed', last_error=$err, finished_at=$now WHERE id=$id",
+	).run({ $err: lastError, $now: now.toISOString(), $id: id });
+}
+
+export function markSkipped(db: Database, id: string, reason: SkipReason, now = new Date()): void {
+	markSkippedInternal(db, id, reason, now);
+}
+
 // Internal helpers shared by later tasks.
 export { rowToStoredJob };
 export type { JobRow };

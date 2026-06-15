@@ -97,3 +97,61 @@ describe("store: claim + recover", () => {
 		}
 	});
 });
+
+import { markSpoken, markDone, requeueForRetry, markFailed } from "../src/store";
+
+describe("store: terminal transitions", () => {
+	test("markSpoken then markDone records summary + finishes", () => {
+		const db = openDb(":memory:");
+		try {
+			const event = createEvent({ agent: "claude", text: "Do it." });
+			enqueue(db, event);
+			claimNextDue(db, defaultConfig, new Date());
+			markSpoken(db, event.id, "All done.", "codex-fast");
+			markDone(db, event.id, new Date("2026-06-12T00:00:05.000Z"));
+
+			const row = db.query("SELECT status, summary, summarizer_used, finished_at FROM jobs WHERE id=?")
+				.get(event.id) as { status: string; summary: string; summarizer_used: string; finished_at: string };
+			expect(row.status).toBe("done");
+			expect(row.summary).toBe("All done.");
+			expect(row.summarizer_used).toBe("codex-fast");
+			expect(row.finished_at).toBe("2026-06-12T00:00:05.000Z");
+		} finally {
+			db.close();
+		}
+	});
+
+	test("requeueForRetry returns the job to pending with backoff", () => {
+		const db = openDb(":memory:");
+		try {
+			const event = createEvent({ agent: "pi", text: "Flaky." });
+			enqueue(db, event);
+			claimNextDue(db, defaultConfig, new Date());
+			requeueForRetry(db, event.id, "2026-06-12T00:00:30.000Z", "temporary failure");
+			const row = db.query("SELECT status, next_attempt_at, last_error FROM jobs WHERE id=?")
+				.get(event.id) as { status: string; next_attempt_at: string; last_error: string };
+			expect(row.status).toBe("pending");
+			expect(row.next_attempt_at).toBe("2026-06-12T00:00:30.000Z");
+			expect(row.last_error).toBe("temporary failure");
+		} finally {
+			db.close();
+		}
+	});
+
+	test("markFailed finishes with error", () => {
+		const db = openDb(":memory:");
+		try {
+			const event = createEvent({ agent: "codex", text: "Nope." });
+			enqueue(db, event);
+			claimNextDue(db, defaultConfig, new Date());
+			markFailed(db, event.id, new Date("2026-06-12T00:00:09.000Z"), "still failing");
+			const row = db.query("SELECT status, last_error, finished_at FROM jobs WHERE id=?")
+				.get(event.id) as { status: string; last_error: string; finished_at: string };
+			expect(row.status).toBe("failed");
+			expect(row.last_error).toBe("still failing");
+			expect(row.finished_at).toBe("2026-06-12T00:00:09.000Z");
+		} finally {
+			db.close();
+		}
+	});
+});
