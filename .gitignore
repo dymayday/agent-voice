@@ -1,2 +1,3 @@
 node_modules/
 .agent-voice-test-*
+macos/AgentVoiceApp/.build/
