@@ -385,6 +385,33 @@ export function moveJob(
 	return targetPath;
 }
 
+export function replaceJob(
+	paths: AgentVoicePaths,
+	jobPath: string,
+	eventOrJob: unknown,
+): void {
+	ensureHome(paths);
+	assertManagedJobPath(paths, jobPath);
+	assertRegularFile(jobPath);
+	const dir = dirname(jobPath);
+	const tmpPath = join(dir, `.tmp-replace-${crypto.randomUUID()}.json`);
+	let lockPath: string | undefined;
+	try {
+		writeFileSync(tmpPath, `${JSON.stringify(eventOrJob, null, 2)}\n`, {
+			encoding: "utf8",
+			flag: "wx",
+		});
+		fsyncPathBestEffort(tmpPath);
+		lockPath = acquireMoveLock(jobPath);
+		assertRegularFile(jobPath);
+		renameSync(tmpPath, jobPath);
+		fsyncPathBestEffort(dir);
+	} finally {
+		if (lockPath) releaseMoveLock(lockPath);
+		removeBestEffort(tmpPath);
+	}
+}
+
 export function cleanupRetention(
 	paths: AgentVoicePaths,
 	retentionDays: number,
