@@ -1,8 +1,5 @@
-import { readFileSync } from "node:fs";
 import type { AgentVoiceConfig } from "./config";
 import type { AgentVoiceEvent } from "./events";
-import type { AgentVoicePaths } from "./paths";
-import { listJobs, moveJob, replaceJob, type SpoolState } from "./spool";
 
 export type SkipReason =
 	| "disabled_system"
@@ -16,27 +13,9 @@ export interface QueueJob extends AgentVoiceEvent {
 	nextAttemptAt?: string;
 }
 
-export interface ClaimedQueueJob {
-	incomingPath: string;
-	processingPath: string;
-	event: QueueJob;
-}
-
 export type RetryDecision =
 	| { state: "incoming"; job: QueueJob }
 	| { state: "failed"; job: QueueJob };
-
-function readJob(path: string): QueueJob {
-	return JSON.parse(readFileSync(path, "utf8")) as QueueJob;
-}
-
-function annotateJob(
-	paths: AgentVoicePaths,
-	path: string,
-	job: QueueJob,
-): void {
-	replaceJob(paths, path, job);
-}
 
 function withMetadata(
 	job: QueueJob,
@@ -151,14 +130,18 @@ function matchesPattern(pattern: string, cwd: string): boolean {
 export function shouldSkipJob(
 	event: AgentVoiceEvent,
 	config: AgentVoiceConfig,
-): { skip: false } | { skip: true; reason: Exclude<SkipReason, "duplicate_event"> } {
+):
+	| { skip: false }
+	| { skip: true; reason: Exclude<SkipReason, "duplicate_event"> } {
 	if (!config.enabled) return { skip: true, reason: "disabled_system" };
 	if (!config.agents[event.agent]?.enabled) {
 		return { skip: true, reason: "disabled_agent" };
 	}
 	if (
 		event.cwd &&
-		config.ignoreCwdPatterns.some((pattern) => matchesPattern(pattern, event.cwd!))
+		config.ignoreCwdPatterns.some((pattern) =>
+			matchesPattern(pattern, event.cwd!),
+		)
 	) {
 		return { skip: true, reason: "ignored_cwd" };
 	}
@@ -201,109 +184,9 @@ export function scheduleRetry(
 		state: "incoming",
 		job: {
 			...withError,
-			nextAttemptAt: new Date(now.getTime() + delaySeconds * 1000).toISOString(),
+			nextAttemptAt: new Date(
+				now.getTime() + delaySeconds * 1000,
+			).toISOString(),
 		},
 	};
-}
-
-function markSkipped(
-	paths: AgentVoicePaths,
-	jobPath: string,
-	job: QueueJob,
-	reason: SkipReason,
-): string {
-	const skippedPath = moveJob(paths, jobPath, "skipped");
-	annotateJob(paths, skippedPath, withMetadata(job, { skipReason: reason }));
-	return skippedPath;
-}
-
-export function dedupeSeenEvent(
-	paths: AgentVoicePaths,
-	eventId: string,
-	excludePath?: string,
-): { seen: false } | { seen: true; path: string } {
-	const states: SpoolState[] = ["done", "processing", "failed", "skipped"];
-	for (const state of states) {
-		for (const path of listJobs(paths, state)) {
-			if (path === excludePath) continue;
-			try {
-				if (readJob(path).id === eventId) return { seen: true, path };
-			} catch {
-				// Ignore unreadable records for dedupe; validation/failure handling owns them.
-			}
-		}
-	}
-	return { seen: false };
-}
-
-export function claimNextDueJob(
-	paths: AgentVoicePaths,
-	config: AgentVoiceConfig,
-	now = new Date(),
-): ClaimedQueueJob | null {
-	for (const incomingPath of listJobs(paths, "incoming")) {
-		let job: QueueJob;
-		try {
-			job = readJob(incomingPath);
-		} catch {
-			moveJob(paths, incomingPath, "failed");
-			continue;
-		}
-
-		if (!isDue(job, now)) continue;
-
-		const skip = shouldSkipJob(job, config);
-		if (skip.skip) {
-			markSkipped(paths, incomingPath, job, skip.reason);
-			continue;
-		}
-
-		const duplicate = dedupeSeenEvent(paths, job.id, incomingPath);
-		if (duplicate.seen) {
-			markSkipped(paths, incomingPath, job, "duplicate_event");
-			continue;
-		}
-
-		const attempted = markAttempt(job, now);
-		const processingPath = moveJob(paths, incomingPath, "processing");
-		annotateJob(paths, processingPath, attempted);
-		return { incomingPath, processingPath, event: attempted };
-	}
-	return null;
-}
-
-export function recoverStaleProcessing(
-	paths: AgentVoicePaths,
-	config: AgentVoiceConfig,
-	now = new Date(),
-): string[] {
-	const recovered: string[] = [];
-	const timeoutMs = config.spool.processingTimeoutSeconds * 1000;
-
-	for (const processingPath of listJobs(paths, "processing")) {
-		let job: QueueJob;
-		try {
-			job = readJob(processingPath);
-		} catch {
-			moveJob(paths, processingPath, "failed");
-			continue;
-		}
-
-		const lastAttemptAt = job.lastAttemptAt
-			? Date.parse(job.lastAttemptAt)
-			: Date.parse(job.createdAt);
-		if (!Number.isNaN(lastAttemptAt) && now.getTime() - lastAttemptAt <= timeoutMs) {
-			continue;
-		}
-
-		const recoveredPath = moveJob(paths, processingPath, "incoming");
-		annotateJob(
-			paths,
-			recoveredPath,
-			withMetadata(job, { recoveredFrom: "stale_processing" }),
-		);
-		recovered.push(recoveredPath);
-	}
-
-	return recovered;
 }
