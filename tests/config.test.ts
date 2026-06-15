@@ -24,7 +24,7 @@ describe("agent-voice config and paths", () => {
 
 			expect(paths.home).toBe(home);
 			expect(paths.config).toBe(join(home, "config.json"));
-			expect(paths.spool.incoming).toBe(join(home, "spool", "incoming"));
+			expect(paths.db).toBe(join(home, "queue.db"));
 			expect(paths.logs).toBe(join(home, "logs"));
 		});
 	});

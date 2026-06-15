@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runCli } from "../src/cli";
 import { writeDaemonLock } from "../src/daemon";
+import { openDb } from "../src/db";
 import { createEvent } from "../src/events";
 import { resolvePaths } from "../src/paths";
-import { enqueueEvent, listJobs } from "../src/spool";
-import type { QueueJob } from "../src/queue";
+import { countByStatus, enqueue } from "../src/store";
 
 async function withTempHome<T>(
 	fn: (home: string) => T | Promise<T>,
@@ -20,22 +20,14 @@ async function withTempHome<T>(
 	}
 }
 
-function readJob(path: string): QueueJob {
-	return JSON.parse(readFileSync(path, "utf8")) as QueueJob;
-}
-
 describe("agent-voice daemon integration", () => {
 	test("foreground daemon loop processes queued jobs and exits in bounded test mode", async () => {
 		await withTempHome(async (home) => {
 			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
-			enqueueEvent(
-				paths,
-				createEvent({ agent: "claude", text: "First raw turn." }),
-			);
-			enqueueEvent(
-				paths,
-				createEvent({ agent: "codex", text: "Second raw turn." }),
-			);
+			const seed = openDb(paths.db);
+			enqueue(seed, createEvent({ agent: "claude", text: "First raw turn." }));
+			enqueue(seed, createEvent({ agent: "codex", text: "Second raw turn." }));
+			seed.close();
 			const spoken: string[] = [];
 
 			const result = await runCli(["daemon", "--foreground"], {
@@ -59,9 +51,11 @@ describe("agent-voice daemon integration", () => {
 				"af_heart:claude summary.",
 				"af_heart:codex summary.",
 			]);
-			expect(listJobs(paths, "incoming")).toEqual([]);
-			expect(listJobs(paths, "done")).toHaveLength(2);
-			expect(readJob(listJobs(paths, "done")[0]).text).toContain("raw turn");
+
+			const check = openDb(paths.db);
+			expect(countByStatus(check).pending).toBe(0);
+			expect(countByStatus(check).done).toBe(2);
+			check.close();
 		});
 	});
 
@@ -84,7 +78,10 @@ describe("agent-voice daemon integration", () => {
 
 			expect(result.exitCode).toBe(1);
 			expect(result.stderr).toContain("already running");
-			expect(listJobs(paths, "done")).toEqual([]);
+
+			const check = openDb(paths.db);
+			expect(countByStatus(check).done).toBe(0);
+			check.close();
 		});
 	});
 });
