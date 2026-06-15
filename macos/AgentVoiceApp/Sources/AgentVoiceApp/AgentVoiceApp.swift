@@ -11,16 +11,7 @@ struct AgentVoiceApplication: App {
         }
 
         WindowGroup("Dashboard", id: "dashboard") {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Agent Voice Dashboard")
-                    .font(.title2)
-                Text(model.status?.ui.state.displayName ?? "Status unavailable")
-                    .foregroundStyle(.secondary)
-            }
-            .padding()
-            .task {
-                await model.refresh()
-            }
+            DashboardView(model: model)
         }
 
         WindowGroup("Setup", id: "setup") {
