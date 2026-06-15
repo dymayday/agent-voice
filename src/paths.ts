@@ -7,6 +7,7 @@ export interface AgentVoicePaths {
 	logs: string;
 	backups: string;
 	run: string;
+	db: string;
 	launchdOutLog: string;
 	launchdErrLog: string;
 	spool: {
@@ -31,6 +32,7 @@ export function resolvePaths(
 		logs: join(home, "logs"),
 		backups: join(home, "backups"),
 		run: join(home, "run"),
+		db: join(home, "queue.db"),
 		launchdOutLog: join(home, "logs", "launchd.out.log"),
 		launchdErrLog: join(home, "logs", "launchd.err.log"),
 		spool: {
