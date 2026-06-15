@@ -48,6 +48,8 @@ Usage:
   agent-voice start
   agent-voice stop
   agent-voice status [--json]
+  agent-voice pause
+  agent-voice resume
   agent-voice enqueue --format text --agent claude --cwd "$PWD"
   agent-voice enqueue --format event-json
   agent-voice enqueue --format claude-stop-hook --agent claude
@@ -161,6 +163,21 @@ export async function runCli(
 		config.agents[agent].enabled = command === "enable";
 		saveConfig(paths, config);
 		return result(0, "");
+	}
+
+	if (command === "pause") {
+		if (args.includes("--for") || args.includes("--until")) {
+			return result(2, "", "Timed pause is not implemented yet\n");
+		}
+		const config = loadConfig(paths);
+		saveConfig(paths, { ...config, enabled: false });
+		return result(0, "paused\n");
+	}
+
+	if (command === "resume") {
+		const config = loadConfig(paths);
+		saveConfig(paths, { ...config, enabled: true });
+		return result(0, "resumed\n");
 	}
 
 	if (command === "enqueue") {
