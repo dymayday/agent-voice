@@ -1,0 +1,165 @@
+import XCTest
+@testable import AgentVoiceCore
+
+actor RecordingRunner: ProcessRunning {
+    private(set) var requests: [ProcessRequest] = []
+    var results: [ProcessResult]
+
+    init(stdout: String = "{}", stderr: String = "", exitCode: Int32 = 0) {
+        self.results = [ProcessResult(exitCode: exitCode, stdout: stdout, stderr: stderr)]
+    }
+
+    init(results: [ProcessResult]) {
+        self.results = results
+    }
+
+    func run(_ request: ProcessRequest) async throws -> ProcessResult {
+        requests.append(request)
+        if results.isEmpty {
+            return ProcessResult(exitCode: 0, stdout: "{}", stderr: "")
+        }
+        return results.removeFirst()
+    }
+
+    func capturedRequests() -> [ProcessRequest] {
+        requests
+    }
+}
+
+final class AgentVoiceCLITests: XCTestCase {
+    let statusJSON = """
+    {
+      "version": 1,
+      "daemon": { "state": "stopped", "running": false, "pid": null },
+      "queues": { "pending": 0, "processing": 0, "done": 0, "failed": 0, "skipped": 0 },
+      "config": { "enabled": true, "agents": {} },
+      "paths": { "home": "/tmp/av", "config": "/tmp/av/config.json", "db": "/tmp/av/queue.db" },
+      "ui": { "state": "daemon_stopped", "attention": [] }
+    }
+    """
+
+    func testBuildsStatusJsonCommand() async throws {
+        let runner = RecordingRunner(stdout: statusJSON)
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+
+        _ = try await cli.status()
+
+        let requests = await runner.capturedRequests()
+        XCTAssertEqual(requests.first?.arguments, ["status", "--json"])
+    }
+
+    func testAddsAgentVoiceHomeToEnvironment() async throws {
+        let runner = RecordingRunner(stdout: statusJSON)
+        let cli = AgentVoiceCLI(
+            executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"),
+            agentVoiceHome: URL(fileURLWithPath: "/tmp/custom-agent-voice"),
+            runner: runner
+        )
+
+        _ = try await cli.status()
+
+        let requests = await runner.capturedRequests()
+        XCTAssertEqual(requests.first?.environment["AGENT_VOICE_HOME"], "/tmp/custom-agent-voice")
+    }
+
+    func testPauseAndResumeCommands() async throws {
+        let runner = RecordingRunner(results: [
+            ProcessResult(exitCode: 0, stdout: "paused\n", stderr: ""),
+            ProcessResult(exitCode: 0, stdout: "resumed\n", stderr: "")
+        ])
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+
+        try await cli.pause()
+        try await cli.resume()
+
+        let requests = await runner.capturedRequests()
+        XCTAssertEqual(requests.map(\.arguments), [["pause"], ["resume"]])
+    }
+
+    func testDoctorCommandDecodesReport() async throws {
+        let doctorJSON = """
+        {
+          "version": 1,
+          "checks": [
+            {
+              "id": "config.load",
+              "ok": true,
+              "severity": "info",
+              "message": "Config loaded"
+            }
+          ]
+        }
+        """
+        let runner = RecordingRunner(stdout: doctorJSON)
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+
+        let report = try await cli.doctor()
+
+        let requests = await runner.capturedRequests()
+        XCTAssertEqual(requests.first?.arguments, ["doctor", "--json"])
+        XCTAssertEqual(report.checks.first?.severity, .info)
+    }
+
+    func testNonZeroExitThrowsUsefulError() async throws {
+        let runner = RecordingRunner(stdout: "", stderr: "boom\n", exitCode: 2)
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+
+        do {
+            _ = try await cli.status()
+            XCTFail("Expected status to throw")
+        } catch let error as AgentVoiceCLIError {
+            XCTAssertEqual(error.exitCode, 2)
+            XCTAssertTrue(error.stderr.contains("boom"))
+        }
+    }
+
+    func testFoundationRunnerDrainsLargeOutputWhileProcessRuns() async throws {
+        let perlPath = "/usr/bin/perl"
+        try XCTSkipIf(!FileManager.default.isExecutableFile(atPath: perlPath), "Perl is unavailable")
+        let byteCount = 300_000
+        let script = """
+        $SIG{ALRM}=sub{exit 124}; alarm 2; \
+        print STDOUT "o" x \(byteCount); \
+        print STDERR "e" x \(byteCount); \
+        alarm 0;
+        """
+        let runner = FoundationProcessRunner()
+
+        let result = try await runner.run(ProcessRequest(
+            executableURL: URL(fileURLWithPath: perlPath),
+            arguments: ["-e", script],
+            environment: [:]
+        ))
+
+        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertEqual(result.stdout.count, byteCount)
+        XCTAssertEqual(result.stderr.count, byteCount)
+    }
+
+    func testSummarizerModeCommand() async throws {
+        let runner = RecordingRunner(stdout: "ok\n")
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+
+        try await cli.setSummarizerMode("heuristic")
+
+        let requests = await runner.capturedRequests()
+        XCTAssertEqual(requests.first?.arguments, ["summarizer", "mode", "heuristic"])
+    }
+
+    func testDefaultExecutablePrefersEnvironmentOverride() throws {
+        let settings = AppSettings.defaultSettings(env: ["AGENT_VOICE_EXECUTABLE": "/tmp/agent-voice"])
+        XCTAssertEqual(settings.executableURL.path, "/tmp/agent-voice")
+    }
+
+    func testDefaultExecutablePrefersBundledCliWhenPresent() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let cli = root.appendingPathComponent("agent-voice/bin/agent-voice")
+        try FileManager.default.createDirectory(at: cli.deletingLastPathComponent(), withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: cli.path, contents: Data())
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: cli.path)
+
+        let settings = AppSettings.defaultSettings(env: [:], bundleResourceURL: root, currentDirectory: URL(fileURLWithPath: "/tmp/not-repo"))
+
+        XCTAssertEqual(settings.executableURL.path, cli.path)
+    }
+}
