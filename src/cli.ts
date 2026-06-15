@@ -24,6 +24,7 @@ import { summarize } from "./summarizers";
 import { openDb } from "./db";
 import { enqueue } from "./store";
 import { buildAppStatusSnapshot, formatAppStatusJson } from "./status";
+import { isSummarizerMode, setSummarizerMode } from "./summarizer-mode";
 import { KokoroClient, playWav } from "./tts";
 
 export interface CliIo {
@@ -58,6 +59,7 @@ Usage:
   agent-voice disable codex
   agent-voice config get
   agent-voice config set summarizer.timeoutSeconds 8
+  agent-voice summarizer mode heuristic|default
   agent-voice daemon --foreground
 `;
 
@@ -178,6 +180,19 @@ export async function runCli(
 		const config = loadConfig(paths);
 		saveConfig(paths, { ...config, enabled: true });
 		return result(0, "resumed\n");
+	}
+
+	if (command === "summarizer") {
+		const [, subcommand, mode] = args;
+		if (subcommand !== "mode" || !mode) {
+			return result(2, "", "Usage: agent-voice summarizer mode heuristic|default\n");
+		}
+		if (!isSummarizerMode(mode)) {
+			return result(2, "", `Unknown summarizer mode: ${mode}\n`);
+		}
+		const config = loadConfig(paths);
+		saveConfig(paths, setSummarizerMode(config, mode));
+		return result(0, `summarizer mode=${mode}\n`);
 	}
 
 	if (command === "enqueue") {
