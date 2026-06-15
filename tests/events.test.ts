@@ -1,8 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createEvent, validateEvent } from "../src/events";
-import { prepareText, redactSecrets } from "../src/redaction";
 
-describe("event validation and redaction", () => {
+describe("event validation", () => {
 	test("createEvent builds a valid canonical turn_end event", () => {
 		const event = createEvent({
 			agent: "claude",
@@ -51,43 +50,10 @@ describe("event validation and redaction", () => {
 		expect(
 			validateEvent({
 				...base,
-				metadata: JSON.parse('{"nested":{"constructor":{"prototype":{"polluted":true}}}}'),
+				metadata: JSON.parse(
+					'{"nested":{"constructor":{"prototype":{"polluted":true}}}}',
+				),
 			}),
 		).toEqual({ ok: false, reason: "Unsafe metadata key" });
-	});
-
-	test("redactSecrets removes common secret-shaped values", () => {
-		const text = [
-			"Authorization: Bearer sk-secret123",
-			"OPENAI_API_KEY=sk-test456",
-			"ANTHROPIC_API_KEY=\"sk-ant-secret\"",
-			"password: super-secret-password",
-			"token = 'ghp_secret123'",
-			"-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----",
-		].join("\n");
-
-		const redacted = redactSecrets(text);
-
-		expect(redacted).toContain("Bearer [REDACTED]");
-		expect(redacted).toContain("OPENAI_API_KEY=[REDACTED]");
-		expect(redacted).toContain("ANTHROPIC_API_KEY=[REDACTED]");
-		expect(redacted).toContain("password: [REDACTED]");
-		expect(redacted).toContain("token = [REDACTED]");
-		expect(redacted).toContain("-----BEGIN PRIVATE KEY-----[REDACTED]-----END PRIVATE KEY-----");
-		expect(redacted).not.toContain("sk-secret123");
-		expect(redacted).not.toContain("sk-test456");
-		expect(redacted).not.toContain("sk-ant-secret");
-		expect(redacted).not.toContain("super-secret-password");
-		expect(redacted).not.toContain("ghp_secret123");
-	});
-
-	test("prepareText redacts before truncating", () => {
-		const prepared = prepareText("Bearer sk-secret123 followed by details", {
-			maxInputChars: 18,
-			redactSecrets: true,
-		});
-
-		expect(prepared).toBe("Bearer [REDACTED]");
-		expect(prepared).not.toContain("sk-secret123");
 	});
 });

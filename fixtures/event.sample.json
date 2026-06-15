@@ -1,0 +1,12 @@
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "version": 1,
+  "agent": "claude",
+  "event": "turn_end",
+  "text": "Claude finished editing the auth module.",
+  "cwd": "/Users/meidhy/example-project",
+  "createdAt": "2026-06-12T00:00:00.000Z",
+  "metadata": {
+    "format": "event-json"
+  }
+}

@@ -46,12 +46,10 @@ These decisions are fixed for v1 so implementation does not need to guess.
 - `agent-voice install` must not silently overwrite existing agent configuration. It must create timestamped backups before editing any global config file.
 - If an agent's native hook/plugin schema cannot be verified, install must not force a fragile native integration. It should install the reliable wrapper fallback and print the native integration as disabled/experimental.
 - The default speech policy is `every_turn`, but users can disable the entire system, individual agents, or path patterns from config.
-- Captured text may be sent to the configured external summarizer CLI. This is intentional for the requested design, but must be explicit in config/docs.
+- Captured text is local raw agent output by design and may be stored in spool files, job records, and logs.
+- Captured text may be sent to the configured external summarizer CLI. This is intentional for this personal local tool and must be explicit in config/docs.
 - A fully local mode is supported by setting summarizer priority to `["heuristic"]`; in that mode no captured text is sent to an external model provider.
-- Logs must not include raw agent output unless `privacy.logRawText` is explicitly enabled.
-- Simple redaction runs before logs and summarization by default for common secret-shaped values such as API keys, bearer tokens, and private key blocks.
-- The canonical event text stored in the spool is the redacted and truncated text. Raw unredacted text must not be written to spool, logs, or failed-job sidecars when `privacy.redactSecrets` is enabled.
-- `privacy.storeRawText` controls post-processing retention only. Incoming/processing jobs necessarily contain the redacted text until processed; after processing, `storeRawText: false` strips `text` from `done` and `failed` records.
+- No data-sanitization or retention-pruning layer is included in v1. The system preserves raw local text except for configured size truncation.
 - Adapters always fail open. If any adapter cannot enqueue within its small local budget, it drops the voice event and exits successfully.
 - Internal summarizer subprocesses must not recursively trigger voice events. The daemon sets `AGENT_VOICE_DISABLE=1`, and every adapter/wrapper must skip enqueue when that environment variable is present.
 
@@ -129,7 +127,7 @@ Responsibilities:
 - `--format claude-stop-hook`: stdin is a Claude Stop hook payload and the CLI extracts final text when available; `--agent claude` is required.
 - Future agent-specific formats may be added only if they can be tested with sample payload fixtures.
 - If format-specific extraction cannot find final text, `enqueue` creates a generic completion sentence only when that adapter's support tier explicitly allows it; otherwise it writes no event and exits `0`.
-- `enqueue` performs only validation, redaction, truncation, and the atomic spool write. It must not start the daemon, call a summarizer, call Kokoro, or play audio.
+- `enqueue` performs only validation, size truncation, and the atomic spool write. It must not start the daemon, call a summarizer, call Kokoro, or play audio.
 
 ### Daemon
 
@@ -196,7 +194,7 @@ Spool filenames use sortable timestamps plus event IDs, for example:
 Enqueue algorithm:
 
 1. Build an event JSON object.
-2. Apply configured max-size limits and redaction.
+2. Apply configured max-size limits.
 3. Write it to a unique temp file in the same filesystem.
 4. `fsync` best-effort where practical.
 5. Atomic rename into `spool/incoming/*.json`.
@@ -237,7 +235,7 @@ Safe execution requirements:
 - Use an isolated non-project working directory such as `~/.agent-voice/run/summarizer` unless a summarizer requires otherwise.
 - Disable tools/session persistence where supported: Codex uses `--ephemeral`; Pi uses `--no-tools --no-session`.
 - Enforce timeout by killing the whole subprocess group.
-- Limit subprocess stdout/stderr capture to configured byte caps and redact before logging.
+- Limit subprocess stdout/stderr capture to configured byte caps before logging.
 - If a configured summarizer executable is missing, skip it and try the next priority entry.
 
 Summarizer prompt shape:
@@ -447,11 +445,6 @@ Initial config shape:
     "maxEventBytes": 262144,
     "maxAttempts": 3,
     "retryBackoffSeconds": 30
-  },
-  "privacy": {
-    "storeRawText": true,
-    "logRawText": false,
-    "redactSecrets": true
   }
 }
 ```
@@ -522,13 +515,13 @@ incoming → processing → done
 
 Rules:
 
-- Each job records `attempts`, `lastAttemptAt`, `nextAttemptAt`, and the last redacted error summary in metadata.
+- Each job records `attempts`, `lastAttemptAt`, `nextAttemptAt`, and the last error summary in metadata.
 - `attempts` increments when a job moves from `incoming` to `processing`, not when the file is initially enqueued.
 - Retryable failures: total TTS/playback failure after the per-job Kokoro restart attempt, temporary `afplay` failure, and unexpected daemon-owned subprocess failures after heuristic fallback cannot complete the job.
 - External summarizer failures are not independently retried as jobs if the heuristic fallback succeeds; the job is successful and must move to `done`.
 - Retry timing is deterministic for v1: `nextAttemptAt = now + retryBackoffSeconds * attempts`, capped by `processingTimeoutSeconds`.
 - A job with future `nextAttemptAt` remains in `incoming` but is skipped by the daemon until the timestamp arrives.
-- If `attempts >= maxAttempts`, retryable failure becomes terminal and the job moves to `failed` with redacted error metadata.
+- If `attempts >= maxAttempts`, retryable failure becomes terminal and the job moves to `failed` with error metadata.
 - Non-retryable failures: malformed event JSON, text missing after adapter extraction when generic completion is not allowed, event exceeding `maxEventBytes`, and unsupported event version.
 - Disabled or ignored jobs are not failures. If the global system is disabled, the agent is disabled, or `cwd` matches `ignoreCwdPatterns`, the daemon moves the job to `skipped` with reason `disabled_system`, `disabled_agent`, or `ignored_cwd`.
 - Re-enabling an agent affects future jobs only. Skipped jobs are not automatically replayed; a later explicit `agent-voice requeue --from skipped --reason disabled_agent` may be added outside v1.
@@ -554,17 +547,15 @@ Daemon:
 - Continue processing later jobs after failure.
 - Recover stale `processing` jobs on restart.
 - Avoid duplicate daemon instances with a lock/PID file.
-- If the user disables the system or a specific agent while jobs are queued, move matching due jobs to `skipped` with a redacted reason instead of retrying or failing them.
+- If the user disables the system or a specific agent while jobs are queued, move matching due jobs to `skipped` with a reason instead of retrying or failing them.
 
-## Privacy and safety
+## Data and safety
 
-- Everything is local except the selected summarizer CLI, which may send redacted captured text to its configured model provider.
-- Incoming and processing spool files store redacted, truncated text because the daemon needs that text to summarize and speak.
-- Raw unredacted agent output must not be persisted when `privacy.redactSecrets` is enabled.
-- When `storeRawText` is `false`, completed `done` and `failed` job records must remove the `text` field and keep only metadata, summary, attempts, timestamps, and redacted errors.
-- Logs must not include raw agent output unless `logRawText` is explicitly enabled; even then, secret redaction still applies when `redactSecrets` is enabled.
+- This is a personal local tool; no data-sanitization or retention-pruning layer is included in v1.
+- Everything is local except the selected summarizer CLI, which may send captured text to its configured model provider.
+- Incoming, processing, done, and failed spool files may store raw captured text because the daemon needs that text to summarize and speak.
+- Logs and error metadata may contain raw local text; keep log and subprocess capture sizes bounded.
 - Truncate captured text to `maxInputChars` before summarization.
-- Redaction is best-effort and not a formal DLP guarantee; docs must say that external summarizers may receive sensitive information if redaction misses it.
 
 ## Testing strategy
 
@@ -573,8 +564,6 @@ Unit tests:
 - Config loading and defaults.
 - Atomic spool writes.
 - Event validation and unsupported-version rejection.
-- Secret redaction before spool write and before logging.
-- `storeRawText: false` stripping text from completed job records.
 - Summarizer fallback order.
 - Safe subprocess invocation without shell interpolation.
 - `AGENT_VOICE_DISABLE=1` recursion guard in wrappers/adapters.
@@ -624,5 +613,5 @@ These should be resolved during implementation discovery, not by changing the co
 - Kokoro stays warm in the daemon and speech does not require the Kokoro macOS app to be open.
 - Failures in summarization, TTS, or playback never disrupt the source agent.
 - Install/uninstall are idempotent and reversible for files/config entries owned by this tool.
-- Privacy controls are internally consistent: redaction happens before spool/log/summarizer, and `storeRawText: false` strips text from completed jobs.
+- Data handling is internally consistent: raw captured text is preserved locally except for configured size truncation.
 - Queue retry and daemon restart behavior are covered by tests.

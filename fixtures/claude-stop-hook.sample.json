@@ -1,0 +1,7 @@
+{
+  "hook_event_name": "Stop",
+  "session_id": "example-claude-session",
+  "transcript_path": "/tmp/example-claude-transcript.jsonl",
+  "assistant_response": "Claude finished editing the auth module.",
+  "stop_hook_active": true
+}

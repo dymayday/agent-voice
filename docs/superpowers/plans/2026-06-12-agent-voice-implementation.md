@@ -4,7 +4,7 @@
 
 **Goal:** Build a global `agent-voice` CLI/daemon that asynchronously captures completed coding-agent turns, summarizes them into one sentence, and speaks them through local Kokoro TTS without disrupting Claude Code, Codex, Pi, or OpenCode.
 
-**Architecture:** Greenfield Bun/TypeScript CLI with focused modules: config/path handling, canonical event validation, redaction, atomic spool queue, daemon/job processing, summarizer fallback, Kokoro/afplay playback, installer/adapters, and wrappers. Adapters only enqueue redacted spool files; the daemon owns all slow LLM/TTS/audio work.
+**Architecture:** Greenfield Bun/TypeScript CLI with focused modules: config/path handling, canonical event validation, atomic spool queue, daemon/job processing, summarizer fallback, Kokoro/afplay playback, installer/adapters, and wrappers. Adapters only enqueue raw local event text to spool files; the daemon owns all slow LLM/TTS/audio work.
 
 **Tech Stack:** Bun test runner, TypeScript, Node built-ins (`fs`, `path`, `os`, `child_process`), macOS `launchctl`/LaunchAgent, local Kokoro JSON-lines Python service, `afplay`.
 
@@ -20,14 +20,13 @@ Create these files unless a later task discovers a stronger reason to split furt
 
 ```text
 package.json                         # Bun scripts, bin entries, dev deps
-README.md                            # Usage, install, privacy notes
+README.md                            # Usage, install, and data-flow notes
 src/index.ts                         # CLI executable entrypoint
 src/cli.ts                           # Argument parsing and command dispatch
 src/executable.ts                    # Cwd-independent executable path resolution for shims/install
 src/config.ts                        # Defaults, load/save, dot-path config set/get
 src/paths.ts                         # AGENT_VOICE_HOME resolution and directory paths
 src/events.ts                        # Canonical event types, validation, ID generation
-src/redaction.ts                     # Best-effort secret redaction and text truncation
 src/spool.ts                         # Atomic enqueue, job moves, stale recovery, retention
 src/queue.ts                         # Job state/retry/skipped semantics
 src/daemon.ts                        # Daemon lifecycle, loop, status, signals
@@ -43,7 +42,7 @@ bin/agent-voice                      # Cwd-independent executable shim
 bin/voice-codex                      # Wrapper shim
 bin/voice-opencode                   # Wrapper shim
 tests/config.test.ts
-tests/events-redaction.test.ts
+tests/events.test.ts
 tests/spool.test.ts
 tests/enqueue-cli.test.ts
 tests/queue.test.ts
@@ -54,7 +53,6 @@ tests/daemon-cli.test.ts
 tests/install.test.ts
 tests/adapters.test.ts
 tests/wrappers.test.ts
-tests/privacy-retention.test.ts
 tests/integration-daemon.test.ts
 fixtures/claude-stop-hook.sample.json
 fixtures/event.sample.json
@@ -101,7 +99,6 @@ Plan-blocker coverage matrix:
 | Install safety and uninstall restore ambiguous | Task 10 requires backup manifest, ownership markers, restore behavior, merge-skip behavior, and LaunchAgent command tests |
 | LaunchAgent semantics ambiguous | Task 10 requires exact plist keys, bootstrap/bootout selection, and intentional-stop marker tests |
 | Recursion guards under-specified | Tasks 7 and 11 require `AGENT_VOICE_DISABLE=1` in summarizer children and wrapper/adapter skip tests |
-| Privacy retention under-specified | Tasks 3, 9, and 12 require pre-spool redaction and `storeRawText: false` completed-job stripping tests |
 | Queue disabled/retry semantics under-tested | Tasks 6, 9, and 12 require `skipped`, `nextAttemptAt`, restart, and max-attempt tests |
 
 Feature-workflow handoff before implementation:
@@ -109,7 +106,7 @@ Feature-workflow handoff before implementation:
 - Implementation must proceed with `superpowers:test-driven-development` for each task.
 - Use `superpowers:subagent-driven-development` if tasks are delegated, or `superpowers:executing-plans` if executed inline.
 - Keep implementation single-writer on `master` because the user explicitly declined a worktree.
-- After implementation, run `/feature-workflow` Phase 5 review: correctness/regression, privacy/install safety, and test coverage/maintainability.
+- After implementation, run `/feature-workflow` Phase 5 review: correctness/regression, install safety, and test coverage/maintainability.
 - Do not claim implementation completion until the quality gate at the end of this plan passes freshly.
 
 ---
@@ -324,39 +321,28 @@ git commit -m "feat: add agent voice config foundation"
 
 ---
 
-### Task 3: Canonical events and redaction
+### Task 3: Canonical events
 
 **Files:**
 - Create: `src/events.ts`
-- Create: `src/redaction.ts`
-- Create: `tests/events-redaction.test.ts`
+- Create: `tests/events.test.ts`
 
-- [ ] **Step 1: Write failing event/redaction tests**
+- [ ] **Step 1: Write failing event tests**
 
 Test cases:
 
 - valid event passes with required fields
 - unsupported version rejects
 - missing text rejects unless adapter extraction path permits generic completion before validation
-- redaction replaces:
-  - `Bearer sk-abc123`
-  - `OPENAI_API_KEY=sk-test`
-  - private key blocks
-- truncation respects `maxInputChars`
-
-Example assertion:
-
-```ts
-expect(redactSecrets("Authorization: Bearer sk-secret")).toContain("Bearer [REDACTED]");
-```
+- metadata accepts safe nested objects and rejects prototype-pollution keys
 
 - [ ] **Step 2: Run test to verify failure**
 
-Run: `bun test tests/events-redaction.test.ts`
+Run: `bun test tests/events.test.ts`
 
 Expected: FAIL because modules do not exist.
 
-- [ ] **Step 3: Implement event validation and redaction**
+- [ ] **Step 3: Implement event validation**
 
 Implement:
 
@@ -364,21 +350,19 @@ Implement:
 - `type AgentVoiceEvent`
 - `validateEvent(input): { ok: true; event } | { ok: false; reason }`
 - `createEvent({ agent, text, cwd, sessionId, metadata })`
-- `redactSecrets(text)`
-- `prepareText(text, { maxInputChars, redactSecrets })`
 
 Use `crypto.randomUUID()` for IDs.
 
 - [ ] **Step 4: Run tests**
 
-Run: `bun test tests/events-redaction.test.ts`
+Run: `bun test tests/events.test.ts`
 
 Expected: PASS.
 
 - [ ] **Step 5: Commit event foundation**
 
 ```bash
-git add -- src/events.ts src/redaction.ts tests/events-redaction.test.ts
+git add -- src/events.ts tests/events.test.ts
 git commit -m "feat: add agent voice event validation"
 ```
 
@@ -427,7 +411,7 @@ Atomic write algorithm:
 
 - [ ] **Step 4: Run tests**
 
-Run: `bun test tests/spool.test.ts tests/events-redaction.test.ts`
+Run: `bun test tests/spool.test.ts tests/events.test.ts`
 
 Expected: PASS.
 
@@ -664,7 +648,6 @@ Create `tests/daemon.test.ts` with fake summarizer/TTS and temp `AGENT_VOICE_HOM
 - summarizer external failures plus heuristic success moves to `done`
 - TTS failure schedules retry with `nextAttemptAt`
 - TTS failure after `maxAttempts` moves to `failed`
-- completed `done`/`failed` records strip `text` when `privacy.storeRawText === false`
 - SIGTERM/current-job shutdown path requeues current `processing` job without losing it
 
 - [ ] **Step 2: Run processor tests to verify failure**
@@ -699,7 +682,7 @@ Implement `processNextJob(paths, config, deps, now)` that:
 4. increments attempts and moves to processing
 5. summarizes
 6. speaks
-7. writes done/failed/skipped with redacted metadata
+7. writes done/failed/skipped with error metadata
 
 - [ ] **Step 6: Implement daemon lifecycle and runtime CLI dispatch**
 
@@ -772,12 +755,12 @@ Implement:
 - `installAdapters(...)` as initially file-generation only, no risky config mutation without marker support
 - `install` / `uninstall` / `uninstall --restore-backups` CLI dispatch
 
-- [ ] **Step 4: Document install/privacy basics**
+- [ ] **Step 4: Document install/data-flow basics**
 
 Create/update `README.md` with:
 
 - what the tool does
-- privacy warning: external summarizers may receive redacted text
+- data-flow warning: external summarizers may receive captured text
 - fully local heuristic mode
 - install/uninstall commands
 - test command
@@ -877,7 +860,6 @@ Add tests for any uncovered acceptance criteria from the spec, especially:
 
 - daemon stopped → events remain in incoming
 - restart requeues stale processing
-- privacy controls do not persist text in done/failed when disabled
 - install/uninstall idempotency and `--restore-backups`
 - `agent-voice start`, `stop`, `status`, and `test` command coverage
 - wrappers skip enqueue when `AGENT_VOICE_DISABLE=1`
@@ -917,7 +899,7 @@ Ensure README includes:
 - install/uninstall
 - start/stop/status
 - enqueue examples with required `--format`
-- privacy warning
+- data-flow warning
 - local heuristic mode
 - wrappers
 - Kokoro path configuration
@@ -925,7 +907,7 @@ Ensure README includes:
 - [ ] **Step 6: Commit validation/docs**
 
 ```bash
-git add -- README.md package.json src/cli.ts src/config.ts src/daemon.ts src/events.ts src/executable.ts src/index.ts src/install.ts src/paths.ts src/processor.ts src/queue.ts src/redaction.ts src/spool.ts src/summarizers.ts src/tts.ts src/wrappers.ts src/adapters/claude.ts src/adapters/pi-extension.ts tests/cli.test.ts tests/config.test.ts tests/events-redaction.test.ts tests/spool.test.ts tests/enqueue-cli.test.ts tests/queue.test.ts tests/summarizers.test.ts tests/tts.test.ts tests/daemon.test.ts tests/daemon-cli.test.ts tests/install.test.ts tests/adapters.test.ts tests/wrappers.test.ts tests/privacy-retention.test.ts tests/integration-daemon.test.ts fixtures/claude-stop-hook.sample.json fixtures/event.sample.json fixtures/kokoro-ready-audio.jsonl bin/agent-voice bin/voice-codex bin/voice-opencode
+git add -- README.md package.json src/cli.ts src/config.ts src/daemon.ts src/events.ts src/executable.ts src/index.ts src/install.ts src/paths.ts src/processor.ts src/queue.ts src/spool.ts src/summarizers.ts src/tts.ts src/wrappers.ts src/adapters/claude.ts src/adapters/pi-extension.ts tests/cli.test.ts tests/config.test.ts tests/events.test.ts tests/spool.test.ts tests/enqueue-cli.test.ts tests/queue.test.ts tests/summarizers.test.ts tests/tts.test.ts tests/daemon.test.ts tests/daemon-cli.test.ts tests/install.test.ts tests/adapters.test.ts tests/wrappers.test.ts tests/integration-daemon.test.ts fixtures/claude-stop-hook.sample.json fixtures/event.sample.json fixtures/kokoro-ready-audio.jsonl bin/agent-voice bin/voice-codex bin/voice-opencode
 git commit -m "docs: document agent voice usage"
 ```
 
@@ -957,7 +939,7 @@ Expected:
 Use `/feature-workflow` Phase 5 style review:
 
 - correctness/regression review
-- privacy/security/install safety review
+- data-flow/install safety review
 - test coverage/maintainability review
 
 Fix only blockers and in-scope issues, then rerun the quality gate.

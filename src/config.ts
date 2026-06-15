@@ -36,11 +36,6 @@ export interface AgentVoiceConfig {
 		maxAttempts: number;
 		retryBackoffSeconds: number;
 	};
-	privacy: {
-		storeRawText: boolean;
-		logRawText: boolean;
-		redactSecrets: boolean;
-	};
 }
 
 export const AGENT_NAMES: AgentName[] = ["claude", "codex", "pi", "opencode"];
@@ -77,11 +72,6 @@ export const defaultConfig: AgentVoiceConfig = {
 		maxEventBytes: 262144,
 		maxAttempts: 3,
 		retryBackoffSeconds: 30,
-	},
-	privacy: {
-		storeRawText: true,
-		logRawText: false,
-		redactSecrets: true,
 	},
 };
 

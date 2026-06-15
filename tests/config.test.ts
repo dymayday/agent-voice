@@ -82,7 +82,17 @@ describe("agent-voice config and paths", () => {
 			});
 
 			expect(result.exitCode).toBe(0);
-			expect(JSON.parse(result.stdout).summarizer.codexModel).toBe(
+			const config = JSON.parse(result.stdout) as Record<string, unknown>;
+			expect(Object.keys(config).sort()).toEqual([
+				"agents",
+				"enabled",
+				"ignoreCwdPatterns",
+				"speakPolicy",
+				"spool",
+				"summarizer",
+				"tts",
+			]);
+			expect((config.summarizer as Record<string, unknown>).codexModel).toBe(
 				"gpt-5.3-codex",
 			);
 			expect(existsSync(join(home, "config.json"))).toBe(true);
@@ -154,12 +164,12 @@ describe("agent-voice config and paths", () => {
 
 	test("config set persists JSON without touching unrelated files", async () => {
 		await withTempHome(async (home) => {
-			await runCli(["config", "set", "privacy.storeRawText", "false"], {
+			await runCli(["config", "set", "tts.voice", "af_sky"], {
 				env: { AGENT_VOICE_HOME: home },
 			});
 
 			const raw = readFileSync(join(home, "config.json"), "utf8");
-			expect(JSON.parse(raw).privacy.storeRawText).toBe(false);
+			expect(JSON.parse(raw).tts.voice).toBe("af_sky");
 		});
 	});
 });
