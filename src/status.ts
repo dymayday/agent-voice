@@ -39,10 +39,10 @@ function deriveUiState(
 	if (snapshot.daemon.state === "stale") attention.push("stale_daemon_lock");
 
 	if (!snapshot.config.enabled) return { state: "paused", attention };
+	if (attention.length > 0) return { state: "needs_attention", attention };
 	if (snapshot.daemon.state === "stopped") {
 		return { state: "daemon_stopped", attention };
 	}
-	if (attention.length > 0) return { state: "needs_attention", attention };
 	if (snapshot.queues.processing > 0) {
 		return { state: "processing", attention };
 	}
@@ -54,7 +54,7 @@ export function buildAppStatusSnapshot(
 	deps: DaemonCliDeps = {},
 ): AppStatusSnapshot {
 	const daemon = getDaemonStatus(paths, deps);
-	const config = loadConfig(paths);
+	const config = loadConfig(paths, { createIfMissing: false });
 	const base: Omit<AppStatusSnapshot, "ui"> = {
 		version: 1,
 		daemon: {

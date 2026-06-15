@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
@@ -46,6 +46,26 @@ describe("agent-voice doctor --json", () => {
 			expect(
 				parsed.checks.find((check) => check.id === "daemon.running")?.ok,
 			).toBe(false);
+		});
+	});
+
+	test("reports missing config without creating it", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			expect(existsSync(paths.config)).toBe(false);
+
+			const result = await runCli(["doctor", "--json"], {
+				env: { AGENT_VOICE_HOME: home },
+				daemonDeps: { isPidAlive: () => false },
+			});
+
+			expect(result.exitCode).toBe(0);
+			const parsed = JSON.parse(result.stdout) as {
+				checks: Array<{ id: string; ok: boolean; severity: string }>;
+			};
+			const configCheck = parsed.checks.find((check) => check.id === "config.load");
+			expect(configCheck).toMatchObject({ ok: false, severity: "warning" });
+			expect(existsSync(paths.config)).toBe(false);
 		});
 	});
 

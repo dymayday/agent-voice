@@ -1,13 +1,14 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { runCli } from "../src/cli";
 import { loadConfig, saveConfig } from "../src/config";
+import { writeDaemonLock } from "../src/daemon";
 import { openDb } from "../src/db";
 import { createEvent } from "../src/events";
 import { resolvePaths } from "../src/paths";
-import { enqueue } from "../src/store";
+import { enqueue, markFailed } from "../src/store";
 
 type JsonStatus = {
 	version: 1;
@@ -69,7 +70,7 @@ describe("agent-voice status --json", () => {
 		});
 	});
 
-	test("reports paused and failed attention from config and queues", async () => {
+	test("reports paused attention from config", async () => {
 		await withTempHome(async (home) => {
 			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
 			const config = loadConfig(paths);
@@ -87,6 +88,58 @@ describe("agent-voice status --json", () => {
 			expect(parsed.config.enabled).toBe(false);
 			expect(parsed.ui.state).toBe("paused");
 			expect(parsed.ui.attention).toContain("system_paused");
+		});
+	});
+
+	test("reports failed jobs as needs attention", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			const event = createEvent({ agent: "codex", text: "Failed." });
+			const db = openDb(paths.db);
+			enqueue(db, event);
+			markFailed(db, event.id, new Date("2026-06-15T00:00:00.000Z"), "boom");
+			db.close();
+
+			const result = await runCli(["status", "--json"], {
+				env: { AGENT_VOICE_HOME: home },
+				daemonDeps: { isPidAlive: () => true },
+			});
+
+			const parsed = JSON.parse(result.stdout) as JsonStatus;
+			expect(parsed.ui.state).toBe("needs_attention");
+			expect(parsed.ui.attention).toContain("failed_jobs");
+		});
+	});
+
+	test("reports stale daemon lock as needs attention", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			writeDaemonLock(paths, 12345);
+
+			const result = await runCli(["status", "--json"], {
+				env: { AGENT_VOICE_HOME: home },
+				daemonDeps: { isPidAlive: () => false },
+			});
+
+			const parsed = JSON.parse(result.stdout) as JsonStatus;
+			expect(parsed.daemon.state).toBe("stale");
+			expect(parsed.ui.state).toBe("needs_attention");
+			expect(parsed.ui.attention).toContain("stale_daemon_lock");
+		});
+	});
+
+	test("status json does not create a missing config file", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			expect(existsSync(paths.config)).toBe(false);
+
+			const result = await runCli(["status", "--json"], {
+				env: { AGENT_VOICE_HOME: home },
+				daemonDeps: { isPidAlive: () => false },
+			});
+
+			expect(result.exitCode).toBe(0);
+			expect(existsSync(paths.config)).toBe(false);
 		});
 	});
 });

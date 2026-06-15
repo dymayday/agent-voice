@@ -21,14 +21,18 @@ export function buildDoctorReport(
 	deps: DaemonCliDeps = {},
 ): DoctorReport {
 	const checks: DoctorCheck[] = [];
+	const configExists = existsSync(paths.config);
 	let config;
 	try {
-		config = loadConfig(paths);
+		config = loadConfig(paths, { createIfMissing: false });
 		checks.push({
 			id: "config.load",
-			ok: true,
-			severity: "info",
-			message: "Config loaded",
+			ok: configExists,
+			severity: configExists ? "info" : "warning",
+			message: configExists
+				? "Config loaded"
+				: "Config file not found; using defaults",
+			...(configExists ? {} : { action: "Open setup to create config.json" }),
 		});
 	} catch (error) {
 		checks.push({
