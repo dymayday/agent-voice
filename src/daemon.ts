@@ -333,6 +333,7 @@ export async function stopDaemon(
 		} else if ((deps.isPidAlive ?? defaultIsPidAlive)(pid)) {
 			(deps.killProcess ?? defaultKillProcess)(pid, "SIGTERM");
 		}
+		clearDaemonLock(paths);
 	}
 	return { stopped: pid !== null, pid };
 }

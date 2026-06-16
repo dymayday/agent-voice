@@ -6,7 +6,9 @@ import { runCli } from "../src/cli";
 import { loadConfig } from "../src/config";
 import { resolvePaths } from "../src/paths";
 
-async function withTempHome<T>(fn: (home: string) => Promise<T> | T): Promise<T> {
+async function withTempHome<T>(
+	fn: (home: string) => Promise<T> | T,
+): Promise<T> {
 	const home = mkdtempSync(join(tmpdir(), "agent-voice-pause-test-"));
 	try {
 		return await fn(home);

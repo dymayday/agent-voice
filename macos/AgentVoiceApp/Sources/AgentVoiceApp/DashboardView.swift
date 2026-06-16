@@ -1,6 +1,8 @@
 import AgentVoiceCore
 import SwiftUI
 
+private let recentEventsListMaxHeight: CGFloat = 220
+
 struct DashboardView: View {
     @ObservedObject var model: AppModel
 
@@ -12,9 +14,9 @@ struct DashboardView: View {
                 daemonCard
                 kokoroCard
                 queueCards
-                recentEventsSection
                 failedJobsSection
                 agentGridSection
+                recentEventsSection
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(24)
@@ -75,13 +77,39 @@ struct DashboardView: View {
 
     private var kokoroCard: some View {
         card("Kokoro and config") {
-            labeledRow("Kokoro script", "Not exposed by current CLI yet")
-            labeledRow("Voice", "Not exposed by current CLI yet")
+            labeledRow("Kokoro script", model.config?.tts.kokoroScript ?? "Unknown")
+            labeledRow("Voice", model.config?.tts.voice ?? "Unknown")
+            voiceControls
             labeledRow("Agent Voice home", model.status?.paths.home ?? "Unknown")
             labeledRow("Config", model.status?.paths.config ?? "Unknown")
             labeledRow("Queue database", model.status?.paths.db ?? "Unknown")
             Button("Run Voice Test") {
                 Task { await model.testVoice() }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var voiceControls: some View {
+        let presets = AppModel.kokoroVoicePresets
+        VStack(alignment: .leading, spacing: 8) {
+            Picker("Preset", selection: $model.draftVoice) {
+                ForEach(presets, id: \.self) { voice in
+                    Text(voice).tag(voice)
+                }
+                if !presets.contains(model.draftVoice), !model.draftVoice.isEmpty {
+                    Text("Custom: \(model.draftVoice)").tag(model.draftVoice)
+                }
+            }
+            .pickerStyle(.menu)
+
+            HStack {
+                TextField("Kokoro voice id", text: $model.draftVoice)
+                    .textFieldStyle(.roundedBorder)
+                Button("Save Voice") {
+                    Task { await model.saveVoice() }
+                }
+                .disabled(model.draftVoice.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
     }
@@ -97,6 +125,13 @@ struct DashboardView: View {
                     queueCount("Failed", queues.failed)
                     queueCount("Skipped", queues.skipped)
                 }
+                Button("Clear Queue") {
+                    Task { await model.clearQueue() }
+                }
+                .disabled(queues.pending + queues.processing == 0)
+                Text("Clears pending and processing jobs only; history is preserved.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         } else {
             card("Queue") {
@@ -115,17 +150,21 @@ struct DashboardView: View {
                     Text("No recent done events.")
                         .foregroundStyle(.secondary)
                 } else {
-                    VStack(alignment: .leading, spacing: 10) {
-                        ForEach(jobs) { job in
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(job.summary ?? "No summary recorded")
-                                    .font(.headline)
-                                Text("\(job.agent) · \(job.finishedAt ?? job.createdAt)")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 10) {
+                            ForEach(jobs) { job in
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(job.summary ?? "No summary recorded")
+                                        .font(.headline)
+                                    Text("\(job.agent) · \(job.finishedAt ?? job.createdAt)")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
                             }
                         }
                     }
+                    .frame(maxHeight: recentEventsListMaxHeight)
                 }
             } else {
                 Text("History unavailable")
@@ -181,6 +220,21 @@ struct DashboardView: View {
                             Text(agent?.mode ?? "Not exposed by current CLI yet")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                            if name == "pi" {
+                                HStack {
+                                    Button("Install Hook") {
+                                        Task { await model.installAgentHook("pi") }
+                                    }
+                                    Button("Uninstall Hook") {
+                                        Task { await model.uninstallAgentHook("pi") }
+                                    }
+                                }
+                                .font(.caption)
+                            } else {
+                                Text("Hook install coming later")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(10)

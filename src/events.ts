@@ -67,7 +67,10 @@ export function validateEvent(input: unknown): ValidationResult {
 		return { ok: false, reason: "Unsupported event version" };
 	}
 
-	if (typeof input.agent !== "string" || !AGENT_NAMES.includes(input.agent as AgentName)) {
+	if (
+		typeof input.agent !== "string" ||
+		!AGENT_NAMES.includes(input.agent as AgentName)
+	) {
 		return { ok: false, reason: "Unknown agent" };
 	}
 

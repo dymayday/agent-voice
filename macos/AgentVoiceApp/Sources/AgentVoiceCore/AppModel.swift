@@ -6,7 +6,20 @@ public final class AppModel: ObservableObject {
     @Published public private(set) var status: AgentVoiceStatusSnapshot?
     @Published public private(set) var history: AgentVoiceHistorySnapshot?
     @Published public private(set) var doctorReport: DoctorReport?
+    @Published public private(set) var config: AgentVoiceFullConfig?
     @Published public private(set) var lastError: String?
+    @Published public var draftVoice: String = ""
+
+    public static let kokoroVoicePresets = [
+        "af_heart",
+        "af_sky",
+        "af_bella",
+        "af_nicole",
+        "am_adam",
+        "am_michael",
+        "bf_emma",
+        "bm_george"
+    ]
 
     public let cli: AgentVoiceCLI
 
@@ -24,6 +37,8 @@ public final class AppModel: ObservableObject {
             status = try await cli.status()
             history = try await cli.history(limit: 50)
             doctorReport = try await cli.doctor()
+            config = try await cli.config()
+            draftVoice = config?.tts.voice ?? ""
             lastError = nil
         } catch {
             lastError = String(describing: error)
@@ -46,12 +61,44 @@ public final class AppModel: ObservableObject {
         await perform { try await cli.stopDaemon() }
     }
 
+    public func stopDaemonBeforeQuit() async -> Bool {
+        do {
+            try await cli.stopDaemon()
+            await refresh()
+            return true
+        } catch {
+            lastError = String(describing: error)
+            return false
+        }
+    }
+
     public func testVoice() async {
         await perform { try await cli.runVoiceTest("Agent Voice test.") }
     }
 
     public func setSummarizerMode(_ mode: String) async {
         await perform { try await cli.setSummarizerMode(mode) }
+    }
+
+    public func clearQueue() async {
+        await perform { try await cli.clearQueue() }
+    }
+
+    public func saveVoice() async {
+        let voice = draftVoice.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !voice.isEmpty else {
+            lastError = "Voice cannot be empty"
+            return
+        }
+        await perform { try await cli.setVoice(voice) }
+    }
+
+    public func installAgentHook(_ agent: String) async {
+        await perform { try await cli.installAgentHook(agent) }
+    }
+
+    public func uninstallAgentHook(_ agent: String) async {
+        await perform { try await cli.uninstallAgentHook(agent) }
     }
 
     private func perform(_ operation: () async throws -> Void) async {

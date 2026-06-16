@@ -8,7 +8,9 @@ import { createEvent } from "../src/events";
 import { resolvePaths } from "../src/paths";
 import { enqueue } from "../src/store";
 
-async function withTempHome<T>(fn: (home: string) => Promise<T> | T): Promise<T> {
+async function withTempHome<T>(
+	fn: (home: string) => Promise<T> | T,
+): Promise<T> {
 	const home = mkdtempSync(join(tmpdir(), "agent-voice-history-test-"));
 	try {
 		return await fn(home);
@@ -28,12 +30,15 @@ describe("agent-voice history --json", () => {
 			enqueue(db, { ...failed, createdAt: "2026-06-15T00:00:02.000Z" });
 			db.query(
 				"UPDATE jobs SET status='done', summary=?, summarizer_used=?, finished_at=? WHERE id=?",
-			).run("Claude finished.", "heuristic", "2026-06-15T00:01:00.000Z", done.id);
-			db.query("UPDATE jobs SET status='failed', last_error=?, finished_at=? WHERE id=?").run(
-				"boom",
-				"2026-06-15T00:02:00.000Z",
-				failed.id,
+			).run(
+				"Claude finished.",
+				"heuristic",
+				"2026-06-15T00:01:00.000Z",
+				done.id,
 			);
+			db.query(
+				"UPDATE jobs SET status='failed', last_error=?, finished_at=? WHERE id=?",
+			).run("boom", "2026-06-15T00:02:00.000Z", failed.id);
 			db.close();
 
 			const result = await runCli(["history", "--json", "--limit", "10"], {
@@ -81,7 +86,9 @@ describe("agent-voice history --json", () => {
 					env: { AGENT_VOICE_HOME: home },
 				});
 				expect(result.exitCode).toBe(2);
-				expect(result.stderr).toContain("--limit must be an integer between 1 and 200");
+				expect(result.stderr).toContain(
+					"--limit must be an integer between 1 and 200",
+				);
 			}
 		});
 	});
@@ -92,13 +99,17 @@ describe("agent-voice history --json", () => {
 				env: { AGENT_VOICE_HOME: home },
 			});
 			expect(result.exitCode).toBe(2);
-			expect(result.stderr).toContain("--limit must be an integer between 1 and 200");
+			expect(result.stderr).toContain(
+				"--limit must be an integer between 1 and 200",
+			);
 		});
 	});
 
 	test("rejects plain history until text output is designed", async () => {
 		await withTempHome(async (home) => {
-			const result = await runCli(["history"], { env: { AGENT_VOICE_HOME: home } });
+			const result = await runCli(["history"], {
+				env: { AGENT_VOICE_HOME: home },
+			});
 			expect(result.exitCode).toBe(2);
 			expect(result.stderr).toContain("history currently requires --json");
 		});

@@ -20,11 +20,12 @@ import {
 import { buildDoctorReport } from "./doctor";
 import { createEvent, type AgentVoiceEvent, validateEvent } from "./events";
 import { buildHistorySnapshot, formatHistoryJson } from "./history";
+import { installPi, uninstallPi } from "./install";
 import { resolvePaths } from "./paths";
 import type { ProcessorDeps } from "./processor";
 import { summarize } from "./summarizers";
 import { openDb } from "./db";
-import { enqueue } from "./store";
+import { clearActiveQueue, enqueue } from "./store";
 import { buildAppStatusSnapshot, formatAppStatusJson } from "./status";
 import { isSummarizerMode, setSummarizerMode } from "./summarizer-mode";
 import { KokoroClient, playWav } from "./tts";
@@ -52,6 +53,7 @@ Usage:
   agent-voice stop
   agent-voice status [--json]
   agent-voice history --json [--limit 50]
+  agent-voice queue clear
   agent-voice pause
   agent-voice resume
   agent-voice enqueue --format text --agent claude --cwd "$PWD"
@@ -77,7 +79,11 @@ function getOption(args: string[], name: string): string | undefined {
 	return args[index + 1];
 }
 
-function parseBoundedIntegerOption(raw: string | undefined, min: number, max: number): number | null {
+function parseBoundedIntegerOption(
+	raw: string | undefined,
+	min: number,
+	max: number,
+): number | null {
 	if (!raw || !/^\d+$/.test(raw)) return null;
 	const value = Number(raw);
 	if (!Number.isInteger(value) || value < min || value > max) return null;
@@ -86,6 +92,14 @@ function parseBoundedIntegerOption(raw: string | undefined, min: number, max: nu
 
 function parseJson(input: string): unknown {
 	return JSON.parse(input || "{}");
+}
+
+function parseAgentsOption(args: string[]): string[] {
+	const value = getOption(args, "--agents") ?? "";
+	return value
+		.split(",")
+		.map((agent) => agent.trim())
+		.filter(Boolean);
 }
 
 function loadConfigForEnqueue(paths: ReturnType<typeof resolvePaths>) {
@@ -138,6 +152,27 @@ export async function runCli(
 		command === "help"
 	) {
 		return result(0, HELP);
+	}
+
+	if (command === "install" || command === "uninstall") {
+		const agents = parseAgentsOption(args);
+		if (agents.length !== 1 || agents[0] !== "pi") {
+			return result(2, "", `${command} currently supports only pi\n`);
+		}
+
+		try {
+			const outcome =
+				command === "install"
+					? installPi(io.env ?? process.env)
+					: uninstallPi(io.env ?? process.env);
+			return result(0, `${outcome.message}\n`);
+		} catch (error) {
+			return result(
+				1,
+				"",
+				`${error instanceof Error ? error.message : String(error)}\n`,
+			);
+		}
 	}
 
 	if (command === "config") {
@@ -196,7 +231,11 @@ export async function runCli(
 	if (command === "summarizer") {
 		const [, subcommand, mode] = args;
 		if (subcommand !== "mode" || !mode) {
-			return result(2, "", "Usage: agent-voice summarizer mode heuristic|default\n");
+			return result(
+				2,
+				"",
+				"Usage: agent-voice summarizer mode heuristic|default\n",
+			);
 		}
 		if (!isSummarizerMode(mode)) {
 			return result(2, "", `Unknown summarizer mode: ${mode}\n`);
@@ -210,7 +249,24 @@ export async function runCli(
 		if (!args.includes("--json")) {
 			return result(2, "", "doctor currently requires --json\n");
 		}
-		return result(0, `${JSON.stringify(buildDoctorReport(paths, io.daemonDeps), null, 2)}\n`);
+		return result(
+			0,
+			`${JSON.stringify(buildDoctorReport(paths, io.daemonDeps), null, 2)}\n`,
+		);
+	}
+
+	if (command === "queue") {
+		const [, subcommand] = args;
+		if (subcommand !== "clear") {
+			return result(2, "", "Usage: agent-voice queue clear\n");
+		}
+		const db = openDb(paths.db);
+		try {
+			const deleted = clearActiveQueue(db);
+			return result(0, `Cleared ${deleted} queued job(s).\n`);
+		} finally {
+			db.close();
+		}
 	}
 
 	if (command === "history") {

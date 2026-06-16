@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+	existsSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defaultConfig, type AgentVoiceConfig } from "../src/config";
@@ -84,8 +90,14 @@ describe("agent-voice Kokoro TTS bridge", () => {
 		const client = new KokoroClient(defaultConfig, () => {
 			const session = new FakeKokoroSession([
 				JSON.stringify({ status: "ready" }),
-				JSON.stringify({ audio: wavBuffer().toString("base64"), duration: 0.1 }),
-				JSON.stringify({ audio: wavBuffer().toString("base64"), duration: 0.1 }),
+				JSON.stringify({
+					audio: wavBuffer().toString("base64"),
+					duration: 0.1,
+				}),
+				JSON.stringify({
+					audio: wavBuffer().toString("base64"),
+					duration: 0.1,
+				}),
 			]);
 			sessions.push(session);
 			return session;
@@ -153,12 +165,17 @@ describe("agent-voice Kokoro TTS bridge", () => {
 			let playedPath = "";
 
 			await expect(
-				playWav(wavBuffer(), paths, async (request) => {
-					playedPath = request.args[0];
-					expect(request.timeoutMs).toBe(5);
-					expect(existsSync(playedPath)).toBe(true);
-					throw new Error("afplay timed out");
-				}, { timeoutMs: 5 }),
+				playWav(
+					wavBuffer(),
+					paths,
+					async (request) => {
+						playedPath = request.args[0];
+						expect(request.timeoutMs).toBe(5);
+						expect(existsSync(playedPath)).toBe(true);
+						throw new Error("afplay timed out");
+					},
+					{ timeoutMs: 5 },
+				),
 			).rejects.toThrow("afplay timed out");
 
 			expect(existsSync(playedPath)).toBe(false);
@@ -185,6 +202,34 @@ describe("agent-voice Kokoro TTS bridge", () => {
 		]);
 
 		expect(outcome).toBe("rejected");
+	});
+
+	test("Kokoro readiness error includes subprocess stderr", async () => {
+		await withTempHome(async (home) => {
+			const scriptPath = join(home, "kokoro-fails.sh");
+			writeFileSync(
+				scriptPath,
+				"printf 'ModuleNotFoundError: No module named tqdm\\n' >&2\nexit 1\n",
+			);
+			const client = new KokoroClient(
+				config({
+					tts: {
+						...defaultConfig.tts,
+						python: "bash",
+						kokoroScript: scriptPath,
+					},
+				}),
+			);
+
+			await client.ensureReady().then(
+				() => {
+					throw new Error("Expected Kokoro readiness to fail");
+				},
+				(error) => {
+					expect(String(error)).toContain("ModuleNotFoundError");
+				},
+			);
+		});
 	});
 
 	test("Kokoro restarts once after invalid JSON and retries the job", async () => {

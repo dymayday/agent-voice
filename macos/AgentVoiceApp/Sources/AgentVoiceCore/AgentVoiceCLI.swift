@@ -71,6 +71,11 @@ public struct AgentVoiceCLI: Sendable {
         return try JSONDecoder().decode(AgentVoiceHistorySnapshot.self, from: Data(result.stdout.utf8))
     }
 
+    public func config() async throws -> AgentVoiceFullConfig {
+        let result = try await run(["config", "get"])
+        return try JSONDecoder().decode(AgentVoiceFullConfig.self, from: Data(result.stdout.utf8))
+    }
+
     public func pause() async throws {
         _ = try await run(["pause"])
     }
@@ -93,6 +98,22 @@ public struct AgentVoiceCLI: Sendable {
 
     public func setSummarizerMode(_ mode: String) async throws {
         _ = try await run(["summarizer", "mode", mode])
+    }
+
+    public func setVoice(_ voice: String) async throws {
+        _ = try await run(["config", "set", "tts.voice", voice])
+    }
+
+    public func clearQueue() async throws {
+        _ = try await run(["queue", "clear"])
+    }
+
+    public func installAgentHook(_ agent: String) async throws {
+        _ = try await run(["install", "--agents", agent])
+    }
+
+    public func uninstallAgentHook(_ agent: String) async throws {
+        _ = try await run(["uninstall", "--agents", agent])
     }
 
     @discardableResult

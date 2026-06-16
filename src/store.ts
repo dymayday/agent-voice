@@ -3,7 +3,12 @@ import type { AgentVoiceConfig } from "./config";
 import type { AgentVoiceEvent } from "./events";
 import { shouldSkipJob, type QueueJob, type SkipReason } from "./queue";
 
-export type JobStatus = "pending" | "processing" | "done" | "failed" | "skipped";
+export type JobStatus =
+	| "pending"
+	| "processing"
+	| "done"
+	| "failed"
+	| "skipped";
 
 export interface StoredJob extends QueueJob {
 	status: JobStatus;
@@ -34,7 +39,9 @@ interface JobRow {
 	metadata: string | null;
 }
 
-function parseMetadata(raw: string | null): Record<string, unknown> | undefined {
+function parseMetadata(
+	raw: string | null,
+): Record<string, unknown> | undefined {
 	if (!raw) return undefined;
 	try {
 		const parsed = JSON.parse(raw) as unknown;
@@ -62,7 +69,9 @@ function rowToStoredJob(row: JobRow): StoredJob {
 		...(row.next_attempt_at ? { nextAttemptAt: row.next_attempt_at } : {}),
 		...(row.summary ? { summary: row.summary } : {}),
 		...(row.summarizer_used ? { summarizerUsed: row.summarizer_used } : {}),
-		...(parseMetadata(row.metadata) ? { metadata: parseMetadata(row.metadata) } : {}),
+		...(parseMetadata(row.metadata)
+			? { metadata: parseMetadata(row.metadata) }
+			: {}),
 	};
 }
 
@@ -94,10 +103,19 @@ export function enqueue(
 	return { inserted: res.changes > 0 };
 }
 
-const STATUSES: JobStatus[] = ["pending", "processing", "done", "failed", "skipped"];
+const STATUSES: JobStatus[] = [
+	"pending",
+	"processing",
+	"done",
+	"failed",
+	"skipped",
+];
 
 export function countByStatus(db: Database): Record<JobStatus, number> {
-	const counts = Object.fromEntries(STATUSES.map((s) => [s, 0])) as Record<JobStatus, number>;
+	const counts = Object.fromEntries(STATUSES.map((s) => [s, 0])) as Record<
+		JobStatus,
+		number
+	>;
 	const rows = db
 		.query("SELECT status, COUNT(*) AS c FROM jobs GROUP BY status")
 		.all() as { status: string; c: number }[];
@@ -109,7 +127,20 @@ export function countByStatus(db: Database): Record<JobStatus, number> {
 	return counts;
 }
 
-function markSkippedInternal(db: Database, id: string, reason: SkipReason, now: Date): void {
+export function clearActiveQueue(db: Database): number {
+	const res = db
+		.query("DELETE FROM jobs WHERE status IN ('pending', 'processing')")
+		.run();
+	db.exec("PRAGMA incremental_vacuum");
+	return res.changes;
+}
+
+function markSkippedInternal(
+	db: Database,
+	id: string,
+	reason: SkipReason,
+	now: Date,
+): void {
 	db.query(
 		"UPDATE jobs SET status='skipped', skip_reason=$reason, finished_at=$now WHERE id=$id",
 	).run({ $reason: reason, $now: now.toISOString(), $id: id });
@@ -140,7 +171,10 @@ export function claimNextDue(
 			markSkippedInternal(db, candidate.id, skip.reason, now);
 			continue;
 		}
-		const claimed = claim.get({ $now: iso, $id: candidate.id }) as JobRow | null;
+		const claimed = claim.get({
+			$now: iso,
+			$id: candidate.id,
+		}) as JobRow | null;
 		if (!claimed) continue; // lost a race (single daemon: should not happen)
 		return rowToStoredJob(claimed);
 	}
@@ -152,7 +186,9 @@ export function recoverStale(
 	now = new Date(),
 ): string[] {
 	const timeoutMs = config.spool.processingTimeoutSeconds * 1000;
-	const rows = db.query("SELECT * FROM jobs WHERE status='processing'").all() as JobRow[];
+	const rows = db
+		.query("SELECT * FROM jobs WHERE status='processing'")
+		.all() as JobRow[];
 	const recovered: string[] = [];
 	const reset = db.query(
 		"UPDATE jobs SET status='pending', next_attempt_at=NULL WHERE id=? AND status='processing'",
@@ -173,7 +209,9 @@ export function markSpoken(
 	summary: string,
 	summarizerUsed: string | null,
 ): void {
-	db.query("UPDATE jobs SET summary=$summary, summarizer_used=$used WHERE id=$id").run({
+	db.query(
+		"UPDATE jobs SET summary=$summary, summarizer_used=$used WHERE id=$id",
+	).run({
 		$summary: summary,
 		$used: summarizerUsed,
 		$id: id,
@@ -209,15 +247,26 @@ export function markFailed(
 	).run({ $err: lastError, $now: now.toISOString(), $id: id });
 }
 
-export function markSkipped(db: Database, id: string, reason: SkipReason, now = new Date()): void {
+export function markSkipped(
+	db: Database,
+	id: string,
+	reason: SkipReason,
+	now = new Date(),
+): void {
 	markSkippedInternal(db, id, reason, now);
 }
 
-export function pruneRetention(db: Database, retentionDays: number, now = new Date()): number {
+export function pruneRetention(
+	db: Database,
+	retentionDays: number,
+	now = new Date(),
+): number {
 	if (!Number.isFinite(retentionDays) || retentionDays < 0) {
 		throw new Error(`Invalid retentionDays: ${retentionDays}`);
 	}
-	const cutoff = new Date(now.getTime() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
+	const cutoff = new Date(
+		now.getTime() - retentionDays * 24 * 60 * 60 * 1000,
+	).toISOString();
 	const res = db
 		.query(
 			`DELETE FROM jobs
@@ -235,7 +284,10 @@ export interface HistoryFilter {
 	limit?: number;
 }
 
-export function listHistory(db: Database, filter: HistoryFilter = {}): StoredJob[] {
+export function listHistory(
+	db: Database,
+	filter: HistoryFilter = {},
+): StoredJob[] {
 	const clauses = ["status IN ('done','failed','skipped')"];
 	const params: Record<string, string | number> = {};
 	if (filter.agent) {
@@ -247,7 +299,8 @@ export function listHistory(db: Database, filter: HistoryFilter = {}): StoredJob
 		params.$since = filter.since;
 	}
 	const limit = Math.floor(Number(filter.limit ?? 200));
-	if (!Number.isFinite(limit)) throw new Error(`Invalid history limit: ${filter.limit}`);
+	if (!Number.isFinite(limit))
+		throw new Error(`Invalid history limit: ${filter.limit}`);
 	params.$limit = Math.max(1, Math.min(1000, limit));
 	const rows = db
 		.query(

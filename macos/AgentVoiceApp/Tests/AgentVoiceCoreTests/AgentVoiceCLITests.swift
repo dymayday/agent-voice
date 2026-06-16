@@ -160,6 +160,66 @@ final class AgentVoiceCLITests: XCTestCase {
         XCTAssertEqual(requests.first?.arguments, ["summarizer", "mode", "heuristic"])
     }
 
+    func testInstallAndUninstallAgentHookCommands() async throws {
+        let runner = RecordingRunner(results: [
+            ProcessResult(exitCode: 0, stdout: "installed\n", stderr: ""),
+            ProcessResult(exitCode: 0, stdout: "uninstalled\n", stderr: "")
+        ])
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+
+        try await cli.installAgentHook("pi")
+        try await cli.uninstallAgentHook("pi")
+
+        let requests = await runner.capturedRequests()
+        XCTAssertEqual(requests.map(\.arguments), [
+            ["install", "--agents", "pi"],
+            ["uninstall", "--agents", "pi"]
+        ])
+    }
+
+    func testConfigCommandDecodesVoice() async throws {
+        let configJSON = """
+        {
+          "enabled": true,
+          "agents": {},
+          "tts": {
+            "kokoroScript": "/tmp/kokoro.py",
+            "python": "python3",
+            "voice": "af_sky",
+            "timeoutSeconds": 30
+          }
+        }
+        """
+        let runner = RecordingRunner(stdout: configJSON)
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+
+        let config = try await cli.config()
+
+        XCTAssertEqual(config.tts.voice, "af_sky")
+        let requests = await runner.capturedRequests()
+        XCTAssertEqual(requests.first?.arguments, ["config", "get"])
+    }
+
+    func testSetVoiceCommand() async throws {
+        let runner = RecordingRunner(stdout: "ok\n")
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+
+        try await cli.setVoice("bf_emma")
+
+        let requests = await runner.capturedRequests()
+        XCTAssertEqual(requests.first?.arguments, ["config", "set", "tts.voice", "bf_emma"])
+    }
+
+    func testClearQueueCommand() async throws {
+        let runner = RecordingRunner(stdout: "Cleared 2 queued job(s).\n")
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+
+        try await cli.clearQueue()
+
+        let requests = await runner.capturedRequests()
+        XCTAssertEqual(requests.first?.arguments, ["queue", "clear"])
+    }
+
     func testDefaultExecutablePrefersEnvironmentOverride() throws {
         let settings = AppSettings.defaultSettings(env: ["AGENT_VOICE_EXECUTABLE": "/tmp/agent-voice"])
         XCTAssertEqual(settings.executableURL.path, "/tmp/agent-voice")
@@ -172,7 +232,11 @@ final class AgentVoiceCLITests: XCTestCase {
         FileManager.default.createFile(atPath: cli.path, contents: Data())
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: cli.path)
 
-        let settings = AppSettings.defaultSettings(env: [:], bundleResourceURL: root, currentDirectory: URL(fileURLWithPath: "/tmp/not-repo"))
+        let settings = AppSettings.defaultSettings(
+            env: [:],
+            bundleResourceURL: root,
+            currentDirectory: URL(fileURLWithPath: "/tmp/not-repo")
+        )
 
         XCTAssertEqual(settings.executableURL.path, cli.path)
     }

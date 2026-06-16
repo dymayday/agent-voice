@@ -243,6 +243,24 @@ describe("agent-voice daemon CLI", () => {
 		});
 	});
 
+	test("successful stop clears daemon lock so status is cleanly stopped", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			writeDaemonLock(paths, 2468);
+
+			const result = await runCli(["stop"], {
+				env: { AGENT_VOICE_HOME: home },
+				daemonDeps: {
+					isPidAlive: () => true,
+					killProcess: () => {},
+				},
+			});
+
+			expect(result.exitCode).toBe(0);
+			expect(existsSync(daemonLockPath(paths))).toBe(false);
+		});
+	});
+
 	test("stop reports signaling failure without rejecting", async () => {
 		await withTempHome(async (home) => {
 			const paths = resolvePaths({ AGENT_VOICE_HOME: home });

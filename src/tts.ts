@@ -6,6 +6,7 @@ import type { AgentVoicePaths } from "./paths";
 export interface KokoroSession {
 	writeLine(line: string): void;
 	readLine(): Promise<string | null>;
+	readStderr?(): Promise<string>;
 	dispose(): void;
 }
 
@@ -41,6 +42,7 @@ interface KokoroMessage {
 class BunKokoroSession implements KokoroSession {
 	private readonly proc: ReturnType<typeof Bun.spawn>;
 	private readonly reader: ReadableStreamDefaultReader<Uint8Array>;
+	private readonly stderrText: Promise<string>;
 	private buffered = "";
 	private decoder = new TextDecoder();
 
@@ -55,6 +57,7 @@ class BunKokoroSession implements KokoroSession {
 			throw new Error("Kokoro stdout is not readable");
 		}
 		this.reader = stdout.getReader();
+		this.stderrText = streamToText(this.proc.stderr);
 	}
 
 	writeLine(line: string): void {
@@ -83,6 +86,10 @@ class BunKokoroSession implements KokoroSession {
 			}
 			this.buffered += this.decoder.decode(chunk.value, { stream: true });
 		}
+	}
+
+	async readStderr(): Promise<string> {
+		return await this.stderrText;
 	}
 
 	dispose(): void {
@@ -144,6 +151,20 @@ async function readLineBeforeDeadline(
 	}
 }
 
+async function exitedBeforeMessage(
+	session: KokoroSession,
+	phase: "ready" | "audio",
+): Promise<string> {
+	if (!session.readStderr) return `Kokoro exited before ${phase}`;
+	try {
+		const stderr = (await session.readStderr()).trim();
+		if (stderr.length > 0) return `Kokoro exited before ${phase}: ${stderr}`;
+	} catch {
+		// Preserve the original protocol-level failure if stderr collection fails.
+	}
+	return `Kokoro exited before ${phase}`;
+}
+
 export class KokoroClient {
 	private session: KokoroSession | null = null;
 	private ready = false;
@@ -162,7 +183,8 @@ export class KokoroClient {
 
 		while (true) {
 			const line = await readLineBeforeDeadline(session, deadline, "ready");
-			if (line === null) throw new Error("Kokoro exited before ready");
+			if (line === null)
+				throw new Error(await exitedBeforeMessage(session, "ready"));
 			if (line.trim().length === 0) continue;
 
 			const message = parseKokoroLine(line);
@@ -207,7 +229,8 @@ export class KokoroClient {
 
 		while (true) {
 			const line = await readLineBeforeDeadline(session, deadline, "audio");
-			if (line === null) throw new Error("Kokoro exited before audio");
+			if (line === null)
+				throw new Error(await exitedBeforeMessage(session, "audio"));
 			if (line.trim().length === 0) continue;
 
 			const message = parseKokoroLine(line);
@@ -249,7 +272,8 @@ async function defaultPlaybackRunner(
 			streamToText(proc.stdout),
 			streamToText(proc.stderr),
 		]);
-		if (exitCode === 0 && !timedOut) return { ok: true, stdout, stderr, exitCode };
+		if (exitCode === 0 && !timedOut)
+			return { ok: true, stdout, stderr, exitCode };
 		return {
 			ok: false,
 			stdout,

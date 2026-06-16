@@ -9,6 +9,7 @@ struct AgentVoiceApplication: App {
         MenuBarExtra("Agent Voice", systemImage: "waveform.circle") {
             MenuBarSentinelView(model: model)
         }
+        .menuBarExtraStyle(.window)
 
         WindowGroup("Dashboard", id: "dashboard") {
             DashboardView(model: model)

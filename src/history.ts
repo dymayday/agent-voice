@@ -38,7 +38,10 @@ interface HistoryRow {
 	attempts: number;
 }
 
-export function buildHistorySnapshot(paths: AgentVoicePaths, limit = 50): AppHistorySnapshot {
+export function buildHistorySnapshot(
+	paths: AgentVoicePaths,
+	limit = 50,
+): AppHistorySnapshot {
 	if (!existsSync(paths.db)) return { version: 1, jobs: [] };
 
 	const db = new Database(paths.db, { readonly: true });

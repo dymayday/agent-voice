@@ -1,7 +1,41 @@
 import { describe, expect, test } from "bun:test";
 import { openDb } from "../src/db";
 import { createEvent } from "../src/events";
-import { enqueue, countByStatus } from "../src/store";
+import { enqueue, countByStatus, clearActiveQueue } from "../src/store";
+
+describe("store: clear active queue", () => {
+	test("deletes pending and processing jobs while preserving history", () => {
+		const db = openDb(":memory:");
+		try {
+			const pending = createEvent({ agent: "claude", text: "Pending." });
+			const processing = createEvent({ agent: "codex", text: "Processing." });
+			const done = createEvent({ agent: "pi", text: "Done." });
+			const failed = createEvent({ agent: "claude", text: "Failed." });
+			const skipped = createEvent({ agent: "codex", text: "Skipped." });
+			for (const event of [pending, processing, done, failed, skipped])
+				enqueue(db, event);
+			db.query("UPDATE jobs SET status='processing' WHERE id=?").run(
+				processing.id,
+			);
+			db.query("UPDATE jobs SET status='done' WHERE id=?").run(done.id);
+			db.query("UPDATE jobs SET status='failed' WHERE id=?").run(failed.id);
+			db.query("UPDATE jobs SET status='skipped' WHERE id=?").run(skipped.id);
+
+			const deleted = clearActiveQueue(db);
+
+			expect(deleted).toBe(2);
+			expect(countByStatus(db)).toEqual({
+				pending: 0,
+				processing: 0,
+				done: 1,
+				failed: 1,
+				skipped: 1,
+			});
+		} finally {
+			db.close();
+		}
+	});
+});
 
 describe("store: enqueue + dedup", () => {
 	test("enqueue inserts a pending job", () => {
@@ -21,7 +55,9 @@ describe("store: enqueue + dedup", () => {
 		try {
 			const event = createEvent({ agent: "claude", text: "Once." });
 			expect(enqueue(db, event).inserted).toBe(true);
-			expect(enqueue(db, { ...event, text: "Different payload." }).inserted).toBe(false);
+			expect(
+				enqueue(db, { ...event, text: "Different payload." }).inserted,
+			).toBe(false);
 			expect(countByStatus(db).pending).toBe(1);
 		} finally {
 			db.close();
@@ -41,7 +77,11 @@ describe("store: claim + recover", () => {
 			enqueue(db, { ...older, createdAt: "2026-06-12T00:00:01.000Z" });
 			enqueue(db, { ...newer, createdAt: "2026-06-12T00:00:02.000Z" });
 
-			const claimed = claimNextDue(db, defaultConfig, new Date("2026-06-12T00:01:00.000Z"));
+			const claimed = claimNextDue(
+				db,
+				defaultConfig,
+				new Date("2026-06-12T00:01:00.000Z"),
+			);
 			expect(claimed?.id).toBe(older.id);
 			expect(claimed?.attempts).toBe(1);
 			expect(countByStatus(db).processing).toBe(1);
@@ -56,9 +96,16 @@ describe("store: claim + recover", () => {
 		try {
 			const event = createEvent({ agent: "pi", text: "Later." });
 			enqueue(db, event);
-			db.query("UPDATE jobs SET next_attempt_at = '2026-06-12T00:02:00.000Z' WHERE id = ?").run(event.id);
-			expect(claimNextDue(db, defaultConfig, new Date("2026-06-12T00:01:00.000Z"))).toBeNull();
-			expect(claimNextDue(db, defaultConfig, new Date("2026-06-12T00:02:00.000Z"))?.id).toBe(event.id);
+			db.query(
+				"UPDATE jobs SET next_attempt_at = '2026-06-12T00:02:00.000Z' WHERE id = ?",
+			).run(event.id);
+			expect(
+				claimNextDue(db, defaultConfig, new Date("2026-06-12T00:01:00.000Z")),
+			).toBeNull();
+			expect(
+				claimNextDue(db, defaultConfig, new Date("2026-06-12T00:02:00.000Z"))
+					?.id,
+			).toBe(event.id);
 		} finally {
 			db.close();
 		}
@@ -68,7 +115,11 @@ describe("store: claim + recover", () => {
 		const db = openDb(":memory:");
 		try {
 			enqueue(db, createEvent({ agent: "claude", text: "Queued." }));
-			const claimed = claimNextDue(db, { ...defaultConfig, enabled: false }, new Date());
+			const claimed = claimNextDue(
+				db,
+				{ ...defaultConfig, enabled: false },
+				new Date(),
+			);
 			expect(claimed).toBeNull();
 			expect(countByStatus(db).skipped).toBe(1);
 		} finally {
@@ -83,12 +134,18 @@ describe("store: claim + recover", () => {
 			const fresh = createEvent({ agent: "codex", text: "Fresh." });
 			enqueue(db, stale);
 			enqueue(db, fresh);
-			db.query("UPDATE jobs SET status='processing', last_attempt_at=? WHERE id=?")
-				.run("2026-06-12T00:00:00.000Z", stale.id);
-			db.query("UPDATE jobs SET status='processing', last_attempt_at=? WHERE id=?")
-				.run("2026-06-12T00:04:30.000Z", fresh.id);
+			db.query(
+				"UPDATE jobs SET status='processing', last_attempt_at=? WHERE id=?",
+			).run("2026-06-12T00:00:00.000Z", stale.id);
+			db.query(
+				"UPDATE jobs SET status='processing', last_attempt_at=? WHERE id=?",
+			).run("2026-06-12T00:04:30.000Z", fresh.id);
 
-			const recovered = recoverStale(db, defaultConfig, new Date("2026-06-12T00:05:00.000Z"));
+			const recovered = recoverStale(
+				db,
+				defaultConfig,
+				new Date("2026-06-12T00:05:00.000Z"),
+			);
 			expect(recovered).toEqual([stale.id]);
 			expect(countByStatus(db).processing).toBe(1);
 			expect(countByStatus(db).pending).toBe(1);
@@ -98,7 +155,12 @@ describe("store: claim + recover", () => {
 	});
 });
 
-import { markSpoken, markDone, requeueForRetry, markFailed } from "../src/store";
+import {
+	markSpoken,
+	markDone,
+	requeueForRetry,
+	markFailed,
+} from "../src/store";
 
 describe("store: terminal transitions", () => {
 	test("markSpoken then markDone records summary + finishes", () => {
@@ -110,8 +172,16 @@ describe("store: terminal transitions", () => {
 			markSpoken(db, event.id, "All done.", "codex-fast");
 			markDone(db, event.id, new Date("2026-06-12T00:00:05.000Z"));
 
-			const row = db.query("SELECT status, summary, summarizer_used, finished_at FROM jobs WHERE id=?")
-				.get(event.id) as { status: string; summary: string; summarizer_used: string; finished_at: string };
+			const row = db
+				.query(
+					"SELECT status, summary, summarizer_used, finished_at FROM jobs WHERE id=?",
+				)
+				.get(event.id) as {
+				status: string;
+				summary: string;
+				summarizer_used: string;
+				finished_at: string;
+			};
 			expect(row.status).toBe("done");
 			expect(row.summary).toBe("All done.");
 			expect(row.summarizer_used).toBe("codex-fast");
@@ -127,9 +197,21 @@ describe("store: terminal transitions", () => {
 			const event = createEvent({ agent: "pi", text: "Flaky." });
 			enqueue(db, event);
 			claimNextDue(db, defaultConfig, new Date());
-			requeueForRetry(db, event.id, "2026-06-12T00:00:30.000Z", "temporary failure");
-			const row = db.query("SELECT status, next_attempt_at, last_error FROM jobs WHERE id=?")
-				.get(event.id) as { status: string; next_attempt_at: string; last_error: string };
+			requeueForRetry(
+				db,
+				event.id,
+				"2026-06-12T00:00:30.000Z",
+				"temporary failure",
+			);
+			const row = db
+				.query(
+					"SELECT status, next_attempt_at, last_error FROM jobs WHERE id=?",
+				)
+				.get(event.id) as {
+				status: string;
+				next_attempt_at: string;
+				last_error: string;
+			};
 			expect(row.status).toBe("pending");
 			expect(row.next_attempt_at).toBe("2026-06-12T00:00:30.000Z");
 			expect(row.last_error).toBe("temporary failure");
@@ -144,9 +226,19 @@ describe("store: terminal transitions", () => {
 			const event = createEvent({ agent: "codex", text: "Nope." });
 			enqueue(db, event);
 			claimNextDue(db, defaultConfig, new Date());
-			markFailed(db, event.id, new Date("2026-06-12T00:00:09.000Z"), "still failing");
-			const row = db.query("SELECT status, last_error, finished_at FROM jobs WHERE id=?")
-				.get(event.id) as { status: string; last_error: string; finished_at: string };
+			markFailed(
+				db,
+				event.id,
+				new Date("2026-06-12T00:00:09.000Z"),
+				"still failing",
+			);
+			const row = db
+				.query("SELECT status, last_error, finished_at FROM jobs WHERE id=?")
+				.get(event.id) as {
+				status: string;
+				last_error: string;
+				finished_at: string;
+			};
 			expect(row.status).toBe("failed");
 			expect(row.last_error).toBe("still failing");
 			expect(row.finished_at).toBe("2026-06-12T00:00:09.000Z");
@@ -171,10 +263,20 @@ describe("store: retention + history", () => {
 			enqueue(db, old);
 			enqueue(db, recent);
 			enqueue(db, live);
-			db.query("UPDATE jobs SET status='done', finished_at=? WHERE id=?").run("2026-06-01T00:00:00.000Z", old.id);
-			db.query("UPDATE jobs SET status='done', finished_at=? WHERE id=?").run("2026-06-15T00:00:00.000Z", recent.id);
+			db.query("UPDATE jobs SET status='done', finished_at=? WHERE id=?").run(
+				"2026-06-01T00:00:00.000Z",
+				old.id,
+			);
+			db.query("UPDATE jobs SET status='done', finished_at=? WHERE id=?").run(
+				"2026-06-15T00:00:00.000Z",
+				recent.id,
+			);
 
-			const deleted = pruneRetention(db, 7, new Date("2026-06-15T12:00:00.000Z"));
+			const deleted = pruneRetention(
+				db,
+				7,
+				new Date("2026-06-15T12:00:00.000Z"),
+			);
 			expect(deleted).toBe(1);
 			expect(countByStatus(db).done).toBe(1);
 			expect(countByStatus(db).pending).toBe(1);
@@ -217,7 +319,11 @@ describe("store: retention + history", () => {
 			enqueue(db, live);
 
 			const start = performance.now();
-			const claimed = claimNextDue(db, defaultConfig, new Date("2026-12-01T00:00:00.000Z"));
+			const claimed = claimNextDue(
+				db,
+				defaultConfig,
+				new Date("2026-12-01T00:00:00.000Z"),
+			);
 			const elapsedMs = performance.now() - start;
 
 			expect(claimed?.id).toBe(live.id);
@@ -237,7 +343,11 @@ describe("store: retention + history", () => {
 			const e1 = createEvent({ agent: "claude", text: "One." });
 			const e2 = createEvent({ agent: "codex", text: "Two." });
 			enqueue(writer, { ...e1, createdAt: "2026-06-12T00:00:01.000Z" });
-			const claimed = claimNextDue(reader, defaultConfig, new Date("2026-06-12T00:01:00.000Z"));
+			const claimed = claimNextDue(
+				reader,
+				defaultConfig,
+				new Date("2026-06-12T00:01:00.000Z"),
+			);
 			enqueue(writer, { ...e2, createdAt: "2026-06-12T00:00:02.000Z" });
 			expect(claimed?.id).toBe(e1.id);
 			expect(countByStatus(reader).pending).toBe(1);

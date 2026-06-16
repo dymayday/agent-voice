@@ -10,9 +10,11 @@
 - Run a foreground or detached local daemon with `agent-voice daemon --foreground` or `agent-voice start`.
 - Summarize with CLI fallbacks in this order: `codex`, `pi`, optional `opencode`, then heuristic text cleanup.
 - Speak via a local Kokoro Python script, then play the generated WAV through macOS `afplay`.
-- Inspect status and queue counts with `agent-voice status`.
+- Inspect status and queue counts with `agent-voice status` or app-facing JSON via `agent-voice status --json`.
+- Pause/resume speech, switch summarizer mode, view recent queue history, and run doctor checks from CLI JSON contracts used by the macOS app.
+- Build a native SwiftUI menu-bar app preview that shells out to the existing CLI instead of reimplementing the daemon or SQLite queue.
 
-The help text lists future `install` and `uninstall` entries, and the package includes placeholder `voice-codex` and `voice-opencode` shims. This repo does not yet implement installer or wrapper behavior, so prefer the manual daemon/server flow below for now.
+Pi hook install/uninstall is implemented as the first installer slice. Claude, Codex, OpenCode, LaunchAgent, and wrapper installation are still future work, so prefer the manual daemon/server flow below unless you specifically want the Pi hook.
 
 ## Requirements
 
@@ -98,9 +100,41 @@ This bypasses the queue and immediately summarizes and speaks one message:
 ./bin/agent-voice test 'Claude finished editing the auth module.'
 ```
 
+### Pi hook install
+
+The current installer slice supports Pi only:
+
+```bash
+./bin/agent-voice install --agents pi
+./bin/agent-voice uninstall --agents pi
+```
+
+Install writes an owned Pi extension to `~/.pi/agent/extensions/agent-voice.ts`. Uninstall removes only that owned extension. Claude, Codex, OpenCode, LaunchAgent, and wrapper installation are not implemented yet.
+
+## App-facing CLI commands
+
+These commands are intended for scripts and the macOS app. JSON diagnostics are read-only when `config.json` or `queue.db` is missing.
+
+```bash
+./bin/agent-voice status --json
+./bin/agent-voice history --json --limit 50
+./bin/agent-voice doctor --json
+./bin/agent-voice pause
+./bin/agent-voice resume
+./bin/agent-voice summarizer mode heuristic
+./bin/agent-voice summarizer mode default
+```
+
+- `status --json` reports daemon state, queue counts, config summary, paths, and UI attention state.
+- `history --json` returns recent terminal jobs (`done`, `failed`, `skipped`) from `queue.db`; `--limit` must be `1` through `200`.
+- `doctor --json` reports setup checks such as config presence, Kokoro script availability, daemon state, and failed-job count.
+- `pause` and `resume` toggle global speech without deleting queued jobs.
+- `summarizer mode heuristic|default` switches between local heuristic-only summaries and the default fallback chain.
+- `config set tts.voice <voice>` changes the Kokoro voice used by the daemon and direct voice tests. The macOS app exposes this as a preset picker plus editable voice id field.
+
 ## macOS app preview
 
-The native macOS app is developed under `macos/AgentVoiceApp`. It is a SwiftUI menu-bar utility that shells out to the existing `agent-voice` CLI and preserves the local SQLite queue/daemon architecture.
+The native macOS app lives under `macos/AgentVoiceApp`. It is a SwiftUI menu-bar utility with a sentinel menu, dashboard console, setup assistant, and Local Voice Orb icon. The app shells out to the existing `agent-voice` CLI and preserves the local SQLite queue/daemon architecture.
 
 Development commands:
 
@@ -112,7 +146,16 @@ bash scripts/build-macos-app.sh
 open "dist/Agent Voice.app"
 ```
 
-The app preview does not install global agent hooks or wrappers. Use the existing manual daemon flow unless an install feature is explicitly implemented.
+The app bundle built by `scripts/build-macos-app.sh` copies the CLI into `Contents/Resources/agent-voice/` and uses that bundled CLI when available. It still requires Bun on `PATH` because the bundled CLI shim executes `bun src/index.ts`. You can override CLI discovery with `AGENT_VOICE_EXECUTABLE` and override state/config storage with `AGENT_VOICE_HOME`.
+
+Current preview limitations:
+
+- Not signed or notarized.
+- Pi hook install/uninstall is available; Claude, Codex, OpenCode, LaunchAgent, and wrapper installation are not implemented yet.
+- Does not vendor Bun or Kokoro.
+- Uses existing CLI commands for daemon lifecycle, config/status/history/doctor checks, summarizer mode, Kokoro voice selection, voice tests, and Pi hook install/uninstall.
+
+Use the existing manual daemon flow unless you specifically want the Pi hook installer.
 
 ## Enqueue formats
 
@@ -174,6 +217,11 @@ Useful config commands:
 ./bin/agent-voice config set summarizer.timeoutSeconds 8
 ./bin/agent-voice config set summarizer.maxInputChars 12000
 ./bin/agent-voice config set tts.timeoutSeconds 30
+./bin/agent-voice config set tts.voice af_sky
+./bin/agent-voice summarizer mode heuristic
+./bin/agent-voice summarizer mode default
+./bin/agent-voice pause
+./bin/agent-voice resume
 ./bin/agent-voice enable claude
 ./bin/agent-voice disable opencode
 ```
@@ -190,8 +238,9 @@ The daemon sets `AGENT_VOICE_DISABLE=1` for summarizer subprocesses to reduce re
 
 - **No sound:** run `./bin/agent-voice test 'hello'`; verify macOS audio output, `afplay`, and `tts.kokoroScript`.
 - **Kokoro times out:** increase `tts.timeoutSeconds`, confirm the script prints `{"status":"ready"}`, and run it manually with Python.
-- **Queue is not moving:** run `./bin/agent-voice status`; if `pending` grows, start `./bin/agent-voice daemon --foreground` and watch errors.
-- **Jobs go to `failed`:** inspect the failed rows in `~/.agent-voice/queue.db` (e.g. `SELECT id, last_error FROM jobs WHERE status='failed'`); `last_error` usually contains the failing summarizer, TTS, or playback message.
+- **Queue is not moving:** run `./bin/agent-voice status` or `./bin/agent-voice status --json`; if `pending` grows, start `./bin/agent-voice daemon --foreground` and watch errors.
+- **Doctor flags setup issues:** run `./bin/agent-voice doctor --json` and check the `action` fields for the next repair step.
+- **Jobs go to `failed`:** inspect recent failures with `./bin/agent-voice history --json --limit 50` or query `~/.agent-voice/queue.db` directly (e.g. `SELECT id, last_error FROM jobs WHERE status='failed'`); `last_error` usually contains the failing summarizer, TTS, or playback message.
 - **Daemon already running:** run `./bin/agent-voice status`; stop it with `./bin/agent-voice stop` or remove a truly stale `run/daemon.pid` after confirming the PID is dead.
 - **Summarizer CLI missing:** this is non-fatal. The daemon falls back through the priority list and eventually uses the heuristic summarizer.
 - **Privacy-sensitive project:** use a separate `AGENT_VOICE_HOME`, lower `summarizer.maxInputChars`, add `ignoreCwdPatterns` in `config.json`, or switch summarization to `heuristic` only.
@@ -201,6 +250,17 @@ The daemon sets `AGENT_VOICE_DISABLE=1` for summarizer subprocesses to reduce re
 ```bash
 bun test
 bun run typecheck
+swift test --package-path macos/AgentVoiceApp
+swift build --package-path macos/AgentVoiceApp
+```
+
+Optional app-bundle smoke test:
+
+```bash
+bash scripts/generate-macos-icon.sh
+bash scripts/build-macos-app.sh
+AGENT_VOICE_HOME="$(mktemp -d)" \
+  "dist/Agent Voice.app/Contents/Resources/agent-voice/bin/agent-voice" status --json
 ```
 
 Repo layout:
@@ -216,6 +276,8 @@ src/processor.ts         # summarize + speak job processor
 src/summarizers.ts       # Codex/Pi/OpenCode/heuristic summarizers
 src/tts.ts               # Kokoro JSONL client and afplay playback
 src/adapters/claude.ts   # Claude Stop hook text extraction
+macos/AgentVoiceApp/     # SwiftUI menu-bar app preview and XCTest suite
+scripts/                 # local icon generation and app bundle helpers
 fixtures/                # sample event and hook payloads
 tests/                   # Bun unit and integration tests
 ```

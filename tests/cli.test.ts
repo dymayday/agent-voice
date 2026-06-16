@@ -1,7 +1,43 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { runCli } from "../src/cli";
+import { openDb } from "../src/db";
+import { createEvent } from "../src/events";
+import { countByStatus, enqueue } from "../src/store";
 
 describe("agent-voice CLI", () => {
+	test("queue clear deletes active jobs and reports the count", async () => {
+		const home = mkdtempSync(join(tmpdir(), "agent-voice-cli-clear-"));
+		const db = openDb(join(home, "queue.db"));
+		try {
+			const pending = createEvent({ agent: "claude", text: "Pending." });
+			const processing = createEvent({ agent: "codex", text: "Processing." });
+			const done = createEvent({ agent: "pi", text: "Done." });
+			enqueue(db, pending);
+			enqueue(db, processing);
+			enqueue(db, done);
+			db.query("UPDATE jobs SET status='processing' WHERE id=?").run(
+				processing.id,
+			);
+			db.query("UPDATE jobs SET status='done' WHERE id=?").run(done.id);
+
+			const result = await runCli(["queue", "clear"], {
+				env: { AGENT_VOICE_HOME: home },
+			});
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toBe("Cleared 2 queued job(s).\n");
+			expect(countByStatus(db).done).toBe(1);
+			expect(countByStatus(db).pending).toBe(0);
+			expect(countByStatus(db).processing).toBe(0);
+		} finally {
+			db.close();
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
 	test("prints help with core commands", async () => {
 		const result = await runCli(["--help"], { stdout: "", stderr: "" });
 
@@ -16,6 +52,7 @@ describe("agent-voice CLI", () => {
 		expect(result.stdout).toContain("agent-voice enable");
 		expect(result.stdout).toContain("agent-voice disable");
 		expect(result.stdout).toContain("agent-voice config get");
+		expect(result.stdout).toContain("agent-voice queue clear");
 		expect(result.stdout).toContain("agent-voice daemon --foreground");
 	});
 });

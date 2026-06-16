@@ -1,108 +1,327 @@
 import AgentVoiceCore
+import AppKit
 import SwiftUI
 
 struct MenuBarSentinelView: View {
     @ObservedObject var model: AppModel
+    var quitApplication: () -> Void = { NSApplication.shared.terminate(nil) }
     @Environment(\.openWindow) private var openWindow
 
+    private let actionColumns = [
+        GridItem(.flexible(), spacing: 8),
+        GridItem(.flexible(), spacing: 8)
+    ]
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 14) {
             header
-            queueCounts
+            errorBanner
+            attentionBanner
+            queueOverview
+            latestSummary
             Divider()
             controls
-            if let lastError = model.lastError {
-                Divider()
-                Text(lastError)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .textSelection(.enabled)
-            }
+            Divider()
+            footer
         }
-        .padding(12)
-        .frame(width: 280)
+        .padding(14)
+        .frame(width: 340)
         .task {
             await model.refresh()
         }
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Agent Voice")
-                .font(.headline)
+        HStack(alignment: .center, spacing: 10) {
+            ZStack {
+                Circle()
+                    .fill(statusTint.opacity(0.16))
+                    .frame(width: 36, height: 36)
+                Circle()
+                    .fill(statusTint)
+                    .frame(width: 10, height: 10)
+                Image(systemName: "waveform")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(statusTint)
+                    .offset(y: 11)
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Agent Voice")
+                    .font(.headline)
+                Text(statusSubtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
             Text(model.status?.ui.state.displayName ?? "Unknown")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(statusTint)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(statusTint.opacity(0.12))
+                .clipShape(Capsule())
         }
     }
 
     @ViewBuilder
-    private var queueCounts: some View {
+    private var errorBanner: some View {
+        if let lastError = model.lastError {
+            card(tint: .red) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("Last error", systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.red)
+                    Text(lastError)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(4)
+                        .textSelection(.enabled)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var attentionBanner: some View {
+        if let attention = model.status?.ui.attention, !attention.isEmpty {
+            card(tint: .orange) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("Needs attention", systemImage: "bell.badge.fill")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.orange)
+                    Text(attention.joined(separator: "\n"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var queueOverview: some View {
         if let queues = model.status?.queues {
-            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 4) {
-                GridRow {
-                    queueLabel("Pending", queues.pending)
-                    queueLabel("Processing", queues.processing)
-                }
-                GridRow {
-                    queueLabel("Done", queues.done)
-                    queueLabel("Failed", queues.failed)
-                }
-                GridRow {
-                    queueLabel("Skipped", queues.skipped)
-                    Spacer()
+            card {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        sectionTitle("Queue")
+                        Spacer()
+                        Text(activeQueueLabel(for: queues))
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                    }
+
+                    LazyVGrid(columns: actionColumns, alignment: .leading, spacing: 8) {
+                        queueMetric("Pending", queues.pending, tint: .orange)
+                        queueMetric("Processing", queues.processing, tint: .blue)
+                        queueMetric("Done", queues.done, tint: .green)
+                        queueMetric("Failed", queues.failed, tint: .red)
+                    }
+
+                    if queues.skipped > 0 {
+                        HStack(spacing: 6) {
+                            Image(systemName: "forward.end.fill")
+                            Text("Skipped: \(queues.skipped)")
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
                 }
             }
         } else {
-            Text("Queue counts unavailable")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            card {
+                Text("Queue counts unavailable")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
-    private func queueLabel(_ title: String, _ value: Int) -> some View {
-        HStack(spacing: 4) {
-            Text(title)
-                .foregroundStyle(.secondary)
-            Text(String(value))
-                .fontWeight(value > 0 ? .semibold : .regular)
+    @ViewBuilder
+    private var latestSummary: some View {
+        if let job = latestDoneJob, let summary = job.summary, !summary.isEmpty {
+            card {
+                VStack(alignment: .leading, spacing: 6) {
+                    sectionTitle("Latest spoken")
+                    Text(summary)
+                        .font(.subheadline)
+                        .lineLimit(3)
+                    Text("\(job.agent.capitalized) · \(job.finishedAt ?? job.createdAt)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
         }
-        .font(.caption)
     }
 
     private var controls: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Button("Refresh") {
-                Task { await model.refresh() }
-            }
-            HStack {
-                Button("Pause") {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionTitle("Controls")
+
+            LazyVGrid(columns: actionColumns, spacing: 8) {
+                actionButton("Refresh", systemImage: "arrow.clockwise") {
+                    Task { await model.refresh() }
+                }
+                actionButton(daemonButtonTitle, systemImage: daemonButtonIcon) {
+                    Task {
+                        if model.status?.daemon.running == true {
+                            await model.stopDaemon()
+                        } else {
+                            await model.startDaemon()
+                        }
+                    }
+                }
+                actionButton("Pause", systemImage: "pause.fill") {
                     Task { await model.pause() }
                 }
-                Button("Resume") {
+                actionButton("Resume", systemImage: "play.fill") {
                     Task { await model.resume() }
                 }
-            }
-            HStack {
-                Button("Start Daemon") {
-                    Task { await model.startDaemon() }
+                actionButton("Voice Test", systemImage: "speaker.wave.2.fill") {
+                    Task { await model.testVoice() }
                 }
-                Button("Stop Daemon") {
-                    Task { await model.stopDaemon() }
-                }
-            }
-            Button("Run Voice Test") {
-                Task { await model.testVoice() }
-            }
-            HStack {
-                Button("Open Dashboard") {
-                    openWindow(id: "dashboard")
-                }
-                Button("Open Setup") {
-                    openWindow(id: "setup")
+                actionButton("Clear Queue", systemImage: "trash", role: .destructive, disabled: !canClearQueue) {
+                    Task { await model.clearQueue() }
                 }
             }
         }
-        .buttonStyle(.borderless)
+    }
+
+    private var footer: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            LazyVGrid(columns: actionColumns, spacing: 8) {
+                actionButton("Dashboard", systemImage: "gauge") {
+                    openWindow(id: "dashboard")
+                }
+                actionButton("Setup", systemImage: "wrench.and.screwdriver") {
+                    openWindow(id: "setup")
+                }
+            }
+
+            actionButton("Quit Agent Voice", systemImage: "power", role: .destructive) {
+                Task {
+                    if await model.stopDaemonBeforeQuit() {
+                        quitApplication()
+                    }
+                }
+            }
+        }
+    }
+
+    private func sectionTitle(_ title: String) -> some View {
+        Text(title.uppercased())
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .tracking(0.6)
+    }
+
+    private func queueMetric(_ title: String, _ value: Int, tint: Color) -> some View {
+        HStack(spacing: 8) {
+            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                .fill(tint.opacity(value > 0 ? 0.85 : 0.25))
+                .frame(width: 4, height: 28)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(String(value))
+                    .font(.headline.monospacedDigit())
+                    .foregroundStyle(value > 0 ? tint : .primary)
+                Text(title)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(nsColor: .textBackgroundColor).opacity(0.65))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    private func actionButton(
+        _ title: String,
+        systemImage: String,
+        role: ButtonRole? = nil,
+        disabled: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(role: role, action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.caption.weight(.medium))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 8)
+                .padding(.horizontal, 9)
+                .background(Color(nsColor: .controlBackgroundColor))
+                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .opacity(disabled ? 0.45 : 1)
+    }
+
+    private func card<Content: View>(tint: Color? = nil, @ViewBuilder content: () -> Content) -> some View {
+        content()
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(nsColor: .controlBackgroundColor).opacity(0.72))
+            .overlay {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke((tint ?? Color(nsColor: .separatorColor)).opacity(tint == nil ? 0.35 : 0.55), lineWidth: 1)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private var latestDoneJob: AgentVoiceHistoryJob? {
+        model.history?.jobs.first { $0.status == .done && ($0.summary?.isEmpty == false) }
+    }
+
+    private var canClearQueue: Bool {
+        guard let queues = model.status?.queues else { return false }
+        return queues.pending + queues.processing > 0
+    }
+
+    private var daemonButtonTitle: String {
+        model.status?.daemon.running == true ? "Stop Daemon" : "Start Daemon"
+    }
+
+    private var daemonButtonIcon: String {
+        model.status?.daemon.running == true ? "stop.fill" : "bolt.fill"
+    }
+
+    private var statusSubtitle: String {
+        guard let status = model.status else { return "Status unavailable" }
+        let active = status.queues.pending + status.queues.processing
+        if active > 0 {
+            return "\(active) active \(active == 1 ? "job" : "jobs")"
+        }
+        if status.daemon.running {
+            return "Daemon running"
+        }
+        return "Daemon stopped"
+    }
+
+    private var statusTint: Color {
+        switch model.status?.ui.state {
+        case .ready:
+            .green
+        case .processing:
+            .blue
+        case .paused:
+            .orange
+        case .needsAttention:
+            .red
+        case .daemonStopped, .none:
+            .secondary
+        }
+    }
+
+    private func activeQueueLabel(for queues: QueueCounts) -> String {
+        let active = queues.pending + queues.processing
+        if active == 0 { return "Idle" }
+        return "\(active) active"
     }
 }

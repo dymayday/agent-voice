@@ -1,6 +1,13 @@
 import AgentVoiceCore
 import SwiftUI
 
+private struct AgentSetupSummary: Identifiable {
+    var id: String { name }
+    let name: String
+    let enabled: Bool
+    let summary: String
+}
+
 struct SetupAssistantView: View {
     @ObservedObject var model: AppModel
     @State private var selectedStep: SetupStep = .welcome
@@ -70,7 +77,9 @@ struct SetupAssistantView: View {
             }
         case .kokoro:
             VStack(alignment: .leading, spacing: 12) {
-                labeledRow(title: "Kokoro script", detail: "Choose path support coming later")
+                labeledRow(title: "Kokoro script", detail: model.config?.tts.kokoroScript ?? "Unknown")
+                labeledRow(title: "Current voice", detail: model.config?.tts.voice ?? "Unknown")
+                voiceControls
                 Button("Run Voice Test") {
                     Task { await model.testVoice() }
                 }
@@ -112,15 +121,43 @@ struct SetupAssistantView: View {
         case .finish:
             VStack(alignment: .leading, spacing: 8) {
                 Text("Setup is ready for manual mode.")
-                Text("Adapter installation and launch-at-login support are not part of this build yet.")
-                    .foregroundStyle(.secondary)
+                Text(
+                    "Pi hook install is available. Launch-at-login and other " +
+                        "agent installers are not part of this build yet."
+                )
+                .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var voiceControls: some View {
+        let presets = AppModel.kokoroVoicePresets
+        VStack(alignment: .leading, spacing: 8) {
+            Picker("Preset", selection: $model.draftVoice) {
+                ForEach(presets, id: \.self) { voice in
+                    Text(voice).tag(voice)
+                }
+                if !presets.contains(model.draftVoice), !model.draftVoice.isEmpty {
+                    Text("Custom: \(model.draftVoice)").tag(model.draftVoice)
+                }
+            }
+            .pickerStyle(.menu)
+
+            HStack {
+                TextField("Kokoro voice id", text: $model.draftVoice)
+                    .textFieldStyle(.roundedBorder)
+                Button("Save Voice") {
+                    Task { await model.saveVoice() }
+                }
+                .disabled(model.draftVoice.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
     }
 
     private var agentRows: some View {
         VStack(alignment: .leading, spacing: 10) {
-            ForEach(agentSummaries, id: \.name) { item in
+            ForEach(agentSummaries, id: \.id) { item in
                 HStack {
                     VStack(alignment: .leading) {
                         Text(item.name.capitalized)
@@ -130,8 +167,20 @@ struct SetupAssistantView: View {
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Button(item.enabled ? "Disable" : "Enable") {}
-                        .disabled(true)
+                    if item.name == "pi" {
+                        VStack(alignment: .trailing, spacing: 4) {
+                            Button("Install Hook") {
+                                Task { await model.installAgentHook("pi") }
+                            }
+                            Button("Uninstall Hook") {
+                                Task { await model.uninstallAgentHook("pi") }
+                            }
+                        }
+                    } else {
+                        Text("Hook install coming later")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
             Text("Use CLI enable/disable for now")
@@ -162,14 +211,18 @@ struct SetupAssistantView: View {
         }
     }
 
-    private var agentSummaries: [(name: String, enabled: Bool, summary: String)] {
+    private var agentSummaries: [AgentSetupSummary] {
         let agents = model.status?.config.agents ?? [:]
         let names = agents.isEmpty ? ["claude", "codex", "pi", "opencode"] : agents.keys.sorted()
         return names.map { name in
             let summary = agents[name]
             let enabled = summary?.enabled ?? false
             let mode = summary?.mode ?? "Not loaded"
-            return (name: name, enabled: enabled, summary: enabled ? "Enabled · \(mode)" : "Disabled · \(mode)")
+            return AgentSetupSummary(
+                name: name,
+                enabled: enabled,
+                summary: enabled ? "Enabled · \(mode)" : "Disabled · \(mode)"
+            )
         }
     }
 
