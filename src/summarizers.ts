@@ -38,6 +38,11 @@ const CONTROL_CHARS_PATTERN = /[\u0000-\u001f\u007f]+/g;
 const MARKDOWN_NOISE_PATTERN = /[`*_>]+/g;
 const WHITESPACE_PATTERN = /\s+/g;
 const LINE_PREFIX_PATTERN = /^\s*(?:#{1,6}\s*|[-+*]\s+|\d+[.)]\s*)/;
+// Terminal/ANSI escape sequences emitted by pi's `-p` TUI teardown (e.g. ESC[?2026h,
+// ESC[<999u). Anchored on the ESC byte so legitimate bracketed text like "[important]"
+// is never touched. Must run before CONTROL_CHARS_PATTERN strips the raw ESC byte.
+// eslint-disable-next-line no-control-regex
+const ANSI_ESCAPE_PATTERN = /\x1b(?:\[[0-9;?<>=]*[ -/]*[@-~]|[@-Z\\-_])/g;
 
 export function buildPrompt(event: AgentVoiceEvent): string {
 	return [
@@ -111,17 +116,18 @@ function requestFor(
 	}
 
 	if (name === "pi-fast") {
+		// `-p`/`--print` is a boolean non-interactive flag; the prompt stays in
+		// `base.stdin` (set by baseRequest) so agent text never reaches argv.
 		return {
 			...base,
 			cmd: "pi",
 			args: [
-				"--fast",
-				"-p",
 				"--model",
 				config.summarizer.piModel,
+				"--thinking",
+				config.summarizer.thinking ?? "off",
 				"--no-tools",
-				"--no-session",
-				"-",
+				"-p",
 			],
 		};
 	}
@@ -136,6 +142,7 @@ function requestFor(
 
 function cleanForSpeech(text: string): string {
 	return text
+		.replace(ANSI_ESCAPE_PATTERN, "")
 		.split(/\r?\n/)
 		.map((line) => line.replace(LINE_PREFIX_PATTERN, "").trim())
 		.filter(Boolean)

@@ -84,11 +84,9 @@ describe("agent-voice summarizer fallback chain", () => {
 		);
 	});
 
-	test("Pi fast uses safe arg array with configured model and recursion guard", async () => {
-		const event = createEvent({
-			agent: "pi",
-			text: "Pi completed the queue task.",
-		});
+	test("Pi fast passes the prompt via stdin, never argv", async () => {
+		const rawText = "Pi completed the queue task with token sk-secret-xyz.";
+		const event = createEvent({ agent: "pi", text: rawText });
 		const { calls, runner } = recordingRunner(() => ({
 			ok: true,
 			stdout: "Pi completed the queue policy.\n",
@@ -99,7 +97,7 @@ describe("agent-voice summarizer fallback chain", () => {
 			config({
 				summarizer: {
 					priority: ["pi-fast", "heuristic"],
-					piModel: "custom/pi-fast-model",
+					piModel: "openai-codex/gpt-5.5",
 				},
 			}),
 			runner,
@@ -109,16 +107,47 @@ describe("agent-voice summarizer fallback chain", () => {
 		expect(calls).toHaveLength(1);
 		expect(calls[0].cmd).toBe("pi");
 		expect(calls[0].args).toEqual([
-			"--fast",
-			"-p",
 			"--model",
-			"custom/pi-fast-model",
+			"openai-codex/gpt-5.5",
+			"--thinking",
+			"off",
 			"--no-tools",
-			"--no-session",
-			"-",
+			"-p",
 		]);
-		expect(calls[0].stdin).toContain("Pi completed the queue task.");
+		expect(calls[0].args.join("\n")).not.toContain(rawText);
+		expect(calls[0].stdin).toContain(rawText);
 		expect(calls[0].env.AGENT_VOICE_DISABLE).toBe("1");
+	});
+
+	test("heuristic strips embedded terminal escape sequences", () => {
+		const noisy = "\x1b[?2026hThe build \x1b[<999upassed.";
+		expect(heuristicSummary(noisy, 180)).toBe("The build passed.");
+	});
+
+	test("pi stdout escape sequences never leak into the summary", async () => {
+		const event = createEvent({ agent: "pi", text: "Pi did the work." });
+		const { runner } = recordingRunner(() => ({
+			ok: true,
+			stdout: "\x1b[?2026hPi finished the task\x1b[<999u",
+		}));
+
+		const summary = await summarize(
+			event,
+			config({ summarizer: { priority: ["pi-fast", "heuristic"] } }),
+			runner,
+		);
+
+		expect(summary).toBe("Pi finished the task.");
+	});
+
+	test("escape stripping is ESC-anchored and leaves bracketed text intact", () => {
+		const result = heuristicSummary(
+			"The build [important] passed. array[0] index.",
+			180,
+		);
+		expect(result).toContain("The build");
+		expect(result).toContain("[important]");
+		expect(result).toContain("array[0]");
 	});
 
 	test("missing executable skips to the next summarizer", async () => {
