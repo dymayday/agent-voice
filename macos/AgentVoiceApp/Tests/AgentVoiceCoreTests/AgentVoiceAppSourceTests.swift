@@ -80,7 +80,12 @@ final class AgentVoiceAppSourceTests: XCTestCase {
 
     func testMenuDashboardActionUsesSharedWindowIDAndActivatesApp() throws {
         let source = try appSource("MenuBarSentinelView.swift")
-        let footer = try sourceSlice(in: source, from: "private var footer", to: "private func openDashboard")
+        let footer = try sourceSlice(in: source, from: "private var footer", to: "private var smartActionsMenu")
+        let openSetup = try sourceSlice(
+            in: source,
+            from: "private func openSetup",
+            to: "private func openDashboard"
+        )
         let openDashboard = try sourceSlice(
             in: source,
             from: "private func openDashboard",
@@ -91,7 +96,94 @@ final class AgentVoiceAppSourceTests: XCTestCase {
         XCTAssertTrue(footer.contains("openDashboard()"))
         XCTAssertTrue(openDashboard.contains("openWindow(id: AgentVoiceWindowID.dashboard)"))
         XCTAssertTrue(openDashboard.contains("NSApplication.shared.activate(ignoringOtherApps: true)"))
-        XCTAssertTrue(footer.contains("openWindow(id: AgentVoiceWindowID.setup)"))
+        XCTAssertTrue(footer.contains("openSetup()"))
+        XCTAssertTrue(source.contains("private func openSetup()"))
+        XCTAssertTrue(openSetup.contains("openWindow(id: AgentVoiceWindowID.setup)"))
+        XCTAssertTrue(openSetup.contains("NSApplication.shared.activate(ignoringOtherApps: true)"))
+    }
+
+    func testMenuFooterKeepsExistingActionsAndAddsSmartActionsMenu() throws {
+        let source = try appSource("MenuBarSentinelView.swift")
+        let footer = try sourceSlice(in: source, from: "private var footer", to: "private var smartActionsMenu")
+
+        XCTAssertTrue(footer.contains("smartActionsMenu"))
+        XCTAssertTrue(footer.contains("actionButton(\"Dashboard\", systemImage: \"gauge\")"))
+        XCTAssertTrue(footer.contains("actionButton(\"Setup\", systemImage: \"wrench.and.screwdriver\")"))
+        XCTAssertTrue(footer.contains("actionButton(\"Quit Agent Voice\", systemImage: \"power\", role: .destructive)"))
+    }
+
+    func testSmartActionsExposeStateAwareEntries() throws {
+        let source = try appSource("MenuBarSentinelView.swift")
+        let smartActions = try sourceSlice(
+            in: source,
+            from: "private var smartActionsMenu",
+            to: "private func openAttentionDetails"
+        )
+
+        XCTAssertTrue(smartActions.contains("Menu {"))
+        XCTAssertTrue(smartActions.contains("Label(\"Smart Actions\", systemImage: \"sparkles\")"))
+        XCTAssertTrue(source.contains("SmartActionMenuMode"))
+        XCTAssertTrue(source.contains("case needsAttention"))
+        XCTAssertTrue(source.contains("case daemonStopped"))
+        XCTAssertTrue(source.contains("case unavailable"))
+        XCTAssertTrue(source.contains("case daily"))
+        XCTAssertTrue(smartActions.contains("Button(\"Open Attention Details\")"))
+        XCTAssertTrue(smartActions.contains("Button(\"Refresh Diagnostics\")"))
+        XCTAssertTrue(smartActions.contains("Button(\"Copy Diagnostic Snapshot\")"))
+        XCTAssertTrue(smartActions.contains("Button(\"Reveal Agent Voice Home\")"))
+        XCTAssertTrue(smartActions.contains("Button(\"Start Daemon\")"))
+        XCTAssertTrue(smartActions.contains("Button(\"Open Setup\")"))
+        XCTAssertTrue(smartActions.contains("Button(\"Replay Last Summary\")"))
+        XCTAssertTrue(smartActions.contains("Button(\"Run Voice Test\")"))
+    }
+
+    func testSmartActionModePrioritizesAttentionBeforeDaemonStoppedAndUnknownStatus() throws {
+        let source = try appSource("MenuBarSentinelView.swift")
+        let mode = try sourceSlice(
+            in: source,
+            from: "private var smartActionMenuMode",
+            to: "private var hasAttentionWork"
+        )
+
+        XCTAssertLessThan(
+            try offset(of: "if hasAttentionWork", in: mode),
+            try offset(of: "if model.status?.daemon.running == false", in: mode)
+        )
+        XCTAssertLessThan(
+            try offset(of: "if model.status?.daemon.running == false", in: mode),
+            try offset(of: "if model.status == nil", in: mode)
+        )
+        XCTAssertTrue(mode.contains("return .unavailable"))
+    }
+
+    func testSmartActionsRouteToExistingSafeActions() throws {
+        let source = try appSource("MenuBarSentinelView.swift")
+        let smartActions = try sourceSlice(
+            in: source,
+            from: "private var smartActionsMenu",
+            to: "private func openAttentionDetails"
+        )
+
+        XCTAssertTrue(smartActions.contains("openAttentionDetails()"))
+        XCTAssertTrue(smartActions.contains("Task { await model.refresh() }"))
+        XCTAssertTrue(smartActions.contains("copyDiagnosticSnapshot()"))
+        XCTAssertTrue(smartActions.contains("revealAgentVoiceHome()"))
+        XCTAssertTrue(smartActions.contains("Task { await model.startDaemon() }"))
+        XCTAssertTrue(smartActions.contains("openSetup()"))
+        XCTAssertTrue(smartActions.contains("Task { await model.testVoice(summary) }"))
+        XCTAssertTrue(smartActions.contains("Task { await model.testVoice() }"))
+    }
+
+    func testSmartActionsSnapshotAndRevealAreGuardedByAvailableData() throws {
+        let source = try appSource("MenuBarSentinelView.swift")
+
+        XCTAssertTrue(source.contains("private func diagnosticSnapshotJSON() -> String"))
+        XCTAssertTrue(source.contains("model.diagnosticSnapshotJSON()"))
+        XCTAssertTrue(source.contains("NSPasteboard.general"))
+        XCTAssertTrue(source.contains("NSWorkspace.shared.open"))
+        XCTAssertTrue(source.contains("guard let homePath = model.status?.paths.home"))
+        XCTAssertTrue(source.contains("localActionError"))
+        XCTAssertTrue(source.contains("FileManager.default.fileExists"))
     }
 
     func testMenuAttentionBannerOpensAttentionWindowAndActivatesApp() throws {
@@ -104,12 +196,20 @@ final class AgentVoiceAppSourceTests: XCTestCase {
         let openAttention = try sourceSlice(
             in: source,
             from: "private func openAttentionDetails",
-            to: "private func openDashboard"
+            to: "private func openSetup"
         )
 
         XCTAssertTrue(attentionBanner.contains("openAttentionDetails()"))
         XCTAssertTrue(openAttention.contains("openWindow(id: AgentVoiceWindowID.attention)"))
         XCTAssertTrue(openAttention.contains("NSApplication.shared.activate(ignoringOtherApps: true)"))
+    }
+
+    private func offset(of marker: String, in source: String) throws -> String.Index {
+        guard let range = source.range(of: marker) else {
+            XCTFail("Missing marker: \(marker)")
+            throw XCTSkip("Cannot verify source order without \(marker).")
+        }
+        return range.lowerBound
     }
 
     private func sourceSlice(in source: String, from startMarker: String, to endMarker: String) throws -> String {

@@ -116,8 +116,26 @@ public final class AppModel: ObservableObject {
         }
     }
 
-    public func testVoice() async {
-        await perform { try await cli.runVoiceTest("Agent Voice test.") }
+    public func testVoice(_ text: String = "Agent Voice test.") async {
+        await perform { try await cli.runVoiceTest(text) }
+    }
+
+    public func diagnosticSnapshotJSON() -> String {
+        let snapshot = AgentVoiceDiagnosticSnapshot(
+            status: status,
+            doctorIssues: diagnosticDoctorIssues,
+            failedJobs: diagnosticFailedJobs
+        )
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard
+            let data = try? encoder.encode(snapshot),
+            let json = String(data: data, encoding: .utf8)
+        else {
+            return "{}"
+        }
+        return json
     }
 
     public func setSummarizerMode(_ mode: String) async {
@@ -154,6 +172,16 @@ public final class AppModel: ObservableObject {
         await perform { try await cli.uninstallAgentHook(agent) }
     }
 
+    private var diagnosticDoctorIssues: [DoctorCheck] {
+        doctorReport?.checks.filter {
+            !$0.ok || $0.severity == .warning || $0.severity == .error
+        } ?? []
+    }
+
+    private var diagnosticFailedJobs: [AgentVoiceHistoryJob] {
+        history?.jobs.filter { $0.status == .failed } ?? []
+    }
+
     private func perform(_ operation: () async throws -> Void) async {
         do {
             try await operation()
@@ -161,5 +189,104 @@ public final class AppModel: ObservableObject {
         } catch {
             lastError = String(describing: error)
         }
+    }
+}
+
+private struct AgentVoiceDiagnosticSnapshot: Encodable {
+    private let statusState: String?
+    private let daemon: Daemon?
+    private let queues: QueueCounts?
+    private let attention: [String]
+    private let doctorIssues: [DoctorIssue]
+    private let failedJobs: [FailedJob]
+    private let paths: Paths?
+
+    init(
+        status: AgentVoiceStatusSnapshot?,
+        doctorIssues: [DoctorCheck],
+        failedJobs: [AgentVoiceHistoryJob]
+    ) {
+        statusState = status?.ui.state.rawValue
+        daemon = status.map {
+            Daemon(
+                state: $0.daemon.state.rawValue,
+                running: $0.daemon.running,
+                pid: $0.daemon.pid
+            )
+        }
+        queues = status?.queues
+        attention = status?.ui.attention ?? []
+        self.doctorIssues = doctorIssues.map {
+            DoctorIssue(
+                id: $0.id,
+                severity: $0.severity.rawValue,
+                message: $0.message,
+                action: $0.action
+            )
+        }
+        self.failedJobs = failedJobs.prefix(5).map {
+            FailedJob(
+                id: $0.id,
+                agent: $0.agent,
+                attempts: $0.attempts,
+                timestamp: $0.finishedAt ?? $0.createdAt,
+                lastError: $0.lastError
+            )
+        }
+        paths = status.map {
+            Paths(
+                home: $0.paths.home,
+                config: $0.paths.config,
+                queueDatabase: $0.paths.db
+            )
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(statusState, forKey: .statusState)
+        try container.encode(daemon, forKey: .daemon)
+        try container.encode(queues, forKey: .queues)
+        try container.encode(attention, forKey: .attention)
+        try container.encode(doctorIssues, forKey: .doctorIssues)
+        try container.encode(failedJobs, forKey: .failedJobs)
+        try container.encode(paths, forKey: .paths)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case statusState
+        case daemon
+        case queues
+        case attention
+        case doctorIssues
+        case failedJobs
+        case paths
+    }
+
+    private struct Daemon: Encodable {
+        let state: String
+        let running: Bool
+        let pid: Int?
+    }
+
+    private struct DoctorIssue: Encodable {
+        let id: String
+        let severity: String
+        let message: String
+        let action: String?
+    }
+
+    private struct FailedJob: Encodable {
+        let id: String
+        let agent: String
+        let attempts: Int
+        let timestamp: String
+        let lastError: String?
+    }
+
+    private struct Paths: Encodable {
+        let home: String
+        let config: String
+        let queueDatabase: String
     }
 }

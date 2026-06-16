@@ -6,6 +6,7 @@ struct MenuBarSentinelView: View {
     @ObservedObject var model: AppModel
     var quitApplication: () -> Void = { NSApplication.shared.terminate(nil) }
     @Environment(\.openWindow) private var openWindow
+    @State private var localActionError: String?
 
     private let actionColumns = [
         GridItem(.flexible(), spacing: 8),
@@ -68,7 +69,7 @@ struct MenuBarSentinelView: View {
 
     @ViewBuilder
     private var errorBanner: some View {
-        if let lastError = model.lastError {
+        if let lastError = surfacedError {
             card(tint: .red) {
                 VStack(alignment: .leading, spacing: 6) {
                     Label("Last error", systemImage: "exclamationmark.triangle.fill")
@@ -203,13 +204,14 @@ struct MenuBarSentinelView: View {
 
     private var footer: some View {
         VStack(alignment: .leading, spacing: 10) {
+            smartActionsMenu
+
             LazyVGrid(columns: actionColumns, spacing: 8) {
                 actionButton("Dashboard", systemImage: "gauge") {
                     openDashboard()
                 }
                 actionButton("Setup", systemImage: "wrench.and.screwdriver") {
-                    openWindow(id: AgentVoiceWindowID.setup)
-                    NSApplication.shared.activate(ignoringOtherApps: true)
+                    openSetup()
                 }
             }
 
@@ -223,8 +225,93 @@ struct MenuBarSentinelView: View {
         }
     }
 
+    private var smartActionsMenu: some View {
+        Menu {
+            switch smartActionMenuMode {
+            case .needsAttention:
+                Button("Open Attention Details") {
+                    openAttentionDetails()
+                }
+                if model.status?.daemon.running == false {
+                    Button("Start Daemon") {
+                        Task { await model.startDaemon() }
+                    }
+                }
+            case .daemonStopped:
+                Button("Start Daemon") {
+                    Task { await model.startDaemon() }
+                }
+            case .unavailable:
+                Button("Run Voice Test") {
+                    Task { await model.testVoice() }
+                }
+            case .daily:
+                if let summary = latestSummaryText {
+                    Button("Replay Last Summary") {
+                        Task { await model.testVoice(summary) }
+                    }
+                } else {
+                    Button("No Summary to Replay") {}
+                        .disabled(true)
+                }
+                Button(model.status?.ui.state == .paused ? "Resume" : "Pause") {
+                    Task {
+                        if model.status?.ui.state == .paused {
+                            await model.resume()
+                        } else {
+                            await model.pause()
+                        }
+                    }
+                }
+                Button("Run Voice Test") {
+                    Task { await model.testVoice() }
+                }
+            }
+
+            Divider()
+
+            Button("Refresh Diagnostics") {
+                Task { await model.refresh() }
+            }
+
+            Button("Open Setup") {
+                openSetup()
+            }
+
+            Button("Copy Diagnostic Snapshot") {
+                copyDiagnosticSnapshot()
+            }
+
+            if canRevealAgentVoiceHome {
+                Button("Reveal Agent Voice Home") {
+                    revealAgentVoiceHome()
+                }
+            } else {
+                Button("Agent Voice Home Unavailable") {}
+                    .disabled(true)
+            }
+        } label: {
+            Label("Smart Actions", systemImage: "sparkles")
+                .font(.caption.weight(.medium))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 8)
+                .padding(.horizontal, 9)
+                .background(Color.accentColor.opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        }
+        .menuStyle(.borderlessButton)
+        .accessibilityLabel("Smart Actions")
+        .accessibilityValue("Best next steps for current Agent Voice state")
+    }
+
     private func openAttentionDetails() {
         openWindow(id: AgentVoiceWindowID.attention)
+        NSApplication.shared.activate(ignoringOtherApps: true)
+    }
+
+    private func openSetup() {
+        openWindow(id: AgentVoiceWindowID.setup)
         NSApplication.shared.activate(ignoringOtherApps: true)
     }
 
@@ -233,6 +320,49 @@ struct MenuBarSentinelView: View {
         NSApplication.shared.activate(ignoringOtherApps: true)
     }
 
+    private func diagnosticSnapshotJSON() -> String {
+        model.diagnosticSnapshotJSON()
+    }
+
+    private func copyDiagnosticSnapshot() {
+        let pasteboard = NSPasteboard.general
+        let previousString = pasteboard.string(forType: .string)
+        pasteboard.clearContents()
+        if pasteboard.setString(diagnosticSnapshotJSON(), forType: .string) {
+            localActionError = nil
+        } else {
+            if let previousString {
+                pasteboard.setString(previousString, forType: .string)
+            }
+            localActionError = "Could not copy diagnostic snapshot"
+        }
+    }
+
+    private func revealAgentVoiceHome() {
+        guard let homePath = model.status?.paths.home.trimmingCharacters(in: .whitespacesAndNewlines),
+              !homePath.isEmpty
+        else {
+            localActionError = "Agent Voice home path unavailable"
+            return
+        }
+
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: homePath, isDirectory: &isDirectory), isDirectory.boolValue else {
+            localActionError = "Agent Voice home path does not exist: \(homePath)"
+            return
+        }
+
+        let url = URL(fileURLWithPath: homePath, isDirectory: true)
+        if NSWorkspace.shared.open(url) {
+            localActionError = nil
+        } else {
+            localActionError = "Could not reveal Agent Voice home: \(homePath)"
+        }
+    }
+
+}
+
+extension MenuBarSentinelView {
     private func sectionTitle(_ title: String) -> some View {
         Text(title.uppercased())
             .font(.caption2.weight(.semibold))
@@ -295,6 +425,45 @@ struct MenuBarSentinelView: View {
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
+    private var surfacedError: String? {
+        localActionError ?? model.lastError
+    }
+
+    private var smartActionMenuMode: SmartActionMenuMode {
+        if hasAttentionWork {
+            return .needsAttention
+        }
+        if model.status?.daemon.running == false {
+            return .daemonStopped
+        }
+        if model.status == nil {
+            return .unavailable
+        }
+        return .daily
+    }
+
+    private var hasAttentionWork: Bool {
+        !(model.status?.ui.attention ?? []).isEmpty || !doctorIssues.isEmpty || !failedJobs.isEmpty
+    }
+
+    private var doctorIssues: [DoctorCheck] {
+        model.doctorReport?.checks.filter {
+            !$0.ok || $0.severity == .warning || $0.severity == .error
+        } ?? []
+    }
+
+    private var failedJobs: [AgentVoiceHistoryJob] {
+        model.history?.jobs.filter { $0.status == .failed } ?? []
+    }
+
+    private var latestSummaryText: String? {
+        latestDoneJob?.summary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+    }
+
+    private var canRevealAgentVoiceHome: Bool {
+        model.status?.paths.home.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+    }
+
     private var latestDoneJob: AgentVoiceHistoryJob? {
         model.history?.jobs.first { $0.status == .done && ($0.summary?.isEmpty == false) }
     }
@@ -343,5 +512,18 @@ struct MenuBarSentinelView: View {
         let active = queues.pending + queues.processing
         if active == 0 { return "Idle" }
         return "\(active) active"
+    }
+}
+
+private enum SmartActionMenuMode {
+    case needsAttention
+    case daemonStopped
+    case unavailable
+    case daily
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
     }
 }
