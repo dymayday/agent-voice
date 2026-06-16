@@ -116,8 +116,57 @@ public final class AppModel: ObservableObject {
         }
     }
 
-    public func testVoice() async {
-        await perform { try await cli.runVoiceTest("Agent Voice test.") }
+    public func testVoice(_ text: String = "Agent Voice test.") async {
+        await perform { try await cli.runVoiceTest(text) }
+    }
+
+    public func diagnosticSnapshotJSON() -> String {
+        let snapshot = AgentVoiceDiagnosticSnapshot(
+            statusState: status?.ui.state.rawValue,
+            daemon: status.map {
+                AgentVoiceDiagnosticSnapshot.Daemon(
+                    state: $0.daemon.state.rawValue,
+                    running: $0.daemon.running,
+                    pid: $0.daemon.pid
+                )
+            },
+            queues: status?.queues,
+            attention: status?.ui.attention ?? [],
+            doctorIssues: diagnosticDoctorIssues.map {
+                AgentVoiceDiagnosticSnapshot.DoctorIssue(
+                    id: $0.id,
+                    severity: $0.severity.rawValue,
+                    message: $0.message,
+                    action: $0.action
+                )
+            },
+            failedJobs: diagnosticFailedJobs.prefix(5).map {
+                AgentVoiceDiagnosticSnapshot.FailedJob(
+                    id: $0.id,
+                    agent: $0.agent,
+                    attempts: $0.attempts,
+                    timestamp: $0.finishedAt ?? $0.createdAt,
+                    lastError: $0.lastError
+                )
+            },
+            paths: status.map {
+                AgentVoiceDiagnosticSnapshot.Paths(
+                    home: $0.paths.home,
+                    config: $0.paths.config,
+                    queueDatabase: $0.paths.db
+                )
+            }
+        )
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard
+            let data = try? encoder.encode(snapshot),
+            let json = String(data: data, encoding: .utf8)
+        else {
+            return "{}"
+        }
+        return json
     }
 
     public func setSummarizerMode(_ mode: String) async {
@@ -154,6 +203,16 @@ public final class AppModel: ObservableObject {
         await perform { try await cli.uninstallAgentHook(agent) }
     }
 
+    private var diagnosticDoctorIssues: [DoctorCheck] {
+        doctorReport?.checks.filter {
+            !$0.ok || $0.severity == .warning || $0.severity == .error
+        } ?? []
+    }
+
+    private var diagnosticFailedJobs: [AgentVoiceHistoryJob] {
+        history?.jobs.filter { $0.status == .failed } ?? []
+    }
+
     private func perform(_ operation: () async throws -> Void) async {
         do {
             try await operation()
@@ -161,5 +220,42 @@ public final class AppModel: ObservableObject {
         } catch {
             lastError = String(describing: error)
         }
+    }
+}
+
+private struct AgentVoiceDiagnosticSnapshot: Encodable {
+    let statusState: String?
+    let daemon: Daemon?
+    let queues: QueueCounts?
+    let attention: [String]
+    let doctorIssues: [DoctorIssue]
+    let failedJobs: [FailedJob]
+    let paths: Paths?
+
+    struct Daemon: Encodable {
+        let state: String
+        let running: Bool
+        let pid: Int?
+    }
+
+    struct DoctorIssue: Encodable {
+        let id: String
+        let severity: String
+        let message: String
+        let action: String?
+    }
+
+    struct FailedJob: Encodable {
+        let id: String
+        let agent: String
+        let attempts: Int
+        let timestamp: String
+        let lastError: String?
+    }
+
+    struct Paths: Encodable {
+        let home: String
+        let config: String
+        let queueDatabase: String
     }
 }

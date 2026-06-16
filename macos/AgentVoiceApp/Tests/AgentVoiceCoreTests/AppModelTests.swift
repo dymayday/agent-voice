@@ -218,6 +218,87 @@ final class AppModelTests: XCTestCase {
         ])
     }
 
+    func testTestVoiceCanSpeakCustomTextAndRefreshes() async throws {
+        let runner = RecordingRunner(results: [
+            ProcessResult(exitCode: 0, stdout: "ok\n", stderr: ""),
+            ProcessResult(exitCode: 0, stdout: statusJSON(), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyHistoryJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyDoctorJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: fullConfigJSON(), stderr: "")
+        ])
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+        let model = AppModel(cli: cli)
+
+        await model.testVoice("Claude finished the refactor.")
+
+        XCTAssertNil(model.lastError)
+        let requests = await runner.capturedRequests()
+        XCTAssertEqual(requests.map(\.arguments), [
+            ["test", "Claude finished the refactor."],
+            ["status", "--json"],
+            ["history", "--json", "--limit", "50"],
+            ["doctor", "--json"],
+            ["config", "get"]
+        ])
+    }
+
+    func testDiagnosticSnapshotJSONIncludesRequiredFields() async throws {
+        let failedHistoryJSON = """
+        {
+          "version": 1,
+          "jobs": [
+            {
+              "id": "failed-1",
+              "agent": "pi",
+              "status": "failed",
+              "text": "raw",
+              "createdAt": "2026-06-15T00:00:00.000Z",
+              "finishedAt": "2026-06-15T00:01:00.000Z",
+              "lastError": "boom",
+              "attempts": 2
+            }
+          ]
+        }
+        """
+        let warningDoctorJSON = """
+        {
+          "version": 1,
+          "checks": [
+            {
+              "id": "tts.script",
+              "ok": false,
+              "severity": "error",
+              "message": "Kokoro script missing",
+              "action": "Set tts.kokoroScript"
+            }
+          ]
+        }
+        """
+        let runner = RecordingRunner(results: [
+            ProcessResult(exitCode: 0, stdout: statusJSON(uiState: "needs_attention"), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: failedHistoryJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: warningDoctorJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: fullConfigJSON(), stderr: "")
+        ])
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+        let model = AppModel(cli: cli)
+
+        await model.refresh()
+        let data = try XCTUnwrap(model.diagnosticSnapshotJSON().data(using: .utf8))
+        let root = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let paths = try XCTUnwrap(root["paths"] as? [String: Any])
+        let doctorIssues = try XCTUnwrap(root["doctorIssues"] as? [[String: Any]])
+        let failedJobs = try XCTUnwrap(root["failedJobs"] as? [[String: Any]])
+
+        XCTAssertEqual(root["statusState"] as? String, "needs_attention")
+        XCTAssertNotNil(root["daemon"])
+        XCTAssertNotNil(root["queues"])
+        XCTAssertNotNil(root["attention"])
+        XCTAssertEqual(paths["queueDatabase"] as? String, "/tmp/av/queue.db")
+        XCTAssertEqual(doctorIssues.first?["id"] as? String, "tts.script")
+        XCTAssertEqual(failedJobs.first?["lastError"] as? String, "boom")
+    }
+
     func testInstallAgentHookDelegatesToCLIAndRefreshes() async throws {
         let runner = RecordingRunner(results: [
             ProcessResult(exitCode: 0, stdout: "installed\n", stderr: ""),
