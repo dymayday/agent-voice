@@ -170,6 +170,12 @@ public struct FoundationProcessRunner: ProcessRunning {
             let stderr = Pipe()
             process.standardOutput = stdout
             process.standardError = stderr
+            // Hand the child an already-closed stdin (/dev/null) instead of
+            // letting it inherit the app's. The CLI's entrypoint reads stdin to
+            // EOF before doing anything, so an inherited stdin that never closes
+            // (e.g. when the app is not launched with stdin = /dev/null) would
+            // block it forever and hang status/history refreshes.
+            process.standardInput = FileHandle.nullDevice
 
             let stdoutReader = PipeReader(handle: stdout.fileHandleForReading)
             let stderrReader = PipeReader(handle: stderr.fileHandleForReading)

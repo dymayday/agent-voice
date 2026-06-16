@@ -26,6 +26,12 @@ actor RecordingRunner: ProcessRunning {
     }
 }
 
+private actor ResultBox {
+    private var value: ProcessResult?
+    func set(_ result: ProcessResult) { value = result }
+    func get() -> ProcessResult? { value }
+}
+
 final class AgentVoiceCLITests: XCTestCase {
     let statusJSON = """
     {
@@ -148,6 +154,62 @@ final class AgentVoiceCLITests: XCTestCase {
         XCTAssertEqual(result.exitCode, 0)
         XCTAssertEqual(result.stdout.count, byteCount)
         XCTAssertEqual(result.stderr.count, byteCount)
+    }
+
+    func testRunnerGivesChildEofStdinEvenWhenParentStdinNeverEnds() async throws {
+        let perlPath = "/usr/bin/perl"
+        try XCTSkipIf(!FileManager.default.isExecutableFile(atPath: perlPath), "Perl is unavailable")
+
+        // Give this process a stdin that never reaches EOF: the read end of a
+        // pipe whose write end stays open for the whole run. A child that
+        // inherits this stdin and reads to EOF would block forever.
+        let savedStdin = dup(0)
+        var fds: [Int32] = [-1, -1]
+        XCTAssertEqual(pipe(&fds), 0)
+        let pipeRead = fds[0]
+        let pipeWrite = fds[1]
+        dup2(pipeRead, 0)
+        defer {
+            dup2(savedStdin, 0)
+            close(savedStdin)
+            close(pipeRead)
+            close(pipeWrite)
+        }
+
+        // Perl slurps all of stdin (blocks until EOF), then reports.
+        let script = "local $/; my $_in = <STDIN>; print 'eof';"
+        let runner = FoundationProcessRunner()
+        let request = ProcessRequest(
+            executableURL: URL(fileURLWithPath: perlPath),
+            arguments: ["-e", script],
+            environment: [:]
+        )
+
+        // Run unstructured and poll for completion. The runner must close the
+        // child's stdin itself, so the child reaches EOF and exits even though
+        // the inherited stdin never does. If it instead inherits the open pipe,
+        // the child blocks and the box stays empty until the deadline — failing
+        // the assertion rather than hanging the suite. The trailing defer closes
+        // the write end, releasing any blocked child during teardown.
+        let box = ResultBox()
+        let runTask = Task {
+            if let result = try? await runner.run(request) {
+                await box.set(result)
+            }
+        }
+        defer { runTask.cancel() }
+
+        var observed: ProcessResult?
+        let deadline = Date().addingTimeInterval(3)
+        while Date() < deadline {
+            observed = await box.get()
+            if observed != nil { break }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+
+        XCTAssertNotNil(observed, "runner.run did not finish within 3s; the child blocked on inherited stdin")
+        XCTAssertEqual(observed?.exitCode, 0)
+        XCTAssertEqual(observed?.stdout, "eof")
     }
 
     func testSummarizerModeCommand() async throws {
