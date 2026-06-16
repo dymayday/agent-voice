@@ -196,10 +196,11 @@ struct MenuBarSentinelView: View {
         VStack(alignment: .leading, spacing: 10) {
             LazyVGrid(columns: actionColumns, spacing: 8) {
                 actionButton("Dashboard", systemImage: "gauge") {
-                    openWindow(id: "dashboard")
+                    openDashboard()
                 }
                 actionButton("Setup", systemImage: "wrench.and.screwdriver") {
-                    openWindow(id: "setup")
+                    openWindow(id: AgentVoiceWindowID.setup)
+                    NSApplication.shared.activate(ignoringOtherApps: true)
                 }
             }
 
@@ -211,6 +212,11 @@ struct MenuBarSentinelView: View {
                 }
             }
         }
+    }
+
+    private func openDashboard() {
+        openWindow(id: AgentVoiceWindowID.dashboard)
+        NSApplication.shared.activate(ignoringOtherApps: true)
     }
 
     private func sectionTitle(_ title: String) -> some View {

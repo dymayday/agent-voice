@@ -127,6 +127,11 @@ function requestFor(
 				"--thinking",
 				config.summarizer.thinking ?? "off",
 				"--no-tools",
+				"--no-skills",
+				"--no-extensions",
+				"--no-context-files",
+				"--no-prompt-templates",
+				"--no-session",
 				"-p",
 			],
 		};

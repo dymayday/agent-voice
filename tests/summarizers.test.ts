@@ -112,6 +112,11 @@ describe("agent-voice summarizer fallback chain", () => {
 			"--thinking",
 			"off",
 			"--no-tools",
+			"--no-skills",
+			"--no-extensions",
+			"--no-context-files",
+			"--no-prompt-templates",
+			"--no-session",
 			"-p",
 		]);
 		expect(calls[0].args.join("\n")).not.toContain(rawText);

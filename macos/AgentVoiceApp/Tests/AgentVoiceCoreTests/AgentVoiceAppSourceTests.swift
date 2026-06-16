@@ -1,0 +1,64 @@
+import XCTest
+
+final class AgentVoiceAppSourceTests: XCTestCase {
+    func testWindowIDsStayStableForMenuOpenActions() throws {
+        let source = try appSource("AgentVoiceApp.swift")
+
+        XCTAssertTrue(source.contains("static let dashboard = \"dashboard\""))
+        XCTAssertTrue(source.contains("static let setup = \"setup\""))
+    }
+
+    func testDashboardSceneIsSingletonWindow() throws {
+        let source = try appSource("AgentVoiceApp.swift")
+
+        XCTAssertTrue(
+            source.contains("Window(\"Dashboard\", id: AgentVoiceWindowID.dashboard)"),
+            "Dashboard should use a singleton SwiftUI Window with the shared dashboard window id."
+        )
+        XCTAssertFalse(
+            source.contains("WindowGroup(\"Dashboard"),
+            "Dashboard must not use WindowGroup because menu clicks should not spawn multiple dashboard windows."
+        )
+        XCTAssertTrue(
+            source.contains(".defaultSize(width: 960, height: 720)"),
+            "Dashboard should define a comfortable default size for the operations cockpit layout."
+        )
+    }
+
+    func testMenuDashboardActionUsesSharedWindowIDAndActivatesApp() throws {
+        let source = try appSource("MenuBarSentinelView.swift")
+        let footer = try sourceSlice(in: source, from: "private var footer", to: "private func openDashboard")
+        let openDashboard = try sourceSlice(
+            in: source,
+            from: "private func openDashboard",
+            to: "private func sectionTitle"
+        )
+
+        XCTAssertTrue(footer.contains("actionButton(\"Dashboard\", systemImage: \"gauge\")"))
+        XCTAssertTrue(footer.contains("openDashboard()"))
+        XCTAssertTrue(openDashboard.contains("openWindow(id: AgentVoiceWindowID.dashboard)"))
+        XCTAssertTrue(openDashboard.contains("NSApplication.shared.activate(ignoringOtherApps: true)"))
+        XCTAssertTrue(footer.contains("openWindow(id: AgentVoiceWindowID.setup)"))
+    }
+
+    private func sourceSlice(in source: String, from startMarker: String, to endMarker: String) throws -> String {
+        guard
+            let start = source.range(of: startMarker),
+            let end = source.range(of: endMarker, range: start.upperBound..<source.endIndex)
+        else {
+            XCTFail("Could not isolate source slice from \(startMarker) to \(endMarker)")
+            throw XCTSkip("Cannot verify source action binding without expected markers.")
+        }
+        return String(source[start.lowerBound..<end.lowerBound])
+    }
+
+    private func appSource(_ fileName: String) throws -> String {
+        let testFile = URL(fileURLWithPath: #filePath)
+        let packageRoot = testFile
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourceFile = packageRoot.appendingPathComponent("Sources/AgentVoiceApp/\(fileName)")
+        return try String(contentsOf: sourceFile, encoding: .utf8)
+    }
+}
