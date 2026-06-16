@@ -25,6 +25,20 @@ final class AgentVoiceAppSourceTests: XCTestCase {
         )
     }
 
+    func testDashboardAndMenuRegisterVisibleAutoRefresh() throws {
+        let dashboardSource = try appSource("DashboardView.swift")
+        let menuSource = try appSource("MenuBarSentinelView.swift")
+
+        for source in [dashboardSource, menuSource] {
+            XCTAssertTrue(source.contains(".onAppear { model.startAutoRefresh() }"))
+            XCTAssertTrue(source.contains(".onDisappear { model.stopAutoRefresh() }"))
+            XCTAssertFalse(
+                source.contains(".task {\n            await model.refresh()\n        }"),
+                "Visible surfaces should use the shared AppModel auto-refresh loop, not independent one-shot tasks."
+            )
+        }
+    }
+
     func testMenuDashboardActionUsesSharedWindowIDAndActivatesApp() throws {
         let source = try appSource("MenuBarSentinelView.swift")
         let footer = try sourceSlice(in: source, from: "private var footer", to: "private func openDashboard")

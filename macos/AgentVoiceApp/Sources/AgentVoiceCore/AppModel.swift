@@ -10,6 +10,13 @@ public final class AppModel: ObservableObject {
     @Published public private(set) var lastError: String?
     @Published public var draftVoice: String = ""
 
+    public static let defaultAutoRefreshIntervalNanoseconds: UInt64 = 5_000_000_000
+
+    var autoRefreshSubscriberCount = 0
+    var isAutoRefreshRunning: Bool { autoRefreshTask != nil }
+
+    private var autoRefreshTask: Task<Void, Never>?
+
     public static let kokoroVoicePresets = [
         "af_heart",
         "af_sky",
@@ -32,6 +39,10 @@ public final class AppModel: ObservableObject {
         }
     }
 
+    deinit {
+        autoRefreshTask?.cancel()
+    }
+
     public func refresh() async {
         do {
             status = try await cli.status()
@@ -42,6 +53,35 @@ public final class AppModel: ObservableObject {
             lastError = nil
         } catch {
             lastError = String(describing: error)
+        }
+    }
+
+    public func startAutoRefresh(
+        everyNanoseconds intervalNanoseconds: UInt64 = AppModel.defaultAutoRefreshIntervalNanoseconds
+    ) {
+        autoRefreshSubscriberCount += 1
+        guard autoRefreshTask == nil else { return }
+
+        let intervalNanoseconds = max(intervalNanoseconds, 1_000_000)
+        autoRefreshTask = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.refresh()
+                do {
+                    try await Task.sleep(nanoseconds: intervalNanoseconds)
+                } catch {
+                    break
+                }
+            }
+        }
+    }
+
+    public func stopAutoRefresh() {
+        guard autoRefreshSubscriberCount > 0 else { return }
+        autoRefreshSubscriberCount -= 1
+
+        if autoRefreshSubscriberCount == 0 {
+            autoRefreshTask?.cancel()
+            autoRefreshTask = nil
         }
     }
 

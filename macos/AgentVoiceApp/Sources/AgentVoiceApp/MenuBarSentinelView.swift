@@ -26,9 +26,8 @@ struct MenuBarSentinelView: View {
         }
         .padding(14)
         .frame(width: 340)
-        .task {
-            await model.refresh()
-        }
+        .onAppear { model.startAutoRefresh() }
+        .onDisappear { model.stopAutoRefresh() }
     }
 
     private var header: some View {

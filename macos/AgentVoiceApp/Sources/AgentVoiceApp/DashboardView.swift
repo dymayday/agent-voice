@@ -24,9 +24,8 @@ struct DashboardView: View {
             .padding(24)
         }
         .frame(minWidth: 900, minHeight: 640)
-        .task {
-            await model.refresh()
-        }
+        .onAppear { model.startAutoRefresh() }
+        .onDisappear { model.stopAutoRefresh() }
     }
 }
 
@@ -355,13 +354,13 @@ private extension DashboardView {
                             Text(agent?.mode ?? "Not exposed by current CLI yet")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                            if name == "pi" {
+                            if name == "pi" || name == "claude" {
                                 VStack(alignment: .leading, spacing: 6) {
-                                    Button("Install Pi Hook") {
-                                        Task { await model.installAgentHook("pi") }
+                                    Button("Install \(name.capitalized) Hook") {
+                                        Task { await model.installAgentHook(name) }
                                     }
-                                    Button("Uninstall Pi Hook", role: .destructive) {
-                                        Task { await model.uninstallAgentHook("pi") }
+                                    Button("Uninstall \(name.capitalized) Hook", role: .destructive) {
+                                        Task { await model.uninstallAgentHook(name) }
                                     }
                                 }
                                 .font(.caption)

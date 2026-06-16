@@ -37,42 +37,74 @@ private let emptyDoctorJSON = """
 { "version": 1, "checks": [] }
 """
 
+private let doneHistoryJSON = """
+{
+  "version": 1,
+  "jobs": [
+    {
+      "id": "done-1",
+      "agent": "claude",
+      "status": "done",
+      "text": "raw",
+      "createdAt": "2026-06-15T00:00:00.000Z",
+      "summary": "Claude finished.",
+      "attempts": 1
+    }
+  ]
+}
+"""
+
+private let runningDoctorJSON = """
+{
+  "version": 1,
+  "checks": [
+    {
+      "id": "daemon.running",
+      "ok": true,
+      "severity": "info",
+      "message": "Daemon running"
+    }
+  ]
+}
+"""
+
+private func refreshResults(cycles: Int) -> [ProcessResult] {
+    (0..<cycles).flatMap { _ in
+        [
+            ProcessResult(exitCode: 0, stdout: statusJSON(), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyHistoryJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyDoctorJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: fullConfigJSON(), stderr: "")
+        ]
+    }
+}
+
+private func waitForRequestCount(
+    _ minimumRequestCount: Int,
+    runner: RecordingRunner,
+    timeoutNanoseconds: UInt64 = 1_000_000_000
+) async throws {
+    let startedAt = Date()
+    let timeoutSeconds = Double(timeoutNanoseconds) / 1_000_000_000
+
+    while Date().timeIntervalSince(startedAt) < timeoutSeconds {
+        if await runner.capturedRequests().count >= minimumRequestCount {
+            return
+        }
+        try await Task.sleep(nanoseconds: 5_000_000)
+    }
+
+    XCTFail("Timed out waiting for \(minimumRequestCount) process requests")
+    throw XCTSkip("Cannot verify auto-refresh without recorded process requests.")
+}
+
 @MainActor
 final class AppModelTests: XCTestCase {
     func testRefreshLoadsStatusHistoryDoctorAndConfig() async throws {
-        let historyJSON = """
-        {
-          "version": 1,
-          "jobs": [
-            {
-              "id": "done-1",
-              "agent": "claude",
-              "status": "done",
-              "text": "raw",
-              "createdAt": "2026-06-15T00:00:00.000Z",
-              "summary": "Claude finished.",
-              "attempts": 1
-            }
-          ]
-        }
-        """
-        let doctorJSON = """
-        {
-          "version": 1,
-          "checks": [
-            {
-              "id": "daemon.running",
-              "ok": true,
-              "severity": "info",
-              "message": "Daemon running"
-            }
-          ]
-        }
-        """
         let runner = RecordingRunner(results: [
             ProcessResult(exitCode: 0, stdout: statusJSON(), stderr: ""),
-            ProcessResult(exitCode: 0, stdout: historyJSON, stderr: ""),
-            ProcessResult(exitCode: 0, stdout: doctorJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: doneHistoryJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: runningDoctorJSON, stderr: ""),
             ProcessResult(exitCode: 0, stdout: fullConfigJSON(voice: "af_sky"), stderr: "")
         ])
         let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
@@ -86,6 +118,47 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(model.config?.tts.voice, "af_sky")
         XCTAssertEqual(model.draftVoice, "af_sky")
         XCTAssertNil(model.lastError)
+        let requests = await runner.capturedRequests()
+        XCTAssertEqual(requests.map(\.arguments), [
+            ["status", "--json"],
+            ["history", "--json", "--limit", "50"],
+            ["doctor", "--json"],
+            ["config", "get"]
+        ])
+    }
+
+    func testAutoRefreshUsesSharedReferenceCountForVisibleSurfaces() async throws {
+        let runner = RecordingRunner(results: refreshResults(cycles: 1))
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+        let model = AppModel(cli: cli)
+
+        model.startAutoRefresh(everyNanoseconds: 1_000_000_000)
+        model.startAutoRefresh(everyNanoseconds: 1_000_000_000)
+
+        XCTAssertEqual(model.autoRefreshSubscriberCount, 2)
+        XCTAssertTrue(model.isAutoRefreshRunning)
+
+        model.stopAutoRefresh()
+
+        XCTAssertEqual(model.autoRefreshSubscriberCount, 1)
+        XCTAssertTrue(model.isAutoRefreshRunning)
+
+        model.stopAutoRefresh()
+
+        XCTAssertEqual(model.autoRefreshSubscriberCount, 0)
+        XCTAssertFalse(model.isAutoRefreshRunning)
+    }
+
+    func testAutoRefreshImmediatelyRefreshesWhenFirstSurfaceAppears() async throws {
+        let runner = RecordingRunner(results: refreshResults(cycles: 1))
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+        let model = AppModel(cli: cli)
+
+        model.startAutoRefresh(everyNanoseconds: 1_000_000_000)
+        try await waitForRequestCount(4, runner: runner)
+        model.stopAutoRefresh()
+
+        XCTAssertEqual(model.status?.ui.state, .ready)
         let requests = await runner.capturedRequests()
         XCTAssertEqual(requests.map(\.arguments), [
             ["status", "--json"],
