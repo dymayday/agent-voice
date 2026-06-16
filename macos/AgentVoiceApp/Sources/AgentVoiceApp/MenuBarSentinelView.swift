@@ -360,6 +360,9 @@ struct MenuBarSentinelView: View {
         }
     }
 
+}
+
+extension MenuBarSentinelView {
     private func sectionTitle(_ title: String) -> some View {
         Text(title.uppercased())
             .font(.caption2.weight(.semibold))
@@ -423,7 +426,7 @@ struct MenuBarSentinelView: View {
     }
 
     private var surfacedError: String? {
-        model.lastError ?? localActionError
+        localActionError ?? model.lastError
     }
 
     private var smartActionMenuMode: SmartActionMenuMode {

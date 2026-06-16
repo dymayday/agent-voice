@@ -196,7 +196,7 @@ final class AgentVoiceAppSourceTests: XCTestCase {
         let openAttention = try sourceSlice(
             in: source,
             from: "private func openAttentionDetails",
-            to: "private func openDashboard"
+            to: "private func openSetup"
         )
 
         XCTAssertTrue(attentionBanner.contains("openAttentionDetails()"))
