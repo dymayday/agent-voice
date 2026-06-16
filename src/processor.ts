@@ -15,6 +15,7 @@ import {
 export interface ProcessorDeps {
 	summarize: (event: AgentVoiceEvent, config: AgentVoiceConfig) => Promise<string>;
 	speak: (summary: string, voice: string, event: AgentVoiceEvent) => Promise<void>;
+	prewarm?: () => Promise<void>;
 }
 
 export type ProcessNextJobResult =

@@ -127,6 +127,9 @@ function defaultProcessorDeps(
 				timeoutMs: config.tts.timeoutSeconds * 1000,
 			});
 		},
+		prewarm: async () => {
+			await kokoro.ensureReady();
+		},
 	};
 }
 

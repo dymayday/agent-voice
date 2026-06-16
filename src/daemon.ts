@@ -246,8 +246,14 @@ export async function runDaemonLoop(
 		failed: 0,
 	};
 	const maxIterations = deps.maxIterations ?? Number.POSITIVE_INFINITY;
-	const pollIntervalMs = deps.pollIntervalMs ?? 1000;
+	const pollIntervalMs = deps.pollIntervalMs ?? 200;
 	const pruneEvery = deps.pruneEveryIterations ?? 300;
+	const procDeps = requireProcessorDeps(deps);
+	try {
+		await procDeps.prewarm?.();
+	} catch {
+		// Best-effort warm-up; the first job will retry readiness if this failed.
+	}
 	const db = openDb(paths.db);
 	try {
 		const clock = deps.now ?? (() => new Date());
