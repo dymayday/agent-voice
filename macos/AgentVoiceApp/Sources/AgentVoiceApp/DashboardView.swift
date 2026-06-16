@@ -195,6 +195,8 @@ private extension DashboardView {
             VStack(alignment: .leading, spacing: 12) {
                 labeledRow("Voice", model.config?.tts.voice ?? "Unknown")
                 voiceControls
+                labeledRow("Summarizer thinking", model.config?.summarizer.thinking ?? "Unknown")
+                thinkingControls
                 labeledRow("Kokoro script", model.config?.tts.kokoroScript ?? "Unknown")
                 labeledRow("Agent Voice home", model.status?.paths.home ?? "Unknown")
                 labeledRow("Config", model.status?.paths.config ?? "Unknown")
@@ -228,6 +230,24 @@ private extension DashboardView {
                 }
                 .disabled(model.draftVoice.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var thinkingControls: some View {
+        let options = AppModel.summarizerThinkingOptions
+        VStack(alignment: .leading, spacing: 8) {
+            Picker("Thinking effort", selection: $model.draftThinking) {
+                ForEach(options, id: \.self) { effort in
+                    Text(effort).tag(effort)
+                }
+            }
+            .pickerStyle(.menu)
+
+            Button("Save Thinking") {
+                Task { await model.saveThinking() }
+            }
+            .disabled(!options.contains(model.draftThinking.trimmingCharacters(in: .whitespacesAndNewlines)))
         }
     }
 

@@ -104,6 +104,10 @@ public struct AgentVoiceCLI: Sendable {
         _ = try await run(["config", "set", "tts.voice", voice])
     }
 
+    public func setSummarizerThinking(_ thinking: String) async throws {
+        _ = try await run(["config", "set", "summarizer.thinking", thinking])
+    }
+
     public func clearQueue() async throws {
         _ = try await run(["queue", "clear"])
     }

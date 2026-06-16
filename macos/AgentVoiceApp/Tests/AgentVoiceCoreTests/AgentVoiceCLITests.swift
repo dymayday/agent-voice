@@ -239,7 +239,7 @@ final class AgentVoiceCLITests: XCTestCase {
         ])
     }
 
-    func testConfigCommandDecodesVoice() async throws {
+    func testConfigCommandDecodesVoiceAndSummarizerThinking() async throws {
         let configJSON = """
         {
           "enabled": true,
@@ -249,6 +249,9 @@ final class AgentVoiceCLITests: XCTestCase {
             "python": "python3",
             "voice": "af_sky",
             "timeoutSeconds": 30
+          },
+          "summarizer": {
+            "thinking": "high"
           }
         }
         """
@@ -258,6 +261,7 @@ final class AgentVoiceCLITests: XCTestCase {
         let config = try await cli.config()
 
         XCTAssertEqual(config.tts.voice, "af_sky")
+        XCTAssertEqual(config.summarizer.thinking, "high")
         let requests = await runner.capturedRequests()
         XCTAssertEqual(requests.first?.arguments, ["config", "get"])
     }
@@ -270,6 +274,16 @@ final class AgentVoiceCLITests: XCTestCase {
 
         let requests = await runner.capturedRequests()
         XCTAssertEqual(requests.first?.arguments, ["config", "set", "tts.voice", "bf_emma"])
+    }
+
+    func testSetSummarizerThinkingCommand() async throws {
+        let runner = RecordingRunner(stdout: "ok\n")
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+
+        try await cli.setSummarizerThinking("xhigh")
+
+        let requests = await runner.capturedRequests()
+        XCTAssertEqual(requests.first?.arguments, ["config", "set", "summarizer.thinking", "xhigh"])
     }
 
     func testClearQueueCommand() async throws {

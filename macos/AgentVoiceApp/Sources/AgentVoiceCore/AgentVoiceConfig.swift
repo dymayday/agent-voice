@@ -20,9 +20,39 @@ public struct AgentSummary: Codable, Equatable, Sendable {
 
 public struct AgentVoiceFullConfig: Codable, Equatable, Sendable {
     public let tts: TTSConfig
+    public let summarizer: SummarizerConfig
 
-    public init(tts: TTSConfig) {
+    public init(tts: TTSConfig, summarizer: SummarizerConfig = SummarizerConfig()) {
         self.tts = tts
+        self.summarizer = summarizer
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case tts
+        case summarizer
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        tts = try container.decode(TTSConfig.self, forKey: .tts)
+        summarizer = try container.decodeIfPresent(SummarizerConfig.self, forKey: .summarizer) ?? SummarizerConfig()
+    }
+}
+
+public struct SummarizerConfig: Codable, Equatable, Sendable {
+    public let thinking: String
+
+    public init(thinking: String = "off") {
+        self.thinking = thinking
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case thinking
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        thinking = try container.decodeIfPresent(String.self, forKey: .thinking) ?? "off"
     }
 }
 
