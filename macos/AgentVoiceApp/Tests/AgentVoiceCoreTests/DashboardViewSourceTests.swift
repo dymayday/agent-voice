@@ -63,6 +63,23 @@ final class DashboardViewSourceTests: XCTestCase {
         XCTAssertTrue(helpers.contains("queues.pending + queues.processing > 0"))
     }
 
+    func testDashboardExposesSummarizerThinkingInLocalConfigCard() throws {
+        let source = try dashboardViewSource()
+        let kokoroCard = try propertyBody(named: "kokoroCard", in: source)
+        let thinkingControls = try propertyBody(named: "thinkingControls", in: source)
+
+        XCTAssertTrue(kokoroCard.contains("labeledRow(\"Summarizer thinking\""))
+        XCTAssertTrue(kokoroCard.contains("thinkingControls"))
+        XCTAssertTrue(source.contains("private var thinkingControls"))
+        XCTAssertTrue(source.contains("AppModel.summarizerThinkingOptions"))
+        XCTAssertTrue(thinkingControls.contains("Button(\"Save Thinking\")"))
+        XCTAssertTrue(thinkingControls.contains("model.saveThinking()"))
+        XCTAssertTrue(thinkingControls.contains("Picker(\"Thinking effort\", selection: $model.draftThinking)"))
+        XCTAssertTrue(thinkingControls.contains("ForEach(options, id: \\.self)"))
+        XCTAssertTrue(thinkingControls.contains(".disabled("))
+        XCTAssertTrue(thinkingControls.contains("options.contains"))
+    }
+
     private func dashboardViewSource() throws -> String {
         try appSource("DashboardView.swift")
     }
