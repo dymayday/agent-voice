@@ -87,17 +87,27 @@ struct MenuBarSentinelView: View {
     @ViewBuilder
     private var attentionBanner: some View {
         if let attention = model.status?.ui.attention, !attention.isEmpty {
-            card(tint: .orange) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Label("Needs attention", systemImage: "bell.badge.fill")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.orange)
-                    Text(attention.joined(separator: "\n"))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(3)
+            Button {
+                openAttentionDetails()
+            } label: {
+                card(tint: .orange) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label("Needs attention", systemImage: "bell.badge.fill")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.orange)
+                        Text(attention.joined(separator: "\n"))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(3)
+                        Text("Open details")
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Open attention details")
+            .accessibilityValue("\(attention.count) attention \(attention.count == 1 ? "message" : "messages")")
         }
     }
 
@@ -211,6 +221,11 @@ struct MenuBarSentinelView: View {
                 }
             }
         }
+    }
+
+    private func openAttentionDetails() {
+        openWindow(id: AgentVoiceWindowID.attention)
+        NSApplication.shared.activate(ignoringOtherApps: true)
     }
 
     private func openDashboard() {
