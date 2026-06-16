@@ -21,6 +21,32 @@ final class AgentVoiceAppSourceTests: XCTestCase {
         )
     }
 
+    func testMenuBarUsesNativeTemplateWaveformIcon() throws {
+        let applicationSource = try appSource("AgentVoiceApp.swift")
+        let statusLabel = try sourceSlice(
+            in: applicationSource,
+            from: "struct StatusBarIconLabel",
+            to: "extension DashboardView"
+        )
+
+        XCTAssertTrue(applicationSource.contains("MenuBarExtra {"))
+        XCTAssertTrue(applicationSource.contains("StatusBarIconLabel()"))
+        XCTAssertTrue(statusLabel.contains("Image(systemName: \"waveform\")"))
+        XCTAssertTrue(statusLabel.contains(".accessibilityLabel(\"Agent Voice\")"))
+        XCTAssertFalse(
+            statusLabel.contains("forResource: \"AppIcon\", withExtension: \"icns\""),
+            "The status item should not use the full-color app icon."
+        )
+        XCTAssertFalse(
+            statusLabel.contains("Image(nsImage:"),
+            "The status item should be a native template-style SF Symbol, not a full-color NSImage."
+        )
+        XCTAssertFalse(
+            statusLabel.contains(".clipShape(Circle())"),
+            "The menu-bar glyph should be transparent, not a clipped app-icon circle."
+        )
+    }
+
     func testDashboardSceneIsSingletonWindow() throws {
         let source = try appSource("AgentVoiceApp.swift")
 

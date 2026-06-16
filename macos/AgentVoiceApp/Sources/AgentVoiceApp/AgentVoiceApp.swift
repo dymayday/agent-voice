@@ -12,8 +12,10 @@ struct AgentVoiceApplication: App {
     @StateObject private var model = AppModel()
 
     var body: some Scene {
-        MenuBarExtra("Agent Voice", systemImage: "waveform.circle") {
+        MenuBarExtra {
             MenuBarSentinelView(model: model)
+        } label: {
+            StatusBarIconLabel()
         }
         .menuBarExtraStyle(.window)
 
@@ -30,6 +32,13 @@ struct AgentVoiceApplication: App {
         WindowGroup("Setup", id: AgentVoiceWindowID.setup) {
             SetupAssistantView(model: model)
         }
+    }
+}
+
+struct StatusBarIconLabel: View {
+    var body: some View {
+        Image(systemName: "waveform")
+            .accessibilityLabel("Agent Voice")
     }
 }
 
