@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/app-icon/agent-voice-local-voice-orb.png" alt="Agent Voice icon" width="180">
+</p>
+
 # agent-voice
 
 > Local Bun/TypeScript CLI and daemon that queues completed coding-agent turns, summarizes each turn into one short sentence, and speaks it through a local Kokoro TTS script.
