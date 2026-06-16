@@ -242,6 +242,35 @@ final class AppModelTests: XCTestCase {
         ])
     }
 
+    func testDiagnosticSnapshotJSONBeforeRefreshIncludesRequiredFieldsWithNullUnavailableValues() throws {
+        let runner = RecordingRunner(results: [])
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+        let model = AppModel(cli: cli)
+
+        let data = try XCTUnwrap(model.diagnosticSnapshotJSON().data(using: .utf8))
+        let root = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let requiredKeys = [
+            "statusState",
+            "daemon",
+            "queues",
+            "attention",
+            "doctorIssues",
+            "failedJobs",
+            "paths"
+        ]
+
+        for key in requiredKeys {
+            XCTAssertNotNil(root[key], "Expected diagnostic snapshot to include \(key)")
+        }
+        XCTAssertTrue(root["statusState"] is NSNull)
+        XCTAssertTrue(root["daemon"] is NSNull)
+        XCTAssertTrue(root["queues"] is NSNull)
+        XCTAssertTrue(root["paths"] is NSNull)
+        XCTAssertEqual((root["attention"] as? [Any])?.count, 0)
+        XCTAssertEqual((root["doctorIssues"] as? [Any])?.count, 0)
+        XCTAssertEqual((root["failedJobs"] as? [Any])?.count, 0)
+    }
+
     func testDiagnosticSnapshotJSONIncludesRequiredFields() async throws {
         let failedHistoryJSON = """
         {
@@ -299,6 +328,9 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(failedJobs.first?["lastError"] as? String, "boom")
     }
 
+}
+
+extension AppModelTests {
     func testInstallAgentHookDelegatesToCLIAndRefreshes() async throws {
         let runner = RecordingRunner(results: [
             ProcessResult(exitCode: 0, stdout: "installed\n", stderr: ""),
