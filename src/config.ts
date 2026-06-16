@@ -8,6 +8,13 @@ export type SummarizerName =
 	| "pi-fast"
 	| "opencode"
 	| "heuristic";
+export type SummarizerThinking =
+	| "off"
+	| "minimal"
+	| "low"
+	| "medium"
+	| "high"
+	| "xhigh";
 
 export interface AgentVoiceConfig {
 	enabled: boolean;
@@ -19,6 +26,7 @@ export interface AgentVoiceConfig {
 		codexModel: string;
 		piModel: string;
 		opencodeModel: string | null;
+		thinking: SummarizerThinking;
 		timeoutSeconds: number;
 		maxInputChars: number;
 		maxSummaryChars: number;
@@ -51,10 +59,11 @@ export const defaultConfig: AgentVoiceConfig = {
 	speakPolicy: "every_turn",
 	ignoreCwdPatterns: [],
 	summarizer: {
-		priority: ["codex-fast", "pi-fast", "opencode", "heuristic"],
+		priority: ["pi-fast", "heuristic"],
 		codexModel: "gpt-5.3-codex",
-		piModel: "openai/gpt-5.3-codex",
+		piModel: "openai-codex/gpt-5.5",
 		opencodeModel: null,
+		thinking: "off",
 		timeoutSeconds: 12,
 		maxInputChars: 12000,
 		maxSummaryChars: 180,

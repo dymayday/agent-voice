@@ -29,15 +29,11 @@ describe("agent-voice config and paths", () => {
 		});
 	});
 
-	test("default config includes fast summarizer priority and absolute Kokoro path field", () => {
-		expect(defaultConfig.summarizer.priority).toEqual([
-			"codex-fast",
-			"pi-fast",
-			"opencode",
-			"heuristic",
-		]);
+	test("default config is pi-first through the codex subscription with an absolute Kokoro path", () => {
+		expect(defaultConfig.summarizer.priority).toEqual(["pi-fast", "heuristic"]);
 		expect(defaultConfig.summarizer.codexModel).toBe("gpt-5.3-codex");
-		expect(defaultConfig.summarizer.piModel).toBe("openai/gpt-5.3-codex");
+		expect(defaultConfig.summarizer.piModel).toBe("openai-codex/gpt-5.5");
+		expect(defaultConfig.summarizer.thinking).toBe("off");
 		expect(defaultConfig.tts.kokoroScript).toContain("kokoro_tts_service.py");
 		expect(defaultConfig.tts.kokoroScript.startsWith("/")).toBe(true);
 	});
