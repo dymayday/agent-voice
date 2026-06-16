@@ -13,6 +13,9 @@ export const AGENT_VOICE_EXTENSION_MARKER =
 export const AGENT_VOICE_CLAUDE_STATUS_MESSAGE =
 	"Agent Voice: queue Claude turn summary";
 
+export const AGENT_VOICE_CLAUDE_QUESTION_STATUS_MESSAGE =
+	"Agent Voice: queue Claude question";
+
 export interface InstallEnv {
 	HOME?: string;
 	AGENT_VOICE_HOME?: string;
@@ -239,6 +242,41 @@ function isAgentVoiceClaudeStopHook(hook: unknown): boolean {
 	);
 }
 
+function buildClaudeQuestionHook(env: InstallEnv): JsonRecord {
+	return {
+		type: "command",
+		command: `${shellQuote(
+			currentAgentVoiceExecutable(env),
+		)} enqueue --format claude-pretooluse-hook --agent claude`,
+		async: true,
+		timeout: 10,
+		statusMessage: AGENT_VOICE_CLAUDE_QUESTION_STATUS_MESSAGE,
+	};
+}
+
+function isAgentVoiceClaudeQuestionHook(hook: unknown): boolean {
+	if (!isRecord(hook)) return false;
+	if (hook.statusMessage === AGENT_VOICE_CLAUDE_QUESTION_STATUS_MESSAGE)
+		return true;
+	if (
+		hook.type === "command" &&
+		typeof hook.command === "string" &&
+		hook.command.includes("claude-pretooluse-hook")
+	) {
+		return true;
+	}
+	const args = hook.args;
+	return (
+		hook.type === "command" &&
+		Array.isArray(args) &&
+		args.includes("enqueue") &&
+		args.includes("--format") &&
+		args.includes("claude-pretooluse-hook") &&
+		args.includes("--agent") &&
+		args.includes("claude")
+	);
+}
+
 function isPeonStopHook(hook: unknown): boolean {
 	return (
 		isRecord(hook) &&
@@ -312,6 +350,17 @@ function ensureStopGroups(hooks: JsonRecord): unknown[] {
 	return hooks.Stop;
 }
 
+function ensurePreToolUseGroups(hooks: JsonRecord): unknown[] {
+	if (hooks.PreToolUse === undefined) {
+		hooks.PreToolUse = [];
+		return hooks.PreToolUse as unknown[];
+	}
+	if (!Array.isArray(hooks.PreToolUse)) {
+		throw new Error("Claude settings hooks.PreToolUse must be an array");
+	}
+	return hooks.PreToolUse;
+}
+
 function hookHandlers(group: unknown): unknown[] | null {
 	if (!isRecord(group)) return null;
 	return Array.isArray(group.hooks) ? group.hooks : null;
@@ -323,10 +372,13 @@ function groupWithoutHooks(group: JsonRecord): JsonRecord {
 	return copy;
 }
 
-function removeAgentVoiceClaudeStopHooks(stopGroups: unknown[]): number {
+function removeMatchingHooks(
+	groups: unknown[],
+	match: (hook: unknown) => boolean,
+): number {
 	let removed = 0;
 	const nextGroups: unknown[] = [];
-	for (const group of stopGroups) {
+	for (const group of groups) {
 		const hooks = hookHandlers(group);
 		if (!hooks || !isRecord(group)) {
 			nextGroups.push(group);
@@ -334,7 +386,7 @@ function removeAgentVoiceClaudeStopHooks(stopGroups: unknown[]): number {
 		}
 		const remaining: unknown[] = [];
 		for (const hook of hooks) {
-			if (isAgentVoiceClaudeStopHook(hook)) {
+			if (match(hook)) {
 				removed++;
 				continue;
 			}
@@ -344,8 +396,16 @@ function removeAgentVoiceClaudeStopHooks(stopGroups: unknown[]): number {
 			nextGroups.push({ ...group, hooks: remaining });
 		}
 	}
-	if (removed > 0) stopGroups.splice(0, stopGroups.length, ...nextGroups);
+	if (removed > 0) groups.splice(0, groups.length, ...nextGroups);
 	return removed;
+}
+
+function removeAgentVoiceClaudeStopHooks(stopGroups: unknown[]): number {
+	return removeMatchingHooks(stopGroups, isAgentVoiceClaudeStopHook);
+}
+
+function removeAgentVoiceClaudeQuestionHooks(preToolUseGroups: unknown[]): number {
+	return removeMatchingHooks(preToolUseGroups, isAgentVoiceClaudeQuestionHook);
 }
 
 function suspendPeonStopHooks(
@@ -505,6 +565,7 @@ export function installClaude(
 	const { settings, original } = loadClaudeSettings(target);
 	const hooks = ensureHooks(settings);
 	const stopGroups = ensureStopGroups(hooks);
+	const preToolUseGroups = ensurePreToolUseGroups(hooks);
 
 	const suspendedEntries = options.suspendExistingStopHooks
 		? suspendPeonStopHooks(stopGroups)
@@ -513,6 +574,14 @@ export function installClaude(
 
 	removeAgentVoiceClaudeStopHooks(stopGroups);
 	stopGroups.push({ matcher: "", hooks: [buildClaudeStopHook(env)] });
+
+	// AskUserQuestion pauses mid-turn, so the Stop hook never fires for it.
+	// A PreToolUse hook scoped to AskUserQuestion announces the question instead.
+	removeAgentVoiceClaudeQuestionHooks(preToolUseGroups);
+	preToolUseGroups.push({
+		matcher: "AskUserQuestion",
+		hooks: [buildClaudeQuestionHook(env)],
+	});
 
 	writeClaudeSettingsIfChanged(target, settings, original);
 	const suspendedMessage =
@@ -538,10 +607,14 @@ export function uninstallClaude(
 	const removed = removeAgentVoiceClaudeStopHooks(stopGroups);
 	const restored = restoreSuspendedEntries(stopGroups, backup);
 
+	const removedQuestionHooks = Array.isArray(hooks.PreToolUse)
+		? removeAgentVoiceClaudeQuestionHooks(hooks.PreToolUse)
+		: 0;
+
 	writeClaudeSettingsIfChanged(target, settings, original);
 	if (backup) rmSync(claudeSuspendedStopHooksPath(env), { force: true });
 
-	if (removed === 0 && restored === 0) {
+	if (removed === 0 && removedQuestionHooks === 0 && restored === 0) {
 		return { message: "Claude hook not installed" };
 	}
 	return {

@@ -277,6 +277,96 @@ describe("agent-voice enqueue CLI", () => {
 		});
 	});
 
+	test("claude-pretooluse-hook requires claude agent", async () => {
+		await withTempHome(async (home) => {
+			const wrongAgent = await runCli(
+				["enqueue", "--format", "claude-pretooluse-hook", "--agent", "codex"],
+				{
+					env: { AGENT_VOICE_HOME: home },
+					stdin: "{}",
+				},
+			);
+			expect(wrongAgent.exitCode).toBe(2);
+			expect(wrongAgent.stderr).toContain("requires --agent claude");
+			expect(pendingCount(home)).toBe(0);
+		});
+	});
+
+	test("claude-pretooluse-hook enqueues a question with cwd and session id", async () => {
+		await withTempHome(async (home) => {
+			const result = await runCli(
+				["enqueue", "--format", "claude-pretooluse-hook", "--agent", "claude"],
+				{
+					env: { AGENT_VOICE_HOME: home },
+					stdin: JSON.stringify({
+						hook_event_name: "PreToolUse",
+						tool_name: "AskUserQuestion",
+						cwd: "/project",
+						session_id: "claude-session-1",
+						tool_input: {
+							questions: [
+								{
+									question: "How far should this migration go?",
+									header: "Migration scope",
+									options: [
+										{ label: "Full cutover" },
+										{ label: "Phased dual-write" },
+										{ label: "Additive layer only" },
+									],
+								},
+							],
+						},
+					}),
+				},
+			);
+
+			expect(result.exitCode).toBe(0);
+			const events = pendingJobs(home);
+			expect(events).toHaveLength(1);
+			expect(events[0]).toMatchObject({
+				agent: "claude",
+				cwd: "/project",
+				session_id: "claude-session-1",
+			});
+			expect(events[0].text).toContain("How far should this migration go?");
+			expect(events[0].text).toContain(
+				"Full cutover, Phased dual-write, or Additive layer only",
+			);
+			expect(JSON.parse(events[0].metadata as string)).toMatchObject({
+				format: "claude-pretooluse-hook",
+				kind: "question",
+			});
+		});
+	});
+
+	test("claude-pretooluse-hook stays silent for non-question tool calls", async () => {
+		await withTempHome(async (home) => {
+			const notAQuestion = await runCli(
+				["enqueue", "--format", "claude-pretooluse-hook", "--agent", "claude"],
+				{
+					env: { AGENT_VOICE_HOME: home },
+					stdin: JSON.stringify({
+						hook_event_name: "PreToolUse",
+						tool_name: "Bash",
+						tool_input: { command: "ls" },
+					}),
+				},
+			);
+			expect(notAQuestion.exitCode).toBe(0);
+			expect(pendingCount(home)).toBe(0);
+
+			const malformed = await runCli(
+				["enqueue", "--format", "claude-pretooluse-hook", "--agent", "claude"],
+				{
+					env: { AGENT_VOICE_HOME: home },
+					stdin: "not json",
+				},
+			);
+			expect(malformed.exitCode).toBe(0);
+			expect(pendingCount(home)).toBe(0);
+		});
+	});
+
 	test("enqueue performs only local store work", async () => {
 		await withTempHome(async (home) => {
 			const paths = resolvePaths({ AGENT_VOICE_HOME: home });

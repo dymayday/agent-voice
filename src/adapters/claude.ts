@@ -59,3 +59,61 @@ export function extractClaudeStopHook(
 	if (text) return { text, generic: false };
 	return { text: GENERIC_CLAUDE_COMPLETION, generic: true };
 }
+
+export interface ClaudeQuestionResult {
+	text: string;
+}
+
+function optionLabels(options: unknown): string[] {
+	if (!Array.isArray(options)) return [];
+	const labels: string[] = [];
+	for (const option of options) {
+		if (
+			isRecord(option) &&
+			typeof option.label === "string" &&
+			option.label.trim()
+		) {
+			labels.push(option.label.trim());
+		}
+	}
+	return labels;
+}
+
+function formatOptionList(items: string[]): string {
+	if (items.length <= 1) return items.join("");
+	if (items.length === 2) return `${items[0]} or ${items[1]}`;
+	return `${items.slice(0, -1).join(", ")}, or ${items[items.length - 1]}`;
+}
+
+function questionSentence(question: unknown): string | null {
+	if (!isRecord(question)) return null;
+	const prompt =
+		typeof question.question === "string" ? question.question.trim() : "";
+	if (!prompt) return null;
+	const labels = optionLabels(question.options);
+	if (labels.length === 0) return prompt;
+	return `${prompt} The options are ${formatOptionList(labels)}.`;
+}
+
+// Build a TTS-friendly line from a Claude Code `PreToolUse` payload for the
+// `AskUserQuestion` tool. Returns null for any other tool or a payload with no
+// usable question so the caller can stay silent instead of fabricating speech.
+export function extractClaudeQuestion(
+	payload: unknown,
+): ClaudeQuestionResult | null {
+	if (!isRecord(payload)) return null;
+	if (payload.tool_name !== "AskUserQuestion") return null;
+	const toolInput = payload.tool_input;
+	if (!isRecord(toolInput)) return null;
+	const questions = toolInput.questions;
+	if (!Array.isArray(questions) || questions.length === 0) return null;
+
+	const sentences: string[] = [];
+	for (const question of questions) {
+		const sentence = questionSentence(question);
+		if (sentence) sentences.push(sentence);
+	}
+	if (sentences.length === 0) return null;
+
+	return { text: `Claude is asking for your input: ${sentences.join(" ")}` };
+}

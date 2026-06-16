@@ -1,4 +1,4 @@
-import { extractClaudeStopHook } from "./adapters/claude";
+import { extractClaudeQuestion, extractClaudeStopHook } from "./adapters/claude";
 import {
 	clearDaemonLock,
 	enterForegroundDaemon,
@@ -64,6 +64,7 @@ Usage:
   agent-voice enqueue --format text --agent claude --cwd "$PWD"
   agent-voice enqueue --format event-json
   agent-voice enqueue --format claude-stop-hook --agent claude
+  agent-voice enqueue --format claude-pretooluse-hook --agent claude
   agent-voice test "Claude finished editing the auth module."
   agent-voice enable claude
   agent-voice disable codex
@@ -386,12 +387,50 @@ export async function runCli(
 					...(sessionId ? { sessionId } : {}),
 					metadata: { format: "claude-stop-hook", generic: extracted.generic },
 				});
+			} else if (format === "claude-pretooluse-hook") {
+				if (agentOption !== "claude") {
+					return result(
+						2,
+						"",
+						"--format claude-pretooluse-hook requires --agent claude\n",
+					);
+				}
+				let payload: unknown;
+				try {
+					payload = parseJson(stdin);
+				} catch {
+					payload = {};
+				}
+				const question = extractClaudeQuestion(payload);
+				// Only AskUserQuestion tool calls carry a question worth speaking.
+				// Any other PreToolUse payload (or a malformed one) stays silent.
+				if (!question) return result(0, "");
+				const payloadRecord =
+					payload && typeof payload === "object" && !Array.isArray(payload)
+						? (payload as Record<string, unknown>)
+						: {};
+				const payloadCwd =
+					typeof payloadRecord.cwd === "string" ? payloadRecord.cwd : undefined;
+				const sessionId =
+					typeof payloadRecord.session_id === "string"
+						? payloadRecord.session_id
+						: undefined;
+				const config = loadConfigForEnqueue(paths);
+				event = createEvent({
+					agent: "claude",
+					text: truncateInput(question.text, config.summarizer.maxInputChars),
+					...(cwd || payloadCwd ? { cwd: cwd ?? payloadCwd } : {}),
+					...(sessionId ? { sessionId } : {}),
+					metadata: { format: "claude-pretooluse-hook", kind: "question" },
+				});
 			} else {
 				return result(2, "", `Unsupported enqueue format: ${format}\n`);
 			}
 		} catch (error) {
 			return result(
-				format === "claude-stop-hook" ? 0 : 2,
+				format === "claude-stop-hook" || format === "claude-pretooluse-hook"
+					? 0
+					: 2,
 				"",
 				`${error instanceof Error ? error.message : String(error)}\n`,
 			);

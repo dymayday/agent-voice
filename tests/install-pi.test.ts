@@ -95,6 +95,24 @@ function countAgentVoiceClaudeHooks(settings: Record<string, any>): number {
 	return agentVoiceClaudeHooks(settings).length;
 }
 
+function preToolUseGroups(settings: Record<string, any>): Record<string, any>[] {
+	const groups = settings.hooks?.PreToolUse;
+	return Array.isArray(groups) ? groups : [];
+}
+
+function agentVoiceClaudeQuestionHooks(
+	settings: Record<string, any>,
+): Record<string, any>[] {
+	return preToolUseGroups(settings)
+		.flatMap((group) => (Array.isArray(group?.hooks) ? group.hooks : []))
+		.filter(
+			(hook) =>
+				hook.statusMessage === "Agent Voice: queue Claude question" ||
+				(typeof hook.command === "string" &&
+					hook.command.includes("claude-pretooluse-hook")),
+		);
+}
+
 function countPeonStopHooks(settings: Record<string, any>): number {
 	return stopHookHandlers(settings).filter(
 		(hook) =>
@@ -468,6 +486,93 @@ await handlers.agent_end({
 					name.startsWith("settings.json.agent-voice-backup-"),
 				),
 			).toBe(true);
+		});
+	});
+
+	test("install --agents claude adds an AskUserQuestion PreToolUse hook", async () => {
+		await withTempHome(async (home) => {
+			const result = await runCli(["install", "--agents", "claude"], {
+				env: envFor(home),
+			});
+
+			expect(result.exitCode).toBe(0);
+			const settings = readClaudeSettings(home);
+			const questionHooks = agentVoiceClaudeQuestionHooks(settings);
+			expect(questionHooks).toHaveLength(1);
+			expect(questionHooks[0].command).toContain("/repo/bin/agent-voice");
+			expect(questionHooks[0].command).toContain(
+				"enqueue --format claude-pretooluse-hook --agent claude",
+			);
+			expect(questionHooks[0].async).toBe(true);
+
+			// The hook must target AskUserQuestion specifically, not every tool.
+			const group = preToolUseGroups(settings).find((candidate) =>
+				(candidate.hooks ?? []).some(
+					(hook: Record<string, any>) =>
+						typeof hook.command === "string" &&
+						hook.command.includes("claude-pretooluse-hook"),
+				),
+			);
+			expect(group?.matcher).toBe("AskUserQuestion");
+
+			// The Stop hook is still installed alongside the question hook.
+			expect(countAgentVoiceClaudeHooks(settings)).toBe(1);
+		});
+	});
+
+	test("install --agents claude keeps a single question hook across repeats", async () => {
+		await withTempHome(async (home) => {
+			const env = envFor(home);
+			expect(
+				(await runCli(["install", "--agents", "claude"], { env })).exitCode,
+			).toBe(0);
+			expect(
+				(await runCli(["install", "--agents", "claude"], { env })).exitCode,
+			).toBe(0);
+
+			const settings = readClaudeSettings(home);
+			expect(agentVoiceClaudeQuestionHooks(settings)).toHaveLength(1);
+		});
+	});
+
+	test("install --agents claude preserves a user's own PreToolUse hooks", async () => {
+		await withTempHome(async (home) => {
+			writeClaudeSettings(home, {
+				hooks: {
+					PreToolUse: [
+						{
+							matcher: "Bash",
+							hooks: [{ type: "command", command: "/tmp/guard.sh" }],
+						},
+					],
+				},
+			});
+
+			const result = await runCli(["install", "--agents", "claude"], {
+				env: envFor(home),
+			});
+
+			expect(result.exitCode).toBe(0);
+			const settings = readClaudeSettings(home);
+			expect(JSON.stringify(settings.hooks.PreToolUse)).toContain(
+				"/tmp/guard.sh",
+			);
+			expect(agentVoiceClaudeQuestionHooks(settings)).toHaveLength(1);
+		});
+	});
+
+	test("uninstall --agents claude removes the question hook", async () => {
+		await withTempHome(async (home) => {
+			const env = envFor(home);
+			expect(
+				(await runCli(["install", "--agents", "claude"], { env })).exitCode,
+			).toBe(0);
+
+			const result = await runCli(["uninstall", "--agents", "claude"], { env });
+
+			expect(result.exitCode).toBe(0);
+			const settings = readClaudeSettings(home);
+			expect(agentVoiceClaudeQuestionHooks(settings)).toHaveLength(0);
 		});
 	});
 
