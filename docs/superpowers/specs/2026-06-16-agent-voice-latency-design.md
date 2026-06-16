@@ -43,16 +43,15 @@ Not addressed here (noted): only the **pi** agent is actually wired to agent-voi
 
 ### 3.1 Summarizer: pi primary, thinking off
 
-**Invocation (replaces the broken pi-fast args):**
+**Invocation (replaces the broken pi-fast args) — prompt fed via STDIN:**
 ```
-pi --model openai-codex/gpt-5.5 --thinking <thinking> --no-tools -p "<prompt>"
+printf '%s' "<prompt>" | pi --model openai-codex/gpt-5.5 --thinking <thinking> --no-tools -p
 ```
 - Provider prefix **`openai-codex/`** (routes through the working codex subscription) instead of `openai/` (separate over-quota OpenAI key). This is the core bug fix the user identified.
-- Prompt passed via **`-p "<prompt>"`** as an argument, not stdin + trailing `-` (pi 0.79.4 rejects the bare `-` with "Unknown option: -").
-- `--thinking <thinking>` driven by new config (`summarizer.thinking`, default `"off"`). "off" matches the proven command and is correct for a one-sentence rewrite that needs no reasoning.
+- **Prompt fed via stdin, never argv.** `-p`/`--print` is a *boolean* non-interactive flag (`pi [options] [messages...]`); pi reads the prompt from stdin when no positional message is given. Keeping the prompt out of argv prevents agent output (which may contain secrets/PII) from appearing in the process table — matching the existing codex/opencode summarizers. Verified empirically: stdin path returns a clean one-liner in ~5.6s. (The old code's trailing bare `-` is rejected by pi with "Unknown option: -".)
+- `--thinking <thinking>` driven by new config (`summarizer.thinking`, default `"off"`). pi accepts `off | minimal | low | medium | high | xhigh`; "off" is correct for a one-sentence rewrite that needs no reasoning.
 - `--no-tools` keeps pi from doing anything but answer (proven in measurement).
-- `AGENT_VOICE_DISABLE=1` stays in the summarizer env (already set in `baseRequest`) to prevent the pi extension from re-enqueuing recursively.
-- **To verify during implementation:** whether `--no-session` is compatible with `-p` (the proven command omitted it); whether adding `--fast` (codex fast service tier) lowers latency further. Default to matching the proven command (no `--fast`, verify `--no-session`).
+- `AGENT_VOICE_DISABLE=1` stays in the summarizer env (already set in `baseRequest`) to prevent the pi extension from re-enqueuing recursively. `--no-session` is dropped (not needed; recursion is already guarded by `AGENT_VOICE_DISABLE`).
 
 **Priority chain default:** `["pi-fast", "heuristic"]` — pi first (~5.8 s), instant local heuristic if pi fails. Two stages → nothing can stack.
 

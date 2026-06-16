@@ -17,8 +17,8 @@ Design spec: `docs/superpowers/specs/2026-06-16-agent-voice-latency-design.md`.
 ## Background the engineer needs
 
 - **Entry path (only live agent is `pi`):** `~/.pi/agent/extensions/agent-voice.ts` spawns `bin/agent-voice enqueue --format text --agent pi` on `agent_end`, detached, with env `AGENT_VOICE_DISABLE=1`. The extension early-returns when `AGENT_VOICE_DISABLE === "1"` (`src/install.ts:111`), so the summarizer spawning `pi` cannot recurse. **This is why we can drop `--no-session`.**
-- **The proven working summarizer command** (measured ~5.82s / 5.84s, clean one-liner): `pi --model 'openai-codex/gpt-5.5' --thinking 'off' --no-tools -p "<prompt>"`. The old code used `openai/gpt-5.3-codex` (wrong provider prefix → over-quota key) and a trailing `-` arg pi rejects.
-- **`Bun.spawn([cmd, ...args])` does not use a shell**, so passing the prompt as the `-p` argument value is safe (no interpolation risk), even though other summarizers pass text via stdin.
+- **The proven working summarizer command** (measured ~5.6–5.8s, clean one-liner): the prompt is piped to pi via **stdin** — `printf '%s' "<prompt>" | pi --model 'openai-codex/gpt-5.5' --thinking 'off' --no-tools -p`. `-p`/`--print` is a *boolean* non-interactive flag; pi reads the prompt from stdin when no positional message is given. The old code used `openai/gpt-5.3-codex` (wrong provider prefix → over-quota key) and a trailing `-` arg pi rejects.
+- **The prompt is passed via stdin, never argv** — matching the codex/opencode summarizers — so agent output (which may contain secrets/PII) never appears in the process table. This is a deliberate security choice, not just convenience.
 - **The `proc≈0` bug:** `runDaemonLoop` calls `deps.now?.()` once per iteration and passes that frozen `Date` to `processNextJob`, which reuses it for both `claimed_at` (via `claimNextDue`) and `finished_at` (via `markDone`). Real work happens between them but the timestamp never advances. Fix = take a fresh timestamp at completion.
 - **The ~117s worst case:** a `speak()` failure ("Kokoro exited before ready") goes through `scheduleRetry` (backoff `30s × 3 attempts`), blocking the single-worker queue. Fix = make TTS failure terminal.
 - **`codex-fast` / `opencode` summarizer branches are intentionally left untouched** (retained as escape hatches, not in the default chain). Do not modify their args, the `codexModel` default, or their existing tests.
@@ -62,7 +62,13 @@ Expected: FAIL (priority is the old 4-entry list; `piModel` is `openai/gpt-5.3-c
 In `src/config.ts`, directly after the `SummarizerName` type, add:
 
 ```ts
-export type SummarizerThinking = "off" | "low" | "medium" | "high";
+export type SummarizerThinking =
+	| "off"
+	| "minimal"
+	| "low"
+	| "medium"
+	| "high"
+	| "xhigh";
 ```
 
 - [ ] **Step 4: Add the `thinking` field to the config interface**
@@ -124,11 +130,9 @@ git commit -m "feat: default summarizer to pi via openai-codex subscription, add
 Replace the existing test `"Pi fast uses safe arg array with configured model and recursion guard"` in `tests/summarizers.test.ts` with:
 
 ```ts
-	test("Pi fast passes the prompt via -p with the configured model and thinking", async () => {
-		const event = createEvent({
-			agent: "pi",
-			text: "Pi completed the queue task.",
-		});
+	test("Pi fast passes the prompt via stdin, never argv", async () => {
+		const rawText = "Pi completed the queue task with token sk-secret-xyz.";
+		const event = createEvent({ agent: "pi", text: rawText });
 		const { calls, runner } = recordingRunner(() => ({
 			ok: true,
 			stdout: "Pi completed the queue policy.\n",
@@ -148,24 +152,23 @@ Replace the existing test `"Pi fast uses safe arg array with configured model an
 		expect(summary).toBe("Pi completed the queue policy.");
 		expect(calls).toHaveLength(1);
 		expect(calls[0].cmd).toBe("pi");
-		expect(calls[0].args.slice(0, 5)).toEqual([
+		expect(calls[0].args).toEqual([
 			"--model",
 			"openai-codex/gpt-5.5",
 			"--thinking",
 			"off",
 			"--no-tools",
+			"-p",
 		]);
-		expect(calls[0].args[5]).toBe("-p");
-		expect(calls[0].args[6]).toContain("Pi completed the queue task.");
-		expect(calls[0].args).toHaveLength(7);
-		expect(calls[0].stdin).toBe("");
+		expect(calls[0].args.join("\n")).not.toContain(rawText);
+		expect(calls[0].stdin).toContain(rawText);
 		expect(calls[0].env.AGENT_VOICE_DISABLE).toBe("1");
 	});
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `bun test tests/summarizers.test.ts -t "Pi fast passes the prompt via -p"`
+Run: `bun test tests/summarizers.test.ts -t "Pi fast passes the prompt via stdin"`
 Expected: FAIL (current args are `["--fast","-p","--model",...,"--no-tools","--no-session","-"]` and the prompt is in `stdin`, not args).
 
 - [ ] **Step 3: Rewrite the pi-fast branch**
@@ -174,7 +177,8 @@ In `src/summarizers.ts`, replace the `if (name === "pi-fast") { ... }` block in 
 
 ```ts
 	if (name === "pi-fast") {
-		const prompt = base.stdin;
+		// `-p`/`--print` is a boolean non-interactive flag; the prompt stays in
+		// `base.stdin` (set by baseRequest) so agent text never reaches argv.
 		return {
 			...base,
 			cmd: "pi",
@@ -185,16 +189,14 @@ In `src/summarizers.ts`, replace the `if (name === "pi-fast") { ... }` block in 
 				config.summarizer.thinking ?? "off",
 				"--no-tools",
 				"-p",
-				prompt,
 			],
-			stdin: "",
 		};
 	}
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `bun test tests/summarizers.test.ts -t "Pi fast passes the prompt via -p"`
+Run: `bun test tests/summarizers.test.ts -t "Pi fast passes the prompt via stdin"`
 Expected: PASS
 
 - [ ] **Step 5: Run the whole summarizer test file to confirm no regressions**
