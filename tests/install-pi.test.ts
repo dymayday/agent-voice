@@ -205,6 +205,90 @@ await handlers.agent_end({
 		});
 	});
 
+	test("generated Pi extension stays silent when agent_end has no prose", async () => {
+		await withTempHome(async (home) => {
+			const capturePath = join(home, "enqueue.log");
+			const executablePath = join(home, "fake-agent-voice");
+			writeCaptureExecutable(executablePath);
+			const source = buildPiExtensionSource({
+				HOME: home,
+				AGENT_VOICE_EXECUTABLE: executablePath,
+			});
+
+			// A tool-only / subagent / aborted run: the assistant messages carry
+			// only thinking and toolCall parts, never a text part to narrate.
+			const result = await runGeneratedExtension(
+				source,
+				home,
+				`
+if (!handlers.agent_end) throw new Error("agent_end handler was not registered");
+await handlers.agent_end({
+  messages: [
+    { role: "assistant", content: [{ type: "thinking", thinking: "deciding" }, { type: "toolCall", id: "t1", name: "bash", input: {} }] },
+    { role: "toolResult", content: [{ type: "text", text: "command output" }] },
+    { role: "assistant", content: [{ type: "toolCall", id: "t2", name: "edit", input: {} }] },
+    { role: "toolResult", content: [{ type: "text", text: "ok" }] },
+  ],
+}, { cwd: "/project" });
+`,
+				{ AGENT_VOICE_CAPTURE: capturePath },
+			);
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stderr).toBe("");
+			// Give a detached enqueue ample time to land; assert it never does.
+			const deadline = Date.now() + 1000;
+			let captured = "";
+			while (Date.now() < deadline) {
+				if (existsSync(capturePath)) captured = readFileSync(capturePath, "utf8");
+				if (captured.includes("---")) break;
+				await sleep(25);
+			}
+			expect(captured).toBe("");
+		});
+	});
+
+	test("generated Pi extension still speaks when blocked asking for human review", async () => {
+		await withTempHome(async (home) => {
+			const capturePath = join(home, "enqueue.log");
+			const executablePath = join(home, "fake-agent-voice");
+			writeCaptureExecutable(executablePath);
+			const source = buildPiExtensionSource({
+				HOME: home,
+				AGENT_VOICE_EXECUTABLE: executablePath,
+			});
+
+			// Blocked-for-review: pi ends the turn by asking the human a question.
+			// That request is prose, so it must remain audible.
+			const result = await runGeneratedExtension(
+				source,
+				home,
+				`
+if (!handlers.agent_end) throw new Error("agent_end handler was not registered");
+await handlers.agent_end({
+  messages: [
+    { role: "assistant", content: [{ type: "thinking", thinking: "need approval" }, { type: "text", text: "I drafted the migration. Can you review it before I apply it?" }] },
+  ],
+}, { cwd: "/project" });
+`,
+				{ AGENT_VOICE_CAPTURE: capturePath },
+			);
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stderr).toBe("");
+			const capture = await readEventually(capturePath);
+			expect(capture).toContain("Can you review it before I apply it?");
+		});
+	});
+
+	test("generated Pi extension no longer fabricates a finished-responding fallback", () => {
+		const source = buildPiExtensionSource({
+			HOME: "/home/test",
+			AGENT_VOICE_EXECUTABLE: "/repo/bin/agent-voice",
+		});
+		expect(source).not.toContain("Pi finished responding.");
+	});
+
 	test("install refuses to overwrite unowned Pi extension", async () => {
 		await withTempHome(async (home) => {
 			const target = piExtensionPath(home);

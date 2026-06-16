@@ -70,7 +70,7 @@ function textFromAgentEnd(event) {
     const text = textFromMessage(message);
     if (text.trim().length > 0) return text;
   }
-  return "Pi finished responding.";
+  return null;
 }`;
 }
 
@@ -109,7 +109,14 @@ function enqueue(text: string, cwd: string): void {
 export default function (pi: ExtensionAPI) {
   pi.on("agent_end", async (event, ctx) => {
     if (process.env.AGENT_VOICE_DISABLE === "1") return;
-    enqueue(textFromAgentEnd(event), cwdFromContext(ctx));
+    // Speak only when this run produced genuine assistant prose: a real
+    // completion, or a question / human-review request (which is itself prose,
+    // and worth announcing). A content-free agent_end — subagent and delegate
+    // returns, tool-only or aborted steps, retry/compaction boundaries — has
+    // no narration, so stay silent instead of fabricating "finished responding".
+    const text = textFromAgentEnd(event);
+    if (text === null) return;
+    enqueue(text, cwdFromContext(ctx));
   });
 }
 `;
