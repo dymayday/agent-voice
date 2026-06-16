@@ -127,6 +127,28 @@ describe("processNextJob", () => {
 		});
 	});
 
+	test("records the summarizer the outcome actually came from", async () => {
+		await withDb(async (db) => {
+			const event = createEvent({ agent: "claude", text: "Long agent output." });
+			enqueue(db, event);
+			const processorDeps: ProcessorDeps = {
+				summarize: async () => ({
+					summary: "Heuristic fallback summary.",
+					summarizerUsed: "heuristic",
+				}),
+				speak: async () => {},
+			};
+
+			await processNextJob(db, defaultConfig, processorDeps);
+
+			const row = db
+				.query("SELECT summary, summarizer_used FROM jobs WHERE id=?")
+				.get(event.id) as { summary: string; summarizer_used: string };
+			expect(row.summary).toBe("Heuristic fallback summary.");
+			expect(row.summarizer_used).toBe("heuristic");
+		});
+	});
+
 	test("still schedules a retry when summarization throws", async () => {
 		await withDb(async (db) => {
 			const event = createEvent({ agent: "pi", text: "Summarize me." });

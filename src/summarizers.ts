@@ -30,6 +30,18 @@ export type SummarizerRunner = (
 export interface SummarizeOptions {
 	env?: Record<string, string | undefined>;
 	cwd?: string;
+	/**
+	 * Called once for every LLM summarizer that fails (timeout, non-zero exit,
+	 * spawn error) before the chain falls through to the next entry. Lets the
+	 * daemon make the otherwise-silent degradation to the heuristic visible.
+	 */
+	onFallback?: (info: { name: SummarizerName; reason: string }) => void;
+}
+
+export interface SummarizeOutcome {
+	summary: string;
+	/** Which summarizer actually produced `summary` (not merely the first in the priority list). */
+	summarizerUsed: SummarizerName;
 }
 
 const SENTENCE_BOUNDARY_PATTERN = /[.!?]+(\s+|$)/g;
@@ -186,8 +198,75 @@ function normalizeSummary(text: string, maxChars: number): string {
 	return truncateAtWord(oneSentenceFromAllText(cleaned, maxChars), maxChars);
 }
 
-export function heuristicSummary(text: string, maxChars: number): string {
-	return normalizeSummary(text, maxChars);
+// First sentence terminator: a run of .!? that is followed by whitespace or end
+// of string. The lookahead keeps "1.5", "0.0.0.0", and "file.ts" from splitting
+// mid-token, matching only real sentence ends.
+const FIRST_SENTENCE_TERMINATOR = /[.!?]+(?=\s|$)/;
+
+function firstSentence(cleaned: string): string {
+	const match = FIRST_SENTENCE_TERMINATOR.exec(cleaned);
+	if (!match) {
+		return SENTENCE_END_PATTERN.test(cleaned) ? cleaned : `${cleaned}.`;
+	}
+	return cleaned.slice(0, match.index + match[0].length);
+}
+
+// The fallback when no LLM summarizer succeeds. Speaks the agent's entire first
+// sentence verbatim (no character cap) — a complete, natural-sounding clause is
+// better for TTS than a summary truncated mid-word.
+export function heuristicSummary(text: string): string {
+	const cleaned = cleanForSpeech(text);
+	if (!cleaned) return "Agent finished responding.";
+	return firstSentence(cleaned);
+}
+
+function describeFailure(
+	result: Extract<SummarizerRunResult, { ok: false }>,
+): string {
+	if (result.timedOut) return "timed out";
+	if (result.code) return result.code;
+	if (typeof result.exitCode === "number") return `exit code ${result.exitCode}`;
+	const stderr = result.stderr?.trim();
+	return stderr ? stderr.split("\n")[0].slice(0, 120) : "unknown failure";
+}
+
+function heuristicOutcome(event: AgentVoiceEvent): SummarizeOutcome {
+	return { summary: heuristicSummary(event.text), summarizerUsed: "heuristic" };
+}
+
+// Runs the summarizer priority chain and reports which summarizer actually
+// produced the result. Every LLM failure is surfaced via `options.onFallback`
+// so the silent degradation to the heuristic is observable.
+export async function summarizeWithSource(
+	event: AgentVoiceEvent,
+	config: AgentVoiceConfig,
+	runner: SummarizerRunner = runSummarizerSubprocess,
+	options: SummarizeOptions = {},
+): Promise<SummarizeOutcome> {
+	for (const name of config.summarizer.priority) {
+		if (name === "heuristic") return heuristicOutcome(event);
+
+		const request = requestFor(name, event, config, options);
+		if (!request) continue;
+
+		try {
+			const result = await runner(request);
+			if (!result.ok) {
+				options.onFallback?.({ name, reason: describeFailure(result) });
+				continue;
+			}
+			const summary = normalizeSummary(
+				result.stdout,
+				config.summarizer.maxSummaryChars,
+			);
+			if (summary) return { summary, summarizerUsed: name };
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			options.onFallback?.({ name, reason: message || "unknown error" });
+		}
+	}
+
+	return heuristicOutcome(event);
 }
 
 export async function summarize(
@@ -196,29 +275,8 @@ export async function summarize(
 	runner: SummarizerRunner = runSummarizerSubprocess,
 	options: SummarizeOptions = {},
 ): Promise<string> {
-	for (const name of config.summarizer.priority) {
-		if (name === "heuristic") {
-			return heuristicSummary(event.text, config.summarizer.maxSummaryChars);
-		}
-
-		const request = requestFor(name, event, config, options);
-		if (!request) continue;
-
-		try {
-			const result = await runner(request);
-			if (!result.ok) continue;
-			const summary = normalizeSummary(
-				result.stdout,
-				config.summarizer.maxSummaryChars,
-			);
-			if (summary) return summary;
-		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
-			if (message.length === 0) continue;
-		}
-	}
-
-	return heuristicSummary(event.text, config.summarizer.maxSummaryChars);
+	const outcome = await summarizeWithSource(event, config, runner, options);
+	return outcome.summary;
 }
 
 export async function runSummarizerSubprocess(

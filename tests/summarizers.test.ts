@@ -5,6 +5,7 @@ import {
 	buildPrompt,
 	heuristicSummary,
 	summarize,
+	summarizeWithSource,
 	type SummarizerRunRequest,
 	type SummarizerRunResult,
 } from "../src/summarizers";
@@ -126,7 +127,7 @@ describe("agent-voice summarizer fallback chain", () => {
 
 	test("heuristic strips embedded terminal escape sequences", () => {
 		const noisy = "\x1b[?2026hThe build \x1b[<999upassed.";
-		expect(heuristicSummary(noisy, 180)).toBe("The build passed.");
+		expect(heuristicSummary(noisy)).toBe("The build passed.");
 	});
 
 	test("pi stdout escape sequences never leak into the summary", async () => {
@@ -147,12 +148,34 @@ describe("agent-voice summarizer fallback chain", () => {
 
 	test("escape stripping is ESC-anchored and leaves bracketed text intact", () => {
 		const result = heuristicSummary(
-			"The build [important] passed. array[0] index.",
-			180,
+			"The build [important] passed with array[0] index intact.",
 		);
 		expect(result).toContain("The build");
 		expect(result).toContain("[important]");
 		expect(result).toContain("array[0]");
+	});
+
+	test("heuristic returns only the first sentence when several exist", () => {
+		expect(
+			heuristicSummary(
+				"First sentence is short. Second sentence should be dropped. Third too.",
+			),
+		).toBe("First sentence is short.");
+	});
+
+	test("heuristic returns the entire first sentence, never a 180-char fragment", () => {
+		const longSentence =
+			"We migrated the entire authentication subsystem to the new token format and verified every downstream consumer including the dashboard, the mobile clients, the daemon, and the background workers without any regressions.";
+		const result = heuristicSummary(longSentence);
+		expect(longSentence.length).toBeGreaterThan(180);
+		expect(result).toBe(longSentence);
+		expect(result.length).toBeGreaterThan(180);
+	});
+
+	test("heuristic appends a period when the first sentence has no terminator", () => {
+		expect(heuristicSummary("Build finished cleanly")).toBe(
+			"Build finished cleanly.",
+		);
 	});
 
 	test("missing executable skips to the next summarizer", async () => {
@@ -251,21 +274,72 @@ describe("agent-voice summarizer fallback chain", () => {
 		);
 
 		expect(calls.map((call) => call.cmd)).toEqual(["codex", "pi", "opencode"]);
-		expect(summary).toBe(
-			"Implemented the daemon queue processor; Added retry handling and tests.",
-		);
+		expect(summary).toBe("Implemented the daemon queue processor.");
 	});
 
-	test("heuristic summary keeps all output in one short TTS-friendly sentence", () => {
-		const summary = heuristicSummary(
-			"## Done\n\n- Implemented summarizer fallback.\n- Added tests!\n\u0007Second sentence should now be included.",
-			140,
+	test("summarizeWithSource labels the heuristic fallback when every LLM fails", async () => {
+		const event = createEvent({
+			agent: "claude",
+			text: "Implemented the daemon queue processor. Added retry handling and tests.",
+		});
+		const { runner } = recordingRunner(() => ({
+			ok: false,
+			exitCode: 1,
+			stderr: "model timed out",
+		}));
+
+		const outcome = await summarizeWithSource(
+			event,
+			config({ summarizer: { priority: ["pi-fast", "heuristic"] } }),
+			runner,
 		);
 
-		expect(summary.length).toBeLessThanOrEqual(140);
-		expect(summary).toBe(
-			"Done Implemented summarizer fallback; Added tests; Second sentence should now be included.",
+		expect(outcome.summarizerUsed).toBe("heuristic");
+		expect(outcome.summary).toBe("Implemented the daemon queue processor.");
+	});
+
+	test("summarizeWithSource labels the LLM that actually produced the summary", async () => {
+		const event = createEvent({ agent: "pi", text: "Pi did the work." });
+		const { runner } = recordingRunner(() => ({
+			ok: true,
+			stdout: "Pi finished the queue policy.",
+		}));
+
+		const outcome = await summarizeWithSource(
+			event,
+			config({ summarizer: { priority: ["pi-fast", "heuristic"] } }),
+			runner,
 		);
+
+		expect(outcome.summarizerUsed).toBe("pi-fast");
+		expect(outcome.summary).toBe("Pi finished the queue policy.");
+	});
+
+	test("summarizeWithSource reports each failing summarizer via onFallback", async () => {
+		const event = createEvent({ agent: "claude", text: "Work done here." });
+		const { runner } = recordingRunner(() => ({
+			ok: false,
+			exitCode: 1,
+			stderr: "boom",
+		}));
+		const fallbacks: string[] = [];
+
+		await summarizeWithSource(
+			event,
+			config({ summarizer: { priority: ["pi-fast", "heuristic"] } }),
+			runner,
+			{ onFallback: (info) => fallbacks.push(info.name) },
+		);
+
+		expect(fallbacks).toEqual(["pi-fast"]);
+	});
+
+	test("heuristic summary returns the first sentence of cleaned multi-line output", () => {
+		const summary = heuristicSummary(
+			"## Done\n\n- Implemented summarizer fallback.\n- Added tests!\n\u0007Second sentence should now be included.",
+		);
+
+		expect(summary).toBe("Done Implemented summarizer fallback.");
 		expect(summary).not.toContain("\n");
 	});
 

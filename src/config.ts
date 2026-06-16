@@ -59,12 +59,15 @@ export const defaultConfig: AgentVoiceConfig = {
 	speakPolicy: "every_turn",
 	ignoreCwdPatterns: [],
 	summarizer: {
-		priority: ["pi-fast", "heuristic"],
+		priority: ["pi-fast", "codex-fast", "heuristic"],
 		codexModel: "gpt-5.3-codex",
 		piModel: "openai-codex/gpt-5.5",
 		opencodeModel: null,
 		thinking: "off",
-		timeoutSeconds: 12,
+		// pi's summarizer latency is highly variable (measured 5–12.5s on small
+		// inputs, with cold-start outliers far higher). A tight timeout silently
+		// dropped to the heuristic; 33s keeps near-all real summaries.
+		timeoutSeconds: 33,
 		maxInputChars: 12000,
 		maxSummaryChars: 180,
 	},

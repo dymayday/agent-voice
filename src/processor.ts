@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { AgentVoiceConfig } from "./config";
 import type { AgentVoiceEvent } from "./events";
+import type { SummarizeOutcome } from "./summarizers";
 import { scheduleRetry } from "./queue";
 import {
 	claimNextDue,
@@ -13,7 +14,13 @@ import {
 } from "./store";
 
 export interface ProcessorDeps {
-	summarize: (event: AgentVoiceEvent, config: AgentVoiceConfig) => Promise<string>;
+	// Returns either the summary text or a {summary, summarizerUsed} record. The
+	// production summarizer returns the record so the actual summarizer (often the
+	// heuristic fallback) is labeled accurately; test doubles may return a string.
+	summarize: (
+		event: AgentVoiceEvent,
+		config: AgentVoiceConfig,
+	) => Promise<string | SummarizeOutcome>;
 	speak: (summary: string, voice: string, event: AgentVoiceEvent) => Promise<void>;
 	prewarm?: () => Promise<void>;
 }
@@ -28,7 +35,9 @@ function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
-function summarizerName(config: AgentVoiceConfig): string {
+// Label used only when a test double returns a bare summary string; the
+// production summarizer reports its own `summarizerUsed`.
+function fallbackSummarizerLabel(config: AgentVoiceConfig): string {
 	return config.summarizer.priority[0] ?? "heuristic";
 }
 
@@ -50,8 +59,15 @@ export async function processNextJob(
 	}
 
 	let summary: string;
+	let summarizerUsed: string;
 	try {
-		summary = await deps.summarize(claimed, config);
+		const outcome = await deps.summarize(claimed, config);
+		summary =
+			typeof outcome === "string" ? outcome : outcome.summary;
+		summarizerUsed =
+			typeof outcome === "string"
+				? fallbackSummarizerLabel(config)
+				: outcome.summarizerUsed;
 	} catch (error) {
 		const failNow = now();
 		const lastError = errorMessage(error);
@@ -73,7 +89,7 @@ export async function processNextJob(
 		return { kind: "failed", id: claimed.id };
 	}
 
-	markSpoken(db, claimed.id, summary, summarizerName(config));
+	markSpoken(db, claimed.id, summary, summarizerUsed);
 	markDone(db, claimed.id, now());
 	return { kind: "processed", id: claimed.id };
 }

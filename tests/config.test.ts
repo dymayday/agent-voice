@@ -30,7 +30,12 @@ describe("agent-voice config and paths", () => {
 	});
 
 	test("default config is pi-first through the codex subscription with an absolute Kokoro path", () => {
-		expect(defaultConfig.summarizer.priority).toEqual(["pi-fast", "heuristic"]);
+		expect(defaultConfig.summarizer.priority).toEqual([
+			"pi-fast",
+			"codex-fast",
+			"heuristic",
+		]);
+		expect(defaultConfig.summarizer.timeoutSeconds).toBe(33);
 		expect(defaultConfig.summarizer.codexModel).toBe("gpt-5.3-codex");
 		expect(defaultConfig.summarizer.piModel).toBe("openai-codex/gpt-5.5");
 		expect(defaultConfig.summarizer.thinking).toBe("off");

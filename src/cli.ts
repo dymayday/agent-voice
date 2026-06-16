@@ -28,7 +28,7 @@ import {
 } from "./install";
 import { resolvePaths } from "./paths";
 import type { ProcessorDeps } from "./processor";
-import { summarize } from "./summarizers";
+import { summarizeWithSource } from "./summarizers";
 import { openDb } from "./db";
 import { clearActiveQueue, enqueue } from "./store";
 import { buildAppStatusSnapshot, formatAppStatusJson } from "./status";
@@ -125,7 +125,13 @@ function defaultProcessorDeps(
 ): ProcessorDeps {
 	const kokoro = new KokoroClient(config);
 	return {
-		summarize,
+		summarize: (event, summarizeConfig) =>
+			summarizeWithSource(event, summarizeConfig, undefined, {
+				onFallback: ({ name, reason }) =>
+					console.error(
+						`[agent-voice] summarizer "${name}" failed (${reason}); falling back`,
+					),
+			}),
 		speak: async (summary, voice) => {
 			const audio = await kokoro.speak(summary, voice);
 			await playWav(audio, paths, undefined, {
@@ -492,7 +498,8 @@ export async function runCli(
 		});
 		const deps = processorDepsFor(config, paths, io.daemonDeps);
 		try {
-			const summary = await deps.summarize(event, config);
+			const outcome = await deps.summarize(event, config);
+			const summary = typeof outcome === "string" ? outcome : outcome.summary;
 			await deps.speak(summary, config.tts.voice, event);
 			return result(0, `${summary}\n`);
 		} catch (error) {
