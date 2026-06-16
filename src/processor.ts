@@ -35,32 +35,44 @@ export async function processNextJob(
 	db: Database,
 	config: AgentVoiceConfig,
 	deps: ProcessorDeps,
-	now = new Date(),
+	now: () => Date = () => new Date(),
 ): Promise<ProcessNextJobResult> {
-	const recovered = recoverStale(db, config, now);
-	const claimed: StoredJob | null = claimNextDue(db, config, now);
+	const claimNow = now();
+	const recovered = recoverStale(db, config, claimNow);
+	const claimed: StoredJob | null = claimNextDue(db, config, claimNow);
 	if (!claimed) return { kind: "idle", recovered };
 
-	try {
-		// Resume after a crash that happened post-speak: summary already persisted.
-		if (claimed.summary) {
-			markDone(db, claimed.id, now);
-			return { kind: "processed", id: claimed.id };
-		}
-
-		const summary = await deps.summarize(claimed, config);
-		await deps.speak(summary, config.tts.voice, claimed);
-		markSpoken(db, claimed.id, summary, summarizerName(config));
-		markDone(db, claimed.id, now);
+	// Resume after a crash that happened post-speak: summary already persisted.
+	if (claimed.summary) {
+		markDone(db, claimed.id, now());
 		return { kind: "processed", id: claimed.id };
+	}
+
+	let summary: string;
+	try {
+		summary = await deps.summarize(claimed, config);
 	} catch (error) {
+		const failNow = now();
 		const lastError = errorMessage(error);
-		const retry = scheduleRetry(claimed, config, now, lastError);
+		const retry = scheduleRetry(claimed, config, failNow, lastError);
 		if (retry.state === "incoming" && retry.job.nextAttemptAt) {
 			requeueForRetry(db, claimed.id, retry.job.nextAttemptAt, lastError);
 			return { kind: "retry_scheduled", id: claimed.id };
 		}
-		markFailed(db, claimed.id, now, lastError);
+		markFailed(db, claimed.id, failNow, lastError);
 		return { kind: "failed", id: claimed.id };
 	}
+
+	try {
+		await deps.speak(summary, config.tts.voice, claimed);
+	} catch (error) {
+		// TTS failure is terminal: the summary is computed but cannot be spoken.
+		// Do not enter retry backoff — a broken Kokoro must never stall the queue.
+		markFailed(db, claimed.id, now(), `speak failed: ${errorMessage(error)}`);
+		return { kind: "failed", id: claimed.id };
+	}
+
+	markSpoken(db, claimed.id, summary, summarizerName(config));
+	markDone(db, claimed.id, now());
+	return { kind: "processed", id: claimed.id };
 }

@@ -212,7 +212,7 @@ export async function runDaemonOnce(
 			db,
 			config,
 			requireProcessorDeps(deps),
-			deps.now?.() ?? new Date(),
+			deps.now ?? (() => new Date()),
 		);
 	} finally {
 		db.close();
@@ -250,13 +250,13 @@ export async function runDaemonLoop(
 	const pruneEvery = deps.pruneEveryIterations ?? 300;
 	const db = openDb(paths.db);
 	try {
+		const clock = deps.now ?? (() => new Date());
 		while (summary.iterations < maxIterations && !hasIntentionalStop(paths)) {
-			const now = deps.now?.() ?? new Date();
 			const result = await processNextJob(
 				db,
 				config,
 				requireProcessorDeps(deps),
-				now,
+				clock,
 			);
 			summary.iterations += 1;
 			if (result.kind === "processed") summary.processed += 1;
@@ -264,7 +264,7 @@ export async function runDaemonLoop(
 			if (result.kind === "retry_scheduled") summary.retryScheduled += 1;
 			if (result.kind === "failed") summary.failed += 1;
 			if (summary.iterations % pruneEvery === 0) {
-				pruneRetention(db, config.spool.retentionDays, now);
+				pruneRetention(db, config.spool.retentionDays, clock());
 				runMaintenance(db);
 			}
 			if (result.kind === "idle") await sleep(pollIntervalMs);

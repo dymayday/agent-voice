@@ -99,7 +99,7 @@ describe("agent-voice daemon processor", () => {
 							spoken.push(`${voice}:${summary}`);
 						},
 					}),
-					new Date("2026-06-12T00:00:00.000Z"),
+					() => new Date("2026-06-12T00:00:00.000Z"),
 				);
 
 				expect(result.kind).toBe("processed");
@@ -201,14 +201,13 @@ describe("agent-voice daemon processor", () => {
 		});
 	});
 
-	test("TTS failure schedules retry with nextAttemptAt", async () => {
+	test("TTS failure is terminal and does not schedule a retry", async () => {
 		await withTempHome(async (home) => {
 			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
 			const event = createEvent({ agent: "claude", text: "Retry me." });
 			const db = openDb(paths.db);
 			try {
 				enqueue(db, event);
-				const now = new Date("2026-06-12T00:00:00.000Z");
 
 				const result = await processNextJob(
 					db,
@@ -218,23 +217,25 @@ describe("agent-voice daemon processor", () => {
 							throw new Error("speaker busy");
 						},
 					}),
-					now,
+					() => new Date("2026-06-12T00:00:00.000Z"),
 				);
 
-				expect(result.kind).toBe("retry_scheduled");
+				expect(result.kind).toBe("failed");
 				expect(counts(db).processing).toBe(0);
-				expect(counts(db).pending).toBe(1);
-				const retry = readJob(db, event.id);
-				expect(retry.attempts).toBe(1);
-				expect(retry.next_attempt_at).toBe("2026-06-12T00:00:30.000Z");
-				expect(retry.last_error).toBe("speaker busy");
+				expect(counts(db).pending).toBe(0);
+				expect(counts(db).failed).toBe(1);
+				const failed = readJob(db, event.id);
+				expect(failed.attempts).toBe(1);
+				expect(failed.next_attempt_at).toBeNull();
+				expect(failed.last_error).toContain("speak failed:");
+				expect(failed.last_error).toContain("speaker busy");
 			} finally {
 				db.close();
 			}
 		});
 	});
 
-	test("TTS failure after max attempts moves to failed", async () => {
+	test("summarizer failure after max attempts moves to failed", async () => {
 		await withTempHome(async (home) => {
 			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
 			const event = createEvent({ agent: "claude", text: "Fail me." });
@@ -254,16 +255,48 @@ describe("agent-voice daemon processor", () => {
 					db,
 					config(),
 					deps({
-						speak: async () => {
-							throw new Error("speaker still busy");
+						summarize: async () => {
+							throw new Error("summarizer still down");
 						},
 					}),
-					new Date("2026-06-12T00:00:00.000Z"),
+					() => new Date("2026-06-12T00:00:00.000Z"),
 				);
 
 				expect(result.kind).toBe("failed");
 				expect(counts(db).failed).toBe(1);
-				expect(readJob(db, event.id).last_error).toBe("speaker still busy");
+				expect(readJob(db, event.id).last_error).toBe("summarizer still down");
+			} finally {
+				db.close();
+			}
+		});
+	});
+
+	test("summarizer failure below max attempts schedules retry with nextAttemptAt", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			const event = createEvent({ agent: "claude", text: "Retry me." });
+			const db = openDb(paths.db);
+			try {
+				enqueue(db, event);
+
+				const result = await processNextJob(
+					db,
+					config(),
+					deps({
+						summarize: async () => {
+							throw new Error("summarizer busy");
+						},
+					}),
+					() => new Date("2026-06-12T00:00:00.000Z"),
+				);
+
+				expect(result.kind).toBe("retry_scheduled");
+				expect(counts(db).processing).toBe(0);
+				expect(counts(db).pending).toBe(1);
+				const retry = readJob(db, event.id);
+				expect(retry.attempts).toBe(1);
+				expect(retry.next_attempt_at).toBe("2026-06-12T00:00:30.000Z");
+				expect(retry.last_error).toBe("summarizer busy");
 			} finally {
 				db.close();
 			}
@@ -285,7 +318,7 @@ describe("agent-voice daemon processor", () => {
 					db,
 					config({ spool: { processingTimeoutSeconds: 120 } }),
 					deps(),
-					new Date("2026-06-12T00:05:00.000Z"),
+					() => new Date("2026-06-12T00:05:00.000Z"),
 				);
 
 				expect(result.kind).toBe("processed");
@@ -321,7 +354,7 @@ describe("agent-voice daemon processor", () => {
 							speakCalls += 1;
 						},
 					}),
-					new Date("2026-06-12T00:05:00.000Z"),
+					() => new Date("2026-06-12T00:05:00.000Z"),
 				);
 
 				expect(result.kind).toBe("processed");
