@@ -14,7 +14,7 @@ private func statusJSON(uiState: String = "ready") -> String {
     """
 }
 
-private func fullConfigJSON(voice: String = "af_heart") -> String {
+private func fullConfigJSON(voice: String = "af_heart", thinking: String = "off") -> String {
     """
     {
       "enabled": true,
@@ -24,6 +24,9 @@ private func fullConfigJSON(voice: String = "af_heart") -> String {
         "python": "python3",
         "voice": "\(voice)",
         "timeoutSeconds": 30
+      },
+      "summarizer": {
+        "thinking": "\(thinking)"
       }
     }
     """
@@ -105,7 +108,7 @@ final class AppModelTests: XCTestCase {
             ProcessResult(exitCode: 0, stdout: statusJSON(), stderr: ""),
             ProcessResult(exitCode: 0, stdout: doneHistoryJSON, stderr: ""),
             ProcessResult(exitCode: 0, stdout: runningDoctorJSON, stderr: ""),
-            ProcessResult(exitCode: 0, stdout: fullConfigJSON(voice: "af_sky"), stderr: "")
+            ProcessResult(exitCode: 0, stdout: fullConfigJSON(voice: "af_sky", thinking: "medium"), stderr: "")
         ])
         let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
         let model = AppModel(cli: cli)
@@ -116,7 +119,9 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(model.history?.jobs.first?.summary, "Claude finished.")
         XCTAssertEqual(model.doctorReport?.checks.first?.id, "daemon.running")
         XCTAssertEqual(model.config?.tts.voice, "af_sky")
+        XCTAssertEqual(model.config?.summarizer.thinking, "medium")
         XCTAssertEqual(model.draftVoice, "af_sky")
+        XCTAssertEqual(model.draftThinking, "medium")
         XCTAssertNil(model.lastError)
         let requests = await runner.capturedRequests()
         XCTAssertEqual(requests.map(\.arguments), [
@@ -359,6 +364,46 @@ final class AppModelTests: XCTestCase {
         await model.saveVoice()
 
         XCTAssertEqual(model.lastError, "Voice cannot be empty")
+        let requests = await runner.capturedRequests()
+        XCTAssertTrue(requests.isEmpty)
+    }
+
+    func testSaveThinkingTrimsDelegatesAndRefreshes() async throws {
+        let runner = RecordingRunner(results: [
+            ProcessResult(exitCode: 0, stdout: "", stderr: ""),
+            ProcessResult(exitCode: 0, stdout: statusJSON(), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyHistoryJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyDoctorJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: fullConfigJSON(thinking: "xhigh"), stderr: "")
+        ])
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+        let model = AppModel(cli: cli)
+        model.draftThinking = "  xhigh  "
+
+        await model.saveThinking()
+
+        XCTAssertNil(model.lastError)
+        XCTAssertEqual(model.config?.summarizer.thinking, "xhigh")
+        XCTAssertEqual(model.draftThinking, "xhigh")
+        let requests = await runner.capturedRequests()
+        XCTAssertEqual(requests.map(\.arguments), [
+            ["config", "set", "summarizer.thinking", "xhigh"],
+            ["status", "--json"],
+            ["history", "--json", "--limit", "50"],
+            ["doctor", "--json"],
+            ["config", "get"]
+        ])
+    }
+
+    func testSaveThinkingRejectsUnsupportedDraftWithoutCallingCLI() async throws {
+        let runner = RecordingRunner(results: [])
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+        let model = AppModel(cli: cli)
+        model.draftThinking = "maximum"
+
+        await model.saveThinking()
+
+        XCTAssertEqual(model.lastError, "Unsupported summarizer thinking effort")
         let requests = await runner.capturedRequests()
         XCTAssertTrue(requests.isEmpty)
     }

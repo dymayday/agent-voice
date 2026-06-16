@@ -9,6 +9,7 @@ public final class AppModel: ObservableObject {
     @Published public private(set) var config: AgentVoiceFullConfig?
     @Published public private(set) var lastError: String?
     @Published public var draftVoice: String = ""
+    @Published public var draftThinking: String = "off"
 
     public static let defaultAutoRefreshIntervalNanoseconds: UInt64 = 5_000_000_000
 
@@ -27,6 +28,8 @@ public final class AppModel: ObservableObject {
         "bf_emma",
         "bm_george"
     ]
+
+    public static let summarizerThinkingOptions = ["off", "minimal", "low", "medium", "high", "xhigh"]
 
     public let cli: AgentVoiceCLI
 
@@ -50,6 +53,7 @@ public final class AppModel: ObservableObject {
             doctorReport = try await cli.doctor()
             config = try await cli.config()
             draftVoice = config?.tts.voice ?? ""
+            draftThinking = config?.summarizer.thinking ?? "off"
             lastError = nil
         } catch {
             lastError = String(describing: error)
@@ -131,6 +135,15 @@ public final class AppModel: ObservableObject {
             return
         }
         await perform { try await cli.setVoice(voice) }
+    }
+
+    public func saveThinking() async {
+        let thinking = draftThinking.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard Self.summarizerThinkingOptions.contains(thinking) else {
+            lastError = "Unsupported summarizer thinking effort"
+            return
+        }
+        await perform { try await cli.setSummarizerThinking(thinking) }
     }
 
     public func installAgentHook(_ agent: String) async {
