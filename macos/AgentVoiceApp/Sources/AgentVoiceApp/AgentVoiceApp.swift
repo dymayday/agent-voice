@@ -4,6 +4,7 @@ import SwiftUI
 enum AgentVoiceWindowID {
     static let dashboard = "dashboard"
     static let setup = "setup"
+    static let attention = "attention"
 }
 
 @main
@@ -20,6 +21,11 @@ struct AgentVoiceApplication: App {
             DashboardView(model: model)
         }
         .defaultSize(width: 960, height: 720)
+
+        Window("Attention", id: AgentVoiceWindowID.attention) {
+            AttentionDetailView(model: model)
+        }
+        .defaultSize(width: 760, height: 620)
 
         WindowGroup("Setup", id: AgentVoiceWindowID.setup) {
             SetupAssistantView(model: model)
