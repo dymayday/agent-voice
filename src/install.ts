@@ -10,8 +10,12 @@ import { basename, dirname, join, resolve } from "node:path";
 export const AGENT_VOICE_EXTENSION_MARKER =
 	"agent-voice pi extension managed by agent-voice";
 
+export const AGENT_VOICE_CLAUDE_STATUS_MESSAGE =
+	"Agent Voice: queue Claude turn summary";
+
 export interface InstallEnv {
 	HOME?: string;
+	AGENT_VOICE_HOME?: string;
 	AGENT_VOICE_EXECUTABLE?: string;
 }
 
@@ -19,13 +23,65 @@ export interface InstallResult {
 	message: string;
 }
 
+export interface ClaudeInstallOptions {
+	suspendExistingStopHooks?: boolean;
+}
+
+export interface ClaudeUninstallOptions {
+	restoreSuspendedHooks?: boolean;
+}
+
+type JsonRecord = Record<string, unknown>;
+
+interface SuspendedClaudeStopHookEntry {
+	groupIndex: number;
+	hookIndex: number;
+	group: JsonRecord;
+	hook: JsonRecord;
+}
+
+interface SuspendedClaudeStopHooksBackup {
+	version: 1;
+	createdAt: string;
+	settingsPath: string;
+	entries: SuspendedClaudeStopHookEntry[];
+}
+
+function isRecord(value: unknown): value is JsonRecord {
+	return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function clone<T>(value: T): T {
+	return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function sameJson(left: unknown, right: unknown): boolean {
+	return JSON.stringify(left) === JSON.stringify(right);
+}
+
 function homeDir(env: InstallEnv): string {
-	if (!env.HOME) throw new Error("HOME is required for Pi install");
+	if (!env.HOME) throw new Error("HOME is required for install");
 	return env.HOME;
+}
+
+function agentVoiceHome(env: InstallEnv): string {
+	return resolve(env.AGENT_VOICE_HOME ?? join(homeDir(env), ".agent-voice"));
 }
 
 export function piExtensionPath(env: InstallEnv): string {
 	return join(homeDir(env), ".pi", "agent", "extensions", "agent-voice.ts");
+}
+
+export function claudeSettingsPath(env: InstallEnv): string {
+	return join(homeDir(env), ".claude", "settings.json");
+}
+
+export function claudeSuspendedStopHooksPath(env: InstallEnv): string {
+	return join(
+		agentVoiceHome(env),
+		"install",
+		"claude-suspended-stop-hooks.json",
+	);
 }
 
 function rootFromEntrypoint(entrypoint: string): string | null {
@@ -150,4 +206,345 @@ export function uninstallPi(env: InstallEnv): InstallResult {
 	assertOwnedIfPresent(target, "remove");
 	rmSync(target, { force: true });
 	return { message: `uninstalled Pi hook from ${target}` };
+}
+
+function shellQuote(value: string): string {
+	return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function buildClaudeStopHook(env: InstallEnv): JsonRecord {
+	return {
+		type: "command",
+		command: `${shellQuote(
+			currentAgentVoiceExecutable(env),
+		)} enqueue --format claude-stop-hook --agent claude`,
+		async: true,
+		timeout: 10,
+		statusMessage: AGENT_VOICE_CLAUDE_STATUS_MESSAGE,
+	};
+}
+
+function isAgentVoiceClaudeStopHook(hook: unknown): boolean {
+	if (!isRecord(hook)) return false;
+	if (hook.statusMessage === AGENT_VOICE_CLAUDE_STATUS_MESSAGE) return true;
+	const args = hook.args;
+	return (
+		hook.type === "command" &&
+		Array.isArray(args) &&
+		args.includes("enqueue") &&
+		args.includes("--format") &&
+		args.includes("claude-stop-hook") &&
+		args.includes("--agent") &&
+		args.includes("claude")
+	);
+}
+
+function isPeonStopHook(hook: unknown): boolean {
+	return (
+		isRecord(hook) &&
+		hook.type === "command" &&
+		typeof hook.command === "string" &&
+		hook.command.includes("peon.sh")
+	);
+}
+
+function loadClaudeSettings(target: string): {
+	settings: JsonRecord;
+	original: string | null;
+} {
+	if (!existsSync(target)) return { settings: {}, original: null };
+	const original = readFileSync(target, "utf8");
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(original);
+	} catch (error) {
+		throw new Error(
+			`invalid Claude settings JSON at ${target}: ${
+				error instanceof Error ? error.message : String(error)
+			}`,
+		);
+	}
+	if (!isRecord(parsed)) {
+		throw new Error(
+			`invalid Claude settings JSON at ${target}: expected object`,
+		);
+	}
+	return { settings: parsed, original };
+}
+
+function backupExistingSettings(target: string, original: string): void {
+	const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+	writeFileSync(`${target}.agent-voice-backup-${stamp}`, original, "utf8");
+}
+
+function writeClaudeSettingsIfChanged(
+	target: string,
+	settings: JsonRecord,
+	original: string | null,
+): boolean {
+	const next = `${JSON.stringify(settings, null, 2)}\n`;
+	if (next === original) return false;
+	mkdirSync(dirname(target), { recursive: true });
+	if (original !== null) backupExistingSettings(target, original);
+	writeFileSync(target, next, "utf8");
+	return true;
+}
+
+function ensureHooks(settings: JsonRecord): JsonRecord {
+	if (settings.hooks === undefined) {
+		settings.hooks = {};
+		return settings.hooks as JsonRecord;
+	}
+	if (!isRecord(settings.hooks)) {
+		throw new Error("Claude settings hooks must be an object");
+	}
+	return settings.hooks;
+}
+
+function ensureStopGroups(hooks: JsonRecord): unknown[] {
+	if (hooks.Stop === undefined) {
+		hooks.Stop = [];
+		return hooks.Stop as unknown[];
+	}
+	if (!Array.isArray(hooks.Stop)) {
+		throw new Error("Claude settings hooks.Stop must be an array");
+	}
+	return hooks.Stop;
+}
+
+function hookHandlers(group: unknown): unknown[] | null {
+	if (!isRecord(group)) return null;
+	return Array.isArray(group.hooks) ? group.hooks : null;
+}
+
+function groupWithoutHooks(group: JsonRecord): JsonRecord {
+	const copy = clone(group);
+	delete copy.hooks;
+	return copy;
+}
+
+function removeAgentVoiceClaudeStopHooks(stopGroups: unknown[]): number {
+	let removed = 0;
+	const nextGroups: unknown[] = [];
+	for (const group of stopGroups) {
+		const hooks = hookHandlers(group);
+		if (!hooks || !isRecord(group)) {
+			nextGroups.push(group);
+			continue;
+		}
+		const remaining: unknown[] = [];
+		for (const hook of hooks) {
+			if (isAgentVoiceClaudeStopHook(hook)) {
+				removed++;
+				continue;
+			}
+			remaining.push(hook);
+		}
+		if (remaining.length > 0 || hooks.length === 0) {
+			nextGroups.push({ ...group, hooks: remaining });
+		}
+	}
+	if (removed > 0) stopGroups.splice(0, stopGroups.length, ...nextGroups);
+	return removed;
+}
+
+function suspendPeonStopHooks(
+	stopGroups: unknown[],
+): SuspendedClaudeStopHookEntry[] {
+	const suspended: SuspendedClaudeStopHookEntry[] = [];
+	const nextGroups: unknown[] = [];
+
+	for (let groupIndex = 0; groupIndex < stopGroups.length; groupIndex++) {
+		const group = stopGroups[groupIndex];
+		const hooks = hookHandlers(group);
+		if (!hooks || !isRecord(group)) {
+			nextGroups.push(group);
+			continue;
+		}
+
+		const remaining: unknown[] = [];
+		for (let hookIndex = 0; hookIndex < hooks.length; hookIndex++) {
+			const hook = hooks[hookIndex];
+			if (isPeonStopHook(hook) && isRecord(hook)) {
+				suspended.push({
+					groupIndex,
+					hookIndex,
+					group: groupWithoutHooks(group),
+					hook: clone(hook),
+				});
+				continue;
+			}
+			remaining.push(hook);
+		}
+
+		if (remaining.length > 0 || hooks.length === 0) {
+			nextGroups.push({ ...group, hooks: remaining });
+		}
+	}
+
+	if (suspended.length > 0) {
+		stopGroups.splice(0, stopGroups.length, ...nextGroups);
+	}
+	return suspended;
+}
+
+function readSuspendedBackup(
+	env: InstallEnv,
+): SuspendedClaudeStopHooksBackup | null {
+	const target = claudeSuspendedStopHooksPath(env);
+	if (!existsSync(target)) return null;
+	const parsed = JSON.parse(
+		readFileSync(target, "utf8"),
+	) as SuspendedClaudeStopHooksBackup;
+	if (parsed.version !== 1 || !Array.isArray(parsed.entries)) {
+		throw new Error(`invalid Claude suspended hooks backup at ${target}`);
+	}
+	return parsed;
+}
+
+function writeSuspendedBackup(
+	env: InstallEnv,
+	backup: SuspendedClaudeStopHooksBackup,
+): void {
+	const target = claudeSuspendedStopHooksPath(env);
+	mkdirSync(dirname(target), { recursive: true });
+	writeFileSync(target, `${JSON.stringify(backup, null, 2)}\n`, "utf8");
+}
+
+function mergeSuspendedEntries(
+	env: InstallEnv,
+	settingsPath: string,
+	entries: SuspendedClaudeStopHookEntry[],
+): void {
+	if (entries.length === 0) return;
+	const existing = readSuspendedBackup(env);
+	const backup: SuspendedClaudeStopHooksBackup = existing ?? {
+		version: 1,
+		createdAt: new Date().toISOString(),
+		settingsPath,
+		entries: [],
+	};
+	const serialized = new Set(
+		backup.entries.map((entry) => JSON.stringify(entry)),
+	);
+	let changed = false;
+	for (const entry of entries) {
+		const key = JSON.stringify(entry);
+		if (serialized.has(key)) continue;
+		backup.entries.push(entry);
+		serialized.add(key);
+		changed = true;
+	}
+	if (changed) writeSuspendedBackup(env, backup);
+}
+
+function stopGroupsContainHook(
+	stopGroups: unknown[],
+	targetHook: JsonRecord,
+): boolean {
+	for (const group of stopGroups) {
+		for (const hook of hookHandlers(group) ?? []) {
+			if (sameJson(hook, targetHook)) return true;
+		}
+	}
+	return false;
+}
+
+function findStopGroupByMeta(
+	stopGroups: unknown[],
+	groupMeta: JsonRecord,
+): JsonRecord | null {
+	for (const group of stopGroups) {
+		if (!isRecord(group)) continue;
+		if (sameJson(groupWithoutHooks(group), groupMeta)) return group;
+	}
+	return null;
+}
+
+function restoreSuspendedEntries(
+	stopGroups: unknown[],
+	backup: SuspendedClaudeStopHooksBackup | null,
+): number {
+	if (!backup) return 0;
+	let restored = 0;
+	for (const entry of backup.entries) {
+		if (!isRecord(entry.hook)) continue;
+		if (stopGroupsContainHook(stopGroups, entry.hook)) continue;
+
+		const groupMeta = isRecord(entry.group) ? entry.group : {};
+		const existingGroup = findStopGroupByMeta(stopGroups, groupMeta);
+
+		if (existingGroup) {
+			if (!Array.isArray(existingGroup.hooks)) existingGroup.hooks = [];
+			(existingGroup.hooks as unknown[]).push(clone(entry.hook));
+		} else {
+			const insertAt = Math.max(
+				0,
+				Math.min(
+					Number.isInteger(entry.groupIndex)
+						? entry.groupIndex
+						: stopGroups.length,
+					stopGroups.length,
+				),
+			);
+			stopGroups.splice(insertAt, 0, {
+				...clone(groupMeta),
+				hooks: [clone(entry.hook)],
+			});
+		}
+		restored++;
+	}
+	return restored;
+}
+
+export function installClaude(
+	env: InstallEnv,
+	options: ClaudeInstallOptions = {},
+): InstallResult {
+	const target = claudeSettingsPath(env);
+	const { settings, original } = loadClaudeSettings(target);
+	const hooks = ensureHooks(settings);
+	const stopGroups = ensureStopGroups(hooks);
+
+	const suspendedEntries = options.suspendExistingStopHooks
+		? suspendPeonStopHooks(stopGroups)
+		: [];
+	mergeSuspendedEntries(env, target, suspendedEntries);
+
+	removeAgentVoiceClaudeStopHooks(stopGroups);
+	stopGroups.push({ matcher: "", hooks: [buildClaudeStopHook(env)] });
+
+	writeClaudeSettingsIfChanged(target, settings, original);
+	const suspendedMessage =
+		suspendedEntries.length > 0
+			? `; suspended ${suspendedEntries.length} existing Claude Stop hook(s)`
+			: "";
+	return { message: `installed Claude hook at ${target}${suspendedMessage}` };
+}
+
+export function uninstallClaude(
+	env: InstallEnv,
+	options: ClaudeUninstallOptions = {},
+): InstallResult {
+	const restoreSuspendedHooks = options.restoreSuspendedHooks ?? true;
+	const target = claudeSettingsPath(env);
+	const backup = restoreSuspendedHooks ? readSuspendedBackup(env) : null;
+	if (!existsSync(target) && !backup)
+		return { message: "Claude hook not installed" };
+
+	const { settings, original } = loadClaudeSettings(target);
+	const hooks = ensureHooks(settings);
+	const stopGroups = ensureStopGroups(hooks);
+	const removed = removeAgentVoiceClaudeStopHooks(stopGroups);
+	const restored = restoreSuspendedEntries(stopGroups, backup);
+
+	writeClaudeSettingsIfChanged(target, settings, original);
+	if (backup) rmSync(claudeSuspendedStopHooksPath(env), { force: true });
+
+	if (removed === 0 && restored === 0) {
+		return { message: "Claude hook not installed" };
+	}
+	return {
+		message: `uninstalled Claude hook from ${target}; restored ${restored} suspended hook(s)`,
+	};
 }

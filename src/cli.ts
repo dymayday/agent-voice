@@ -20,7 +20,12 @@ import {
 import { buildDoctorReport } from "./doctor";
 import { createEvent, type AgentVoiceEvent, validateEvent } from "./events";
 import { buildHistorySnapshot, formatHistoryJson } from "./history";
-import { installPi, uninstallPi } from "./install";
+import {
+	installClaude,
+	installPi,
+	uninstallClaude,
+	uninstallPi,
+} from "./install";
 import { resolvePaths } from "./paths";
 import type { ProcessorDeps } from "./processor";
 import { summarize } from "./summarizers";
@@ -47,8 +52,8 @@ export interface CliResult {
 const HELP = `agent-voice - speak one-line summaries of coding-agent turns
 
 Usage:
-  agent-voice install [--agents claude,pi,codex,opencode] [--kokoro-script /abs/path]
-  agent-voice uninstall [--restore-backups]
+  agent-voice install [--agents claude,pi,codex,opencode] [--suspend-existing-stop-hooks]
+  agent-voice uninstall [--agents claude,pi,codex,opencode] [--restore-suspended-hooks]
   agent-voice start
   agent-voice stop
   agent-voice status [--json]
@@ -159,15 +164,31 @@ export async function runCli(
 
 	if (command === "install" || command === "uninstall") {
 		const agents = parseAgentsOption(args);
-		if (agents.length !== 1 || agents[0] !== "pi") {
-			return result(2, "", `${command} currently supports only pi\n`);
+		if (agents.length !== 1 || !["pi", "claude"].includes(agents[0])) {
+			return result(
+				2,
+				"",
+				`${command} currently supports only pi and claude\n`,
+			);
 		}
 
 		try {
-			const outcome =
-				command === "install"
-					? installPi(io.env ?? process.env)
-					: uninstallPi(io.env ?? process.env);
+			const env = io.env ?? process.env;
+			let outcome;
+			if (agents[0] === "pi") {
+				outcome = command === "install" ? installPi(env) : uninstallPi(env);
+			} else {
+				outcome =
+					command === "install"
+						? installClaude(env, {
+								suspendExistingStopHooks: args.includes(
+									"--suspend-existing-stop-hooks",
+								),
+							})
+						: uninstallClaude(env, {
+								restoreSuspendedHooks: !args.includes("--keep-suspended-hooks"),
+							});
+			}
 			return result(0, `${outcome.message}\n`);
 		} catch (error) {
 			return result(
@@ -341,11 +362,22 @@ export async function runCli(
 					payload = {};
 				}
 				const extracted = extractClaudeStopHook(payload);
+				const payloadRecord =
+					payload && typeof payload === "object" && !Array.isArray(payload)
+						? (payload as Record<string, unknown>)
+						: {};
+				const payloadCwd =
+					typeof payloadRecord.cwd === "string" ? payloadRecord.cwd : undefined;
+				const sessionId =
+					typeof payloadRecord.session_id === "string"
+						? payloadRecord.session_id
+						: undefined;
 				const config = loadConfigForEnqueue(paths);
 				event = createEvent({
 					agent: "claude",
 					text: truncateInput(extracted.text, config.summarizer.maxInputChars),
-					...(cwd ? { cwd } : {}),
+					...(cwd || payloadCwd ? { cwd: cwd ?? payloadCwd } : {}),
+					...(sessionId ? { sessionId } : {}),
 					metadata: { format: "claude-stop-hook", generic: extracted.generic },
 				});
 			} else {

@@ -4,7 +4,12 @@ export interface ClaudeExtractionResult {
 }
 
 const GENERIC_CLAUDE_COMPLETION = "Claude finished responding.";
-const TEXT_KEYS = ["assistant_response", "final_response", "response_text"];
+const TEXT_KEYS = [
+	"last_assistant_message",
+	"assistant_response",
+	"final_response",
+	"response_text",
+];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return Boolean(value) && typeof value === "object" && !Array.isArray(value);

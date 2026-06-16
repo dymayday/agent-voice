@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runCli } from "../src/cli";
@@ -236,6 +242,38 @@ describe("agent-voice enqueue CLI", () => {
 				format: "claude-stop-hook",
 			});
 			expect(events[0].text).toBe(rawText);
+		});
+	});
+
+	test("claude-stop-hook accepts current Stop payload text, cwd, and session id", async () => {
+		await withTempHome(async (home) => {
+			const rawText = "Claude is asking which option to use.  \n";
+			const result = await runCli(
+				["enqueue", "--format", "claude-stop-hook", "--agent", "claude"],
+				{
+					env: { AGENT_VOICE_HOME: home },
+					stdin: JSON.stringify({
+						hook_event_name: "Stop",
+						last_assistant_message: rawText,
+						cwd: "/project",
+						session_id: "claude-session-1",
+					}),
+				},
+			);
+
+			expect(result.exitCode).toBe(0);
+			const events = pendingJobs(home);
+			expect(events).toHaveLength(1);
+			expect(events[0]).toMatchObject({
+				agent: "claude",
+				text: rawText,
+				cwd: "/project",
+				session_id: "claude-session-1",
+			});
+			expect(JSON.parse(events[0].metadata as string)).toMatchObject({
+				generic: false,
+				format: "claude-stop-hook",
+			});
 		});
 	});
 

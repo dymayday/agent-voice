@@ -122,8 +122,8 @@ struct SetupAssistantView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Setup is ready for manual mode.")
                 Text(
-                    "Pi hook install is available. Launch-at-login and other " +
-                        "agent installers are not part of this build yet."
+                    "Pi and Claude hook install are available. Launch-at-login " +
+                        "and other agent installers are not part of this build yet."
                 )
                 .foregroundStyle(.secondary)
             }
@@ -167,13 +167,13 @@ struct SetupAssistantView: View {
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
-                    if item.name == "pi" {
+                    if item.name == "pi" || item.name == "claude" {
                         VStack(alignment: .trailing, spacing: 4) {
                             Button("Install Hook") {
-                                Task { await model.installAgentHook("pi") }
+                                Task { await model.installAgentHook(item.name) }
                             }
                             Button("Uninstall Hook") {
-                                Task { await model.uninstallAgentHook("pi") }
+                                Task { await model.uninstallAgentHook(item.name) }
                             }
                         }
                     } else {

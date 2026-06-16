@@ -5,6 +5,7 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
+	readdirSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
@@ -34,6 +35,71 @@ function envFor(home: string): Record<string, string> {
 
 function piExtensionPath(home: string): string {
 	return join(home, ".pi", "agent", "extensions", "agent-voice.ts");
+}
+
+function claudeSettingsPath(home: string): string {
+	return join(home, ".claude", "settings.json");
+}
+
+function claudeSuspendedHooksPath(home: string): string {
+	return join(
+		home,
+		".agent-voice",
+		"install",
+		"claude-suspended-stop-hooks.json",
+	);
+}
+
+function writeClaudeSettings(
+	home: string,
+	settings: Record<string, unknown>,
+): void {
+	const target = claudeSettingsPath(home);
+	mkdirSync(dirname(target), { recursive: true });
+	writeFileSync(target, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
+}
+
+function readClaudeSettings(home: string): Record<string, any> {
+	return JSON.parse(readFileSync(claudeSettingsPath(home), "utf8"));
+}
+
+function stopHookHandlers(
+	settings: Record<string, any>,
+): Record<string, any>[] {
+	const groups = settings.hooks?.Stop;
+	if (!Array.isArray(groups)) return [];
+	return groups.flatMap((group) =>
+		Array.isArray(group?.hooks) ? group.hooks : [],
+	);
+}
+
+function agentVoiceClaudeHooks(
+	settings: Record<string, any>,
+): Record<string, any>[] {
+	return stopHookHandlers(settings).filter((hook) => {
+		const args = Array.isArray(hook.args) ? hook.args : [];
+		return (
+			hook.statusMessage === "Agent Voice: queue Claude turn summary" ||
+			(hook.type === "command" &&
+				args.includes("enqueue") &&
+				args.includes("claude-stop-hook") &&
+				args.includes("claude")) ||
+			(typeof hook.command === "string" &&
+				hook.command.includes("enqueue --format claude-stop-hook") &&
+				hook.command.includes("--agent claude"))
+		);
+	});
+}
+
+function countAgentVoiceClaudeHooks(settings: Record<string, any>): number {
+	return agentVoiceClaudeHooks(settings).length;
+}
+
+function countPeonStopHooks(settings: Record<string, any>): number {
+	return stopHookHandlers(settings).filter(
+		(hook) =>
+			typeof hook.command === "string" && hook.command.includes("peon.sh"),
+	).length;
 }
 
 async function runGeneratedExtension(
@@ -240,7 +306,8 @@ await handlers.agent_end({
 			const deadline = Date.now() + 1000;
 			let captured = "";
 			while (Date.now() < deadline) {
-				if (existsSync(capturePath)) captured = readFileSync(capturePath, "utf8");
+				if (existsSync(capturePath))
+					captured = readFileSync(capturePath, "utf8");
 				if (captured.includes("---")) break;
 				await sleep(25);
 			}
@@ -346,20 +413,286 @@ await handlers.agent_end({
 		});
 	});
 
+	test("install --agents claude appends a global Stop hook without touching existing peon hooks", async () => {
+		await withTempHome(async (home) => {
+			writeClaudeSettings(home, {
+				verbose: true,
+				hooks: {
+					Stop: [
+						{
+							matcher: "",
+							hooks: [
+								{
+									type: "command",
+									command: "/Users/me/.claude/hooks/peon.sh stop",
+									async: true,
+								},
+							],
+						},
+					],
+					Notification: [
+						{
+							matcher: "",
+							hooks: [
+								{
+									type: "command",
+									command: "/Users/me/.claude/hooks/peon.sh notify",
+									async: true,
+								},
+							],
+						},
+					],
+				},
+			});
+
+			const result = await runCli(["install", "--agents", "claude"], {
+				env: envFor(home),
+			});
+
+			expect(result.exitCode).toBe(0);
+			const settings = readClaudeSettings(home);
+			expect(settings.verbose).toBe(true);
+			expect(countPeonStopHooks(settings)).toBe(1);
+			expect(countAgentVoiceClaudeHooks(settings)).toBe(1);
+			const [agentVoiceHook] = agentVoiceClaudeHooks(settings);
+			expect(agentVoiceHook.command).toContain("/repo/bin/agent-voice");
+			expect(agentVoiceHook.command).toContain(
+				"enqueue --format claude-stop-hook --agent claude",
+			);
+			expect(agentVoiceHook.args).toBeUndefined();
+			expect(JSON.stringify(settings.hooks.Notification)).toContain(
+				"peon.sh notify",
+			);
+			expect(
+				readdirSync(dirname(claudeSettingsPath(home))).some((name) =>
+					name.startsWith("settings.json.agent-voice-backup-"),
+				),
+			).toBe(true);
+		});
+	});
+
+	test("install --agents claude replaces a stale Agent Voice hook shape", async () => {
+		await withTempHome(async (home) => {
+			writeClaudeSettings(home, {
+				hooks: {
+					Stop: [
+						{
+							matcher: "",
+							hooks: [
+								{
+									type: "command",
+									command: "/old/agent-voice",
+									args: [
+										"enqueue",
+										"--format",
+										"claude-stop-hook",
+										"--agent",
+										"claude",
+									],
+									async: true,
+									statusMessage: "Agent Voice: queue Claude turn summary",
+								},
+							],
+						},
+					],
+				},
+			});
+
+			const result = await runCli(["install", "--agents", "claude"], {
+				env: envFor(home),
+			});
+
+			expect(result.exitCode).toBe(0);
+			const settings = readClaudeSettings(home);
+			expect(countAgentVoiceClaudeHooks(settings)).toBe(1);
+			const [agentVoiceHook] = agentVoiceClaudeHooks(settings);
+			expect(agentVoiceHook.command).toContain("/repo/bin/agent-voice");
+			expect(agentVoiceHook.command).toContain(
+				"enqueue --format claude-stop-hook --agent claude",
+			);
+			expect(agentVoiceHook.args).toBeUndefined();
+			expect(agentVoiceHook.command).not.toContain("/old/agent-voice");
+		});
+	});
+
+	test("install --agents claude can suspend only the existing peon Stop hook", async () => {
+		await withTempHome(async (home) => {
+			writeClaudeSettings(home, {
+				hooks: {
+					Stop: [
+						{
+							matcher: "",
+							hooks: [
+								{
+									type: "command",
+									command: "/Users/me/.claude/hooks/peon.sh stop",
+									async: true,
+								},
+								{ type: "command", command: "/tmp/other-stop.sh" },
+							],
+						},
+					],
+					Notification: [
+						{
+							matcher: "",
+							hooks: [
+								{
+									type: "command",
+									command: "/Users/me/.claude/hooks/peon.sh notify",
+									async: true,
+								},
+							],
+						},
+					],
+				},
+			});
+
+			const result = await runCli(
+				["install", "--agents", "claude", "--suspend-existing-stop-hooks"],
+				{ env: envFor(home) },
+			);
+
+			expect(result.exitCode).toBe(0);
+			const settings = readClaudeSettings(home);
+			expect(countPeonStopHooks(settings)).toBe(0);
+			expect(countAgentVoiceClaudeHooks(settings)).toBe(1);
+			expect(JSON.stringify(settings.hooks.Stop)).toContain("other-stop.sh");
+			expect(JSON.stringify(settings.hooks.Notification)).toContain(
+				"peon.sh notify",
+			);
+			const backup = JSON.parse(
+				readFileSync(claudeSuspendedHooksPath(home), "utf8"),
+			);
+			expect(backup.entries).toHaveLength(1);
+			expect(JSON.stringify(backup)).toContain("peon.sh stop");
+		});
+	});
+
+	test("claude install with peon suspension is idempotent", async () => {
+		await withTempHome(async (home) => {
+			writeClaudeSettings(home, {
+				hooks: {
+					Stop: [
+						{
+							matcher: "",
+							hooks: [
+								{
+									type: "command",
+									command: "/Users/me/.claude/hooks/peon.sh stop",
+									async: true,
+								},
+							],
+						},
+					],
+				},
+			});
+
+			const env = envFor(home);
+			expect(
+				(
+					await runCli(
+						["install", "--agents", "claude", "--suspend-existing-stop-hooks"],
+						{ env },
+					)
+				).exitCode,
+			).toBe(0);
+			expect(
+				(
+					await runCli(
+						["install", "--agents", "claude", "--suspend-existing-stop-hooks"],
+						{ env },
+					)
+				).exitCode,
+			).toBe(0);
+
+			const settings = readClaudeSettings(home);
+			expect(countAgentVoiceClaudeHooks(settings)).toBe(1);
+			const backup = JSON.parse(
+				readFileSync(claudeSuspendedHooksPath(home), "utf8"),
+			);
+			expect(backup.entries).toHaveLength(1);
+		});
+	});
+
+	test("uninstall --agents claude removes Agent Voice and restores suspended peon Stop hook", async () => {
+		await withTempHome(async (home) => {
+			writeClaudeSettings(home, {
+				hooks: {
+					Stop: [
+						{
+							matcher: "",
+							hooks: [
+								{
+									type: "command",
+									command: "/Users/me/.claude/hooks/peon.sh stop",
+									async: true,
+								},
+							],
+						},
+					],
+				},
+			});
+			const env = envFor(home);
+			expect(
+				(
+					await runCli(
+						["install", "--agents", "claude", "--suspend-existing-stop-hooks"],
+						{ env },
+					)
+				).exitCode,
+			).toBe(0);
+			const duringTrial = readClaudeSettings(home);
+			duringTrial.hooks.Stop.push({
+				matcher: "",
+				hooks: [{ type: "command", command: "/tmp/new-stop.sh" }],
+			});
+			writeClaudeSettings(home, duringTrial);
+
+			const result = await runCli(["uninstall", "--agents", "claude"], {
+				env,
+			});
+
+			expect(result.exitCode).toBe(0);
+			const settings = readClaudeSettings(home);
+			expect(countAgentVoiceClaudeHooks(settings)).toBe(0);
+			expect(countPeonStopHooks(settings)).toBe(1);
+			expect(JSON.stringify(settings.hooks.Stop)).toContain("new-stop.sh");
+			expect(existsSync(claudeSuspendedHooksPath(home))).toBe(false);
+		});
+	});
+
+	test("install --agents claude refuses invalid global settings JSON without rewriting it", async () => {
+		await withTempHome(async (home) => {
+			const target = claudeSettingsPath(home);
+			mkdirSync(dirname(target), { recursive: true });
+			writeFileSync(target, "{not json", "utf8");
+
+			const result = await runCli(["install", "--agents", "claude"], {
+				env: envFor(home),
+			});
+
+			expect(result.exitCode).toBe(1);
+			expect(result.stderr).toContain("invalid Claude settings JSON");
+			expect(readFileSync(target, "utf8")).toBe("{not json");
+		});
+	});
+
 	test("install and uninstall reject unsupported agents in this slice", async () => {
 		await withTempHome(async (home) => {
 			const env = envFor(home);
-			const install = await runCli(["install", "--agents", "claude"], {
+			const install = await runCli(["install", "--agents", "codex"], {
 				env,
 			});
-			const uninstall = await runCli(["uninstall", "--agents", "codex"], {
+			const uninstall = await runCli(["uninstall", "--agents", "opencode"], {
 				env,
 			});
 
 			expect(install.exitCode).toBe(2);
-			expect(install.stderr).toContain("currently supports only pi");
+			expect(install.stderr).toContain("currently supports only pi and claude");
 			expect(uninstall.exitCode).toBe(2);
-			expect(uninstall.stderr).toContain("currently supports only pi");
+			expect(uninstall.stderr).toContain(
+				"currently supports only pi and claude",
+			);
 		});
 	});
 });

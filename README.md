@@ -14,7 +14,7 @@
 - Pause/resume speech, switch summarizer mode, view recent queue history, and run doctor checks from CLI JSON contracts used by the macOS app.
 - Build a native SwiftUI menu-bar app preview that shells out to the existing CLI instead of reimplementing the daemon or SQLite queue.
 
-Pi hook install/uninstall is implemented as the first installer slice. Claude, Codex, OpenCode, LaunchAgent, and wrapper installation are still future work, so prefer the manual daemon/server flow below unless you specifically want the Pi hook.
+Pi and Claude hook install/uninstall are implemented as the first installer slices. Claude installs into global `~/.claude/settings.json` and can temporarily suspend an existing `peon.sh` Stop hook while preserving other hooks. Codex, OpenCode, LaunchAgent, and wrapper installation are still future work, so prefer the manual daemon/server flow below unless you specifically want the Pi or Claude hook.
 
 ## Requirements
 
@@ -100,16 +100,30 @@ This bypasses the queue and immediately summarizes and speaks one message:
 ./bin/agent-voice test 'Claude finished editing the auth module.'
 ```
 
-### Pi hook install
+### Agent hook install
 
-The current installer slice supports Pi only:
+Pi install writes an owned extension to `~/.pi/agent/extensions/agent-voice.ts`:
 
 ```bash
 ./bin/agent-voice install --agents pi
 ./bin/agent-voice uninstall --agents pi
 ```
 
-Install writes an owned Pi extension to `~/.pi/agent/extensions/agent-voice.ts`. Uninstall removes only that owned extension. Claude, Codex, OpenCode, LaunchAgent, and wrapper installation are not implemented yet.
+Claude install merges a global Stop hook into `~/.claude/settings.json` without replacing existing settings:
+
+```bash
+./bin/agent-voice install --agents claude
+./bin/agent-voice uninstall --agents claude
+```
+
+For a trial where Agent Voice replaces only an existing `peon.sh` Claude-finished voice hook, suspend that Stop hook during install:
+
+```bash
+./bin/agent-voice install --agents claude --suspend-existing-stop-hooks
+./bin/agent-voice uninstall --agents claude
+```
+
+This suspension targets only `peon.sh` entries under Claude's global `Stop` hooks. Other `peon.sh` hooks such as notifications and permission prompts stay active. A sidecar backup under `AGENT_VOICE_HOME` lets uninstall restore the suspended Stop hook. Agent Voice also writes a timestamped backup of `~/.claude/settings.json` before changing it. Codex, OpenCode, LaunchAgent, and wrapper installation are not implemented yet.
 
 ## App-facing CLI commands
 
@@ -151,11 +165,11 @@ The app bundle built by `scripts/build-macos-app.sh` copies the CLI into `Conten
 Current preview limitations:
 
 - Not signed or notarized.
-- Pi hook install/uninstall is available; Claude, Codex, OpenCode, LaunchAgent, and wrapper installation are not implemented yet.
+- Pi and Claude hook install/uninstall are available; Codex, OpenCode, LaunchAgent, and wrapper installation are not implemented yet.
 - Does not vendor Bun or Kokoro.
-- Uses existing CLI commands for daemon lifecycle, config/status/history/doctor checks, summarizer mode, Kokoro voice selection, voice tests, and Pi hook install/uninstall.
+- Uses existing CLI commands for daemon lifecycle, config/status/history/doctor checks, summarizer mode, Kokoro voice selection, voice tests, and Pi/Claude hook install/uninstall.
 
-Use the existing manual daemon flow unless you specifically want the Pi hook installer.
+Use the existing manual daemon flow unless you specifically want the Pi or Claude hook installer.
 
 ## Enqueue formats
 
@@ -184,7 +198,7 @@ cat fixtures/claude-stop-hook.sample.json \
   | ./bin/agent-voice enqueue --format claude-stop-hook --agent claude
 ```
 
-The Claude adapter looks for response text in fields such as `assistant_response`, `final_response`, or `response_text`. If none is present, it queues the generic sentence `Claude finished responding.` and marks the event metadata as generic.
+The Claude adapter looks for response text in fields such as `last_assistant_message`, `assistant_response`, `final_response`, or `response_text`. If none is present, it queues the generic sentence `Claude finished responding.` and marks the event metadata as generic.
 
 ## Configuration
 
