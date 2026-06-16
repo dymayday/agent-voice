@@ -18,6 +18,7 @@
 - Create: `macos/AgentVoiceApp/Sources/AgentVoiceApp/AttentionDetailView.swift`
   - New SwiftUI view that renders attention messages, doctor issues, and failed jobs from `AppModel`.
   - Keep all attention-specific derived data local to this view or in small private computed properties.
+  - Start/stop the shared `AppModel` auto-refresh loop while the standalone window is visible so it stays fresh after the menu-bar popover closes.
 - Modify: `macos/AgentVoiceApp/Sources/AgentVoiceApp/DashboardView.swift`
   - Add `@Environment(\.openWindow)`.
   - Convert the attention messages and diagnostic review summary into click targets.
@@ -30,7 +31,7 @@
 - Modify: `macos/AgentVoiceApp/Tests/AgentVoiceCoreTests/DashboardViewSourceTests.swift`
   - Add source-level assertions that dashboard attention/diagnostic surfaces open the attention window.
 - Create: `macos/AgentVoiceApp/Tests/AgentVoiceCoreTests/AttentionDetailViewSourceTests.swift`
-  - Source-level assertions that the detail view includes the three required sections and explicit unavailable/empty states.
+  - Source-level assertions that the detail view includes the three required sections, explicit unavailable/empty states, auto-refresh lifecycle hooks, selectable diagnostic text, and a single primary scroll region.
 - Optional docs update: `README.md`
   - Not required for this UI-only feature; skip unless implementation reveals a user-facing dashboard behavior worth documenting.
 
@@ -41,7 +42,7 @@
 - `DashboardView` has helper computed properties in `AgentVoiceApp.swift`:
   - `doctorIssues`: failed checks or warning/error checks.
   - `failedJobs`: history jobs with `status == .failed`.
-- Preserve the existing shared auto-refresh behavior; do not add a separate refresh loop unless the final UX needs it.
+- Preserve the existing shared auto-refresh behavior; `AttentionDetailView` should subscribe with `model.startAutoRefresh()` on appear and unsubscribe with `model.stopAutoRefresh()` on disappear, matching the dashboard/menu surfaces without creating an independent refresh loop.
 
 ---
 
@@ -63,6 +64,10 @@ func testAttentionWindowIDAndSceneAreRegistered() throws {
     XCTAssertTrue(source.contains("static let attention = \"attention\""))
     XCTAssertTrue(source.contains("Window(\"Attention\", id: AgentVoiceWindowID.attention)"))
     XCTAssertTrue(source.contains("AttentionDetailView(model: model)"))
+    XCTAssertFalse(
+        source.contains("WindowGroup(\"Attention"),
+        "Attention should be a singleton Window so repeated clicks focus the same detail surface."
+    )
 }
 ```
 
@@ -137,6 +142,9 @@ final class AttentionDetailViewSourceTests: XCTestCase {
         XCTAssertTrue(source.contains("model.doctorReport == nil"))
         XCTAssertTrue(source.contains("model.history == nil"))
         XCTAssertTrue(source.contains("$0.status == .failed"))
+        XCTAssertTrue(source.contains("model.startAutoRefresh()"))
+        XCTAssertTrue(source.contains("model.stopAutoRefresh()"))
+        XCTAssertTrue(source.contains("Text(check.message)"))
         XCTAssertTrue(source.contains("textSelection(.enabled)"))
     }
 
@@ -167,7 +175,15 @@ Run:
 swift test --package-path macos/AgentVoiceApp
 ```
 
-Expected: FAIL because `AgentVoiceWindowID.attention`, `AttentionDetailView.swift`, and attention-opening calls do not exist yet.
+Expected: FAIL, and failures should be limited to the new tests added in this task:
+
+- `AgentVoiceAppSourceTests/testAttentionWindowIDAndSceneAreRegistered`
+- `DashboardViewSourceTests/testDashboardAttentionSurfacesOpenAttentionWindow`
+- `AgentVoiceAppSourceTests/testMenuAttentionBannerOpensAttentionWindowAndActivatesApp`
+- `AttentionDetailViewSourceTests/testAttentionDetailViewIncludesRequiredSectionsAndDataSources`
+- `AttentionDetailViewSourceTests/testAttentionDetailViewUsesOnePrimaryScrollRegion`
+
+If any pre-existing test fails, stop and report it before implementing. Do not bury unrelated failures under the expected red phase.
 
 - [ ] **Step 6: Commit failing tests**
 
@@ -233,6 +249,8 @@ struct AttentionDetailView: View {
             .padding(24)
         }
         .frame(minWidth: 620, minHeight: 480)
+        .onAppear { model.startAutoRefresh() }
+        .onDisappear { model.stopAutoRefresh() }
     }
 }
 ```
@@ -370,11 +388,16 @@ var doctorIssuesSection: some View {
             VStack(alignment: .leading, spacing: 12) {
                 ForEach(doctorIssues) { check in
                     VStack(alignment: .leading, spacing: 4) {
-                        Label(check.message, systemImage: check.ok ? "info.circle" : "exclamationmark.triangle.fill")
-                            .foregroundStyle(severityTint(check.severity))
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Image(systemName: check.ok ? "info.circle" : "exclamationmark.triangle.fill")
+                            Text(check.message)
+                                .textSelection(.enabled)
+                        }
+                        .foregroundStyle(severityTint(check.severity))
                         Text("Severity: \(check.severity.rawValue)")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
                         if let action = check.action, !action.isEmpty {
                             Text(action)
                                 .font(.caption)
@@ -533,6 +556,7 @@ Button {
 }
 .buttonStyle(.plain)
 .accessibilityLabel("Open attention details")
+.accessibilityValue("\(attention.count) attention \(attention.count == 1 ? "message" : "messages")")
 ```
 
 Keep the existing `if let attention = ... !attention.isEmpty` condition.
@@ -551,6 +575,7 @@ Button {
 }
 .buttonStyle(.plain)
 .accessibilityLabel("Open diagnostic review details")
+.accessibilityValue("\(doctorIssues.count) diagnostic \(noun) need review")
 ```
 
 - [ ] **Step 6: Make diagnostics card issue list clickable**
@@ -573,6 +598,7 @@ Button {
 }
 .buttonStyle(.plain)
 .accessibilityLabel("Open diagnostic details")
+.accessibilityValue("\(doctorIssues.count) diagnostic \(doctorIssues.count == 1 ? "check" : "checks") need review")
 ```
 
 - [ ] **Step 7: Run dashboard source test**
@@ -645,6 +671,7 @@ Button {
 }
 .buttonStyle(.plain)
 .accessibilityLabel("Open attention details")
+.accessibilityValue("\(attention.count) attention \(attention.count == 1 ? "message" : "messages")")
 ```
 
 Keep the existing condition `if let attention = model.status?.ui.attention, !attention.isEmpty`.
@@ -704,7 +731,39 @@ swift build --package-path macos/AgentVoiceApp
 
 Expected: PASS.
 
-- [ ] **Step 3: Run broader repo tests if Swift passes**
+- [ ] **Step 3: Run manual UI smoke validation in a macOS GUI session**
+
+Seed a temporary Agent Voice home that produces both a menu-bar attention message and doctor checks needing review:
+
+```bash
+export AGENT_VOICE_HOME="$(mktemp -d)"
+export AGENT_VOICE_EXECUTABLE="$PWD/bin/agent-voice"
+./bin/agent-voice pause
+./bin/agent-voice config set tts.kokoroScript /tmp/agent-voice-missing-kokoro.py
+swift run --package-path macos/AgentVoiceApp AgentVoiceApp
+```
+
+Manual checks while the app is running:
+
+1. Open the menu-bar popover.
+   - Expected: `Needs attention` banner appears because `status.ui.attention` contains `system_paused`.
+   - Click the banner.
+   - Expected: the `Attention` window opens and the app activates.
+2. Open the Dashboard.
+   - Expected: System Health and Diagnostics show review/attention states; Kokoro script missing and paused/daemon checks are visible as appropriate.
+   - Click the System Health attention area and the Diagnostics review area.
+   - Expected: both focus/open the same singleton `Attention` window, not multiple duplicate windows.
+3. Inspect the `Attention` window.
+   - Expected: attention messages, doctor checks needing review, and failed-job empty/unavailable states render clearly.
+   - Expected: doctor messages/action text can be selected and copied.
+   - Expected: there is one primary scroll region.
+4. Verify the standalone window refreshes after the menu-bar popover closes.
+   - In a second terminal with the same `AGENT_VOICE_HOME`, run `./bin/agent-voice resume`.
+   - Expected: within the shared auto-refresh interval, the `system_paused` attention message disappears or the state changes without needing to reopen the menu-bar popover.
+
+If a GUI session is unavailable, record this step as **not run** and do not claim UI interaction was verified. The final response must list that residual risk explicitly.
+
+- [ ] **Step 4: Run broader repo tests if Swift and manual validation pass**
 
 Run:
 
@@ -713,9 +772,9 @@ bun test
 bun run typecheck
 ```
 
-Expected: PASS. If either command fails due to pre-existing unrelated issues, capture the exact output and explain why it is unrelated.
+Expected: PASS. If either command fails, capture exact output. Treat dependency/setup failures separately from product regressions, but do not call the implementation complete until Swift tests/build and the edited macOS app behavior are verified.
 
-- [ ] **Step 4: Inspect diff**
+- [ ] **Step 5: Inspect diff**
 
 Run:
 
@@ -726,36 +785,30 @@ git diff -- macos/AgentVoiceApp/Sources/AgentVoiceApp macos/AgentVoiceApp/Tests/
 
 Expected: Diff only contains attention window tests and implementation. No CLI, database, queue, or daemon behavior changes.
 
-- [ ] **Step 5: Run diagnostics**
+- [ ] **Step 6: Run pi-lens diagnostics on edited files**
 
-Run:
-
-```bash
-# If available in the current environment
-true
-```
-
-Also call pi-lens diagnostics before claiming completion:
+Use the `lens_diagnostics` tool, not a shell placeholder:
 
 ```text
-lens_diagnostics mode=all severity=all
+lens_diagnostics({ "mode": "all", "severity": "all" })
 ```
 
-Expected: No blocking errors in edited files.
+Expected: No blocking errors in edited files. If the tool is unavailable, run `lsp_diagnostics` on the edited Swift files and report the substitution explicitly.
 
-- [ ] **Step 6: Commit final cleanup if needed**
+- [ ] **Step 7: Commit final cleanup if needed**
 
-Only if Step 4 reveals small cleanup changes:
+Only if Step 5 reveals small cleanup changes:
 
 ```bash
 git add <changed-files>
 git commit -m "chore: polish attention detail window"
 ```
 
-- [ ] **Step 7: Report completion evidence**
+- [ ] **Step 8: Report completion evidence**
 
 Final response must include:
 
 - Changed file list.
-- Verification commands and pass/fail status.
-- Any residual risks, especially if source-level tests passed but no manual UI launch was performed.
+- Verification commands and pass/fail status, including manual UI smoke validation status.
+- Diagnostics tool result.
+- Any residual risks, especially if manual UI launch was not performed or broader repo tests fail due to unrelated pre-existing changes.
