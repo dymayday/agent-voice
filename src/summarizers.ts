@@ -21,7 +21,7 @@ export type SummarizerRunResult =
 			exitCode?: number;
 			code?: string;
 			timedOut?: boolean;
-		};
+	  };
 
 export type SummarizerRunner = (
 	request: SummarizerRunRequest,
@@ -32,7 +32,8 @@ export interface SummarizeOptions {
 	cwd?: string;
 }
 
-const SENTENCE_END_PATTERN = /[.!?]/;
+const SENTENCE_BOUNDARY_PATTERN = /[.!?]+(\s+|$)/g;
+const SENTENCE_END_PATTERN = /[.!?]$/;
 const CONTROL_CHARS_PATTERN = /[\u0000-\u001f\u007f]+/g;
 const MARKDOWN_NOISE_PATTERN = /[`*_>]+/g;
 const WHITESPACE_PATTERN = /\s+/g;
@@ -129,13 +130,7 @@ function requestFor(
 	return {
 		...base,
 		cmd: "opencode",
-		args: [
-			"run",
-			"--model",
-			config.summarizer.opencodeModel,
-			"--prompt",
-			"-",
-		],
+		args: ["run", "--model", config.summarizer.opencodeModel, "--prompt", "-"],
 	};
 }
 
@@ -151,10 +146,16 @@ function cleanForSpeech(text: string): string {
 		.trim();
 }
 
-function firstSentence(text: string): string {
-	const index = text.search(SENTENCE_END_PATTERN);
-	if (index === -1) return text;
-	return text.slice(0, index + 1);
+function oneSentenceFromAllText(text: string, maxChars: number): string {
+	const sentence = text.replace(
+		SENTENCE_BOUNDARY_PATTERN,
+		(match, _space: string, offset: number, fullText: string) => {
+			const remaining = fullText.slice(offset + match.length).trim();
+			return remaining ? "; " : ".";
+		},
+	);
+	if (SENTENCE_END_PATTERN.test(sentence)) return sentence;
+	return sentence.length < maxChars ? `${sentence}.` : sentence;
 }
 
 function truncateAtWord(text: string, maxChars: number): string {
@@ -164,13 +165,13 @@ function truncateAtWord(text: string, maxChars: number): string {
 	const prefix = text.slice(0, limit).trimEnd();
 	const lastSpace = prefix.lastIndexOf(" ");
 	const truncated = lastSpace > 12 ? prefix.slice(0, lastSpace) : prefix;
-	return `${truncated.replace(/[.!?]+$/g, "")}.`.slice(0, maxChars);
+	return `${truncated.replace(/[.!?;:,]+$/g, "")}.`.slice(0, maxChars);
 }
 
 function normalizeSummary(text: string, maxChars: number): string {
 	const cleaned = cleanForSpeech(text);
 	if (!cleaned) return "Agent finished responding.";
-	return truncateAtWord(firstSentence(cleaned), maxChars);
+	return truncateAtWord(oneSentenceFromAllText(cleaned, maxChars), maxChars);
 }
 
 export function heuristicSummary(text: string, maxChars: number): string {
@@ -233,7 +234,8 @@ export async function runSummarizerSubprocess(
 			new Response(proc.stdout).text(),
 			new Response(proc.stderr).text(),
 		]);
-		if (exitCode === 0 && !timedOut) return { ok: true, stdout, stderr, exitCode };
+		if (exitCode === 0 && !timedOut)
+			return { ok: true, stdout, stderr, exitCode };
 		return { ok: false, stdout, stderr, exitCode, timedOut };
 	} catch (error) {
 		const maybeCode =

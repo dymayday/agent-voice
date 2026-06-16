@@ -30,7 +30,10 @@ function config(overrides: ConfigOverrides = {}): AgentVoiceConfig {
 }
 
 function recordingRunner(
-	resultForCall: (request: SummarizerRunRequest, index: number) => SummarizerRunResult,
+	resultForCall: (
+		request: SummarizerRunRequest,
+		index: number,
+	) => SummarizerRunResult,
 ): {
 	calls: SummarizerRunRequest[];
 	runner: (request: SummarizerRunRequest) => Promise<SummarizerRunResult>;
@@ -76,11 +79,16 @@ describe("agent-voice summarizer fallback chain", () => {
 		expect(calls[0].args.join("\n")).not.toContain(rawText);
 		expect(calls[0].stdin).toContain(rawText);
 		expect(calls[0].env.AGENT_VOICE_DISABLE).toBe("1");
-		expect(calls[0].timeoutMs).toBe(defaultConfig.summarizer.timeoutSeconds * 1000);
+		expect(calls[0].timeoutMs).toBe(
+			defaultConfig.summarizer.timeoutSeconds * 1000,
+		);
 	});
 
 	test("Pi fast uses safe arg array with configured model and recursion guard", async () => {
-		const event = createEvent({ agent: "pi", text: "Pi completed the queue task." });
+		const event = createEvent({
+			agent: "pi",
+			text: "Pi completed the queue task.",
+		});
 		const { calls, runner } = recordingRunner(() => ({
 			ok: true,
 			stdout: "Pi completed the queue policy.\n",
@@ -123,12 +131,33 @@ describe("agent-voice summarizer fallback chain", () => {
 
 		const summary = await summarize(
 			event,
-			config({ summarizer: { priority: ["codex-fast", "pi-fast", "heuristic"] } }),
+			config({
+				summarizer: { priority: ["codex-fast", "pi-fast", "heuristic"] },
+			}),
 			runner,
 		);
 
 		expect(summary).toBe("Fallback Pi summary.");
 		expect(calls.map((call) => call.cmd)).toEqual(["codex", "pi"]);
+	});
+
+	test("external summarizer output keeps all lines in one sentence", async () => {
+		const event = createEvent({ agent: "claude", text: "Claude finished." });
+		const { runner } = recordingRunner(() => ({
+			ok: true,
+			stdout: "Fixed auth flow.\nAdded regression tests!\nUpdated docs?\n",
+		}));
+
+		const summary = await summarize(
+			event,
+			config({ summarizer: { priority: ["codex-fast", "heuristic"] } }),
+			runner,
+		);
+
+		expect(summary).toBe(
+			"Fixed auth flow; Added regression tests; Updated docs.",
+		);
+		expect(summary).not.toContain("\n");
 	});
 
 	test("OpenCode uses prompt argument without interpolating agent text into args", async () => {
@@ -188,17 +217,21 @@ describe("agent-voice summarizer fallback chain", () => {
 		);
 
 		expect(calls.map((call) => call.cmd)).toEqual(["codex", "pi", "opencode"]);
-		expect(summary).toBe("Implemented the daemon queue processor.");
+		expect(summary).toBe(
+			"Implemented the daemon queue processor; Added retry handling and tests.",
+		);
 	});
 
-	test("heuristic summary is one short TTS-friendly sentence", () => {
+	test("heuristic summary keeps all output in one short TTS-friendly sentence", () => {
 		const summary = heuristicSummary(
-			"## Done\n\n- Implemented summarizer fallback.\n- Added tests!\n\u0007Second sentence should not be included.",
-			54,
+			"## Done\n\n- Implemented summarizer fallback.\n- Added tests!\n\u0007Second sentence should now be included.",
+			140,
 		);
 
-		expect(summary.length).toBeLessThanOrEqual(54);
-		expect(summary).toBe("Done Implemented summarizer fallback.");
+		expect(summary.length).toBeLessThanOrEqual(140);
+		expect(summary).toBe(
+			"Done Implemented summarizer fallback; Added tests; Second sentence should now be included.",
+		);
 		expect(summary).not.toContain("\n");
 	});
 

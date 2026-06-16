@@ -193,7 +193,7 @@ describe("agent-voice daemon processor", () => {
 				expect(result.kind).toBe("processed");
 				expect(counts(db).done).toBe(1);
 				expect(readJob(db, event.id).summary).toBe(
-					"Implemented the daemon processor.",
+					"Implemented the daemon processor; Added tests.",
 				);
 			} finally {
 				db.close();
