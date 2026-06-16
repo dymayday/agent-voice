@@ -6,6 +6,19 @@ final class AgentVoiceAppSourceTests: XCTestCase {
 
         XCTAssertTrue(source.contains("static let dashboard = \"dashboard\""))
         XCTAssertTrue(source.contains("static let setup = \"setup\""))
+        XCTAssertTrue(source.contains("static let attention = \"attention\""))
+    }
+
+    func testAttentionWindowIDAndSceneAreRegistered() throws {
+        let source = try appSource("AgentVoiceApp.swift")
+
+        XCTAssertTrue(source.contains("static let attention = \"attention\""))
+        XCTAssertTrue(source.contains("Window(\"Attention\", id: AgentVoiceWindowID.attention)"))
+        XCTAssertTrue(source.contains("AttentionDetailView(model: model)"))
+        XCTAssertFalse(
+            source.contains("WindowGroup(\"Attention"),
+            "Attention should be a singleton Window so repeated clicks focus the same detail surface."
+        )
     }
 
     func testDashboardSceneIsSingletonWindow() throws {
@@ -53,6 +66,24 @@ final class AgentVoiceAppSourceTests: XCTestCase {
         XCTAssertTrue(openDashboard.contains("openWindow(id: AgentVoiceWindowID.dashboard)"))
         XCTAssertTrue(openDashboard.contains("NSApplication.shared.activate(ignoringOtherApps: true)"))
         XCTAssertTrue(footer.contains("openWindow(id: AgentVoiceWindowID.setup)"))
+    }
+
+    func testMenuAttentionBannerOpensAttentionWindowAndActivatesApp() throws {
+        let source = try appSource("MenuBarSentinelView.swift")
+        let attentionBanner = try sourceSlice(
+            in: source,
+            from: "private var attentionBanner",
+            to: "private var queueOverview"
+        )
+        let openAttention = try sourceSlice(
+            in: source,
+            from: "private func openAttentionDetails",
+            to: "private func openDashboard"
+        )
+
+        XCTAssertTrue(attentionBanner.contains("openAttentionDetails()"))
+        XCTAssertTrue(openAttention.contains("openWindow(id: AgentVoiceWindowID.attention)"))
+        XCTAssertTrue(openAttention.contains("NSApplication.shared.activate(ignoringOtherApps: true)"))
     }
 
     private func sourceSlice(in source: String, from startMarker: String, to endMarker: String) throws -> String {

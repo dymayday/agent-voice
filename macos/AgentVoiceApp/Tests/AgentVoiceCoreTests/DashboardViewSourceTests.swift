@@ -80,6 +80,19 @@ final class DashboardViewSourceTests: XCTestCase {
         XCTAssertTrue(thinkingControls.contains("options.contains"))
     }
 
+    func testDashboardAttentionSurfacesOpenAttentionWindow() throws {
+        let source = try dashboardViewSource()
+        let health = try propertyBody(named: "healthCard", in: source)
+        let diagnostics = try propertyBody(named: "diagnosticsCard", in: source)
+
+        XCTAssertTrue(source.contains("@Environment(\\.openWindow) private var openWindow"))
+        XCTAssertTrue(source.contains("func openAttentionDetails()"))
+        XCTAssertTrue(source.contains("openWindow(id: AgentVoiceWindowID.attention)"))
+        XCTAssertTrue(source.contains("NSApplication.shared.activate(ignoringOtherApps: true)"))
+        XCTAssertTrue(health.contains("openAttentionDetails()"))
+        XCTAssertTrue(diagnostics.contains("openAttentionDetails()"))
+    }
+
     private func dashboardViewSource() throws -> String {
         try appSource("DashboardView.swift")
     }

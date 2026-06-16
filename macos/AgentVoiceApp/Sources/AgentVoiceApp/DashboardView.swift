@@ -1,4 +1,5 @@
 import AgentVoiceCore
+import AppKit
 import SwiftUI
 
 private let recentEventsPreviewLimit = 5
@@ -8,6 +9,7 @@ private let queueMetricColumns = [GridItem(.adaptive(minimum: 135), spacing: 12)
 
 struct DashboardView: View {
     @ObservedObject var model: AppModel
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         ScrollView {
@@ -30,6 +32,11 @@ struct DashboardView: View {
 }
 
 private extension DashboardView {
+    func openAttentionDetails() {
+        openWindow(id: AgentVoiceWindowID.attention)
+        NSApplication.shared.activate(ignoringOtherApps: true)
+    }
+
     var header: some View {
         HStack(alignment: .center, spacing: 16) {
             VStack(alignment: .leading, spacing: 6) {
@@ -95,13 +102,24 @@ private extension DashboardView {
                 }
 
                 if let attention = model.status?.ui.attention, !attention.isEmpty {
-                    VStack(alignment: .leading, spacing: 6) {
-                        ForEach(attention, id: \.self) { item in
-                            Label(item, systemImage: "bell.badge.fill")
-                                .foregroundStyle(.orange)
+                    Button {
+                        openAttentionDetails()
+                    } label: {
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(attention, id: \.self) { item in
+                                Label(item, systemImage: "bell.badge.fill")
+                                    .foregroundStyle(.orange)
+                            }
+                            Text("Open details")
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(.secondary)
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
+                    .buttonStyle(.plain)
                     .font(.subheadline)
+                    .accessibilityLabel("Open attention details")
+                    .accessibilityValue("\(attention.count) attention \(attention.count == 1 ? "message" : "messages")")
                 } else if model.doctorReport == nil {
                     Label("Diagnostics unavailable", systemImage: "questionmark.circle")
                         .foregroundStyle(.secondary)
@@ -114,9 +132,17 @@ private extension DashboardView {
 
                 if !doctorIssues.isEmpty {
                     let noun = doctorIssues.count == 1 ? "check" : "checks"
-                    Label("\(doctorIssues.count) diagnostic \(noun) need review", systemImage: "stethoscope")
-                        .foregroundStyle(.orange)
-                        .font(.subheadline)
+                    Button {
+                        openAttentionDetails()
+                    } label: {
+                        Label("\(doctorIssues.count) diagnostic \(noun) need review", systemImage: "stethoscope")
+                            .foregroundStyle(.orange)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(.plain)
+                    .font(.subheadline)
+                    .accessibilityLabel("Open diagnostic review details")
+                    .accessibilityValue("\(doctorIssues.count) diagnostic \(noun) need review")
                 }
             }
         }
@@ -262,18 +288,31 @@ private extension DashboardView {
                         )
                         .foregroundStyle(.green)
                     } else {
-                        ForEach(doctorIssues.prefix(5)) { check in
-                            let icon = check.ok ? "info.circle" : "exclamationmark.triangle.fill"
-                            VStack(alignment: .leading, spacing: 3) {
-                                Label(check.message, systemImage: icon)
-                                    .foregroundStyle(severityTint(check.severity))
-                                if let action = check.action, !action.isEmpty {
-                                    Text(action)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
+                        Button {
+                            openAttentionDetails()
+                        } label: {
+                            VStack(alignment: .leading, spacing: 10) {
+                                ForEach(doctorIssues.prefix(5)) { check in
+                                    let icon = check.ok ? "info.circle" : "exclamationmark.triangle.fill"
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Label(check.message, systemImage: icon)
+                                            .foregroundStyle(severityTint(check.severity))
+                                        if let action = check.action, !action.isEmpty {
+                                            Text(action)
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
                                 }
+                                Text("Open all details")
+                                    .font(.caption.weight(.medium))
+                                    .foregroundStyle(.secondary)
                             }
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Open diagnostic details")
+                        .accessibilityValue("\(doctorIssues.count) diagnostic \(doctorIssues.count == 1 ? "check" : "checks") need review")
                     }
                 } else {
                     Text("Diagnostics unavailable")
