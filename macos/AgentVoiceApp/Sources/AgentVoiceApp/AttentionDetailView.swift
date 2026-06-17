@@ -15,10 +15,11 @@ struct AttentionDetailView: View {
 
                 healthSummarySection
                 runtimeSection
-                queueActivitySection
+                queueSummarySection
                 configurationSection
                 doctorChecksSection
                 rawSnapshotSection
+                recentJobsSection
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(24)
@@ -114,65 +115,17 @@ private extension AttentionDetailView {
     }
 
     @ViewBuilder
-    var queueActivitySection: some View {
-        detailCard("Queue and activity", systemImage: "tray.full", tint: queueActivityTint) {
-            VStack(alignment: .leading, spacing: 16) {
+    var queueSummarySection: some View {
+        detailCard("Queue summary", systemImage: "tray.full", tint: queueActivityTint) {
+            VStack(alignment: .leading, spacing: 12) {
                 if let queues = model.status?.queues {
-                    VStack(alignment: .leading, spacing: 8) {
-                        labeledRow("Pending", String(queues.pending), valueTint: queues.pending > 0 ? .orange : .primary)
-                        labeledRow("Processing", String(queues.processing), valueTint: queues.processing > 0 ? .blue : .primary)
-                        labeledRow("Done", String(queues.done), valueTint: .green)
-                        labeledRow("Failed", String(queues.failed), valueTint: queues.failed > 0 ? .red : .primary)
-                        labeledRow("Skipped", String(queues.skipped), valueTint: queues.skipped > 0 ? .secondary : .primary)
-                    }
+                    labeledRow("Pending", String(queues.pending), valueTint: queues.pending > 0 ? .orange : .primary)
+                    labeledRow("Processing", String(queues.processing), valueTint: queues.processing > 0 ? .blue : .primary)
+                    labeledRow("Done", String(queues.done), valueTint: .green)
+                    labeledRow("Failed", String(queues.failed), valueTint: queues.failed > 0 ? .red : .primary)
+                    labeledRow("Skipped", String(queues.skipped), valueTint: queues.skipped > 0 ? .secondary : .primary)
                 } else {
                     emptyState("Queue counts unavailable. Refresh diagnostics to load queue state.")
-                }
-
-                Divider()
-
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(alignment: .firstTextBaseline, spacing: 12) {
-                        Text("Recent jobs")
-                            .font(.headline)
-                        Spacer()
-                        Text("\(recentJobs.count) loaded jobs · \(failedJobs.count) failed")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Button("Refresh history") {
-                            Task { await model.refreshHistory() }
-                        }
-                        .disabled(model.isLoadingHistoryPage)
-                    }
-
-                    Text("Newest jobs refresh when terminal queue counts change. Raw snapshots include loaded jobs only.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-
-                    if model.history == nil {
-                        emptyState("History unavailable. Refresh diagnostics to load recent jobs.")
-                    } else if recentJobs.isEmpty {
-                        emptyState("No recent jobs in history.")
-                    } else {
-                        VStack(alignment: .leading, spacing: 12) {
-                            ForEach(recentJobs) { job in
-                                jobCard(job)
-                            }
-
-                            if model.history?.pageInfo.hasMore == true {
-                                Button(model.isLoadingHistoryPage ? "Loading…" : "Load more") {
-                                    Task { await model.loadMoreHistory() }
-                                }
-                                .disabled(model.isLoadingHistoryPage)
-                            } else {
-                                Text("No more loaded history pages.")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .textSelection(.enabled)
-                            }
-                        }
-                    }
                 }
             }
         }
@@ -288,6 +241,55 @@ private extension AttentionDetailView {
                 }
 
                 diagnosticTextBlock(model.diagnosticSnapshotJSON())
+            }
+        }
+    }
+
+    @ViewBuilder
+    var recentJobsSection: some View {
+        detailCard("Recent jobs", systemImage: "clock.arrow.circlepath", tint: failedJobs.isEmpty ? .blue : .red) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Text("Recent jobs")
+                        .font(.headline)
+                    Spacer()
+                    Text("\(recentJobs.count) loaded jobs · \(failedJobs.count) failed")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Button("Refresh history") {
+                        Task { await model.refreshHistory() }
+                    }
+                    .disabled(model.isLoadingHistoryPage)
+                }
+
+                Text("Newest jobs refresh when terminal queue counts change. Raw snapshots include loaded jobs only.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+
+                if model.history == nil {
+                    emptyState("History unavailable. Refresh diagnostics to load recent jobs.")
+                } else if recentJobs.isEmpty {
+                    emptyState("No recent jobs in history.")
+                } else {
+                    VStack(alignment: .leading, spacing: 12) {
+                        ForEach(recentJobs) { job in
+                            jobCard(job)
+                        }
+
+                        if model.history?.pageInfo.hasMore == true {
+                            Button(model.isLoadingHistoryPage ? "Loading…" : "Load more") {
+                                Task { await model.loadMoreHistory() }
+                            }
+                            .disabled(model.isLoadingHistoryPage)
+                        } else {
+                            Text("No more loaded history pages.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                        }
+                    }
+                }
             }
         }
     }
