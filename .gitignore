@@ -3,3 +3,4 @@ node_modules/
 macos/AgentVoiceApp/.build/
 dist/
 .worktrees/
+.superpowers/
