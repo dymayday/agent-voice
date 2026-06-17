@@ -8,15 +8,19 @@ public final class AppModel: ObservableObject {
     @Published public private(set) var doctorReport: DoctorReport?
     @Published public private(set) var config: AgentVoiceFullConfig?
     @Published public private(set) var lastError: String?
+    @Published public private(set) var isLoadingHistoryPage = false
     @Published public var draftVoice: String = ""
     @Published public var draftThinking: String = "off"
 
     public static let defaultAutoRefreshIntervalNanoseconds: UInt64 = 2_000_000_000
+    public static let defaultHistoryPageSize = 10
 
     var autoRefreshSubscriberCount = 0
     var isAutoRefreshRunning: Bool { autoRefreshTask != nil }
 
     private var autoRefreshTask: Task<Void, Never>?
+    private var lastHistoryTerminalCounts: TerminalQueueCounts?
+    private var loadedHistoryPageCount = 0
 
     public static let kokoroVoicePresets = [
         "af_heart",
@@ -48,17 +52,25 @@ public final class AppModel: ObservableObject {
 
     public func refresh() async {
         var errors: [String] = []
+        var refreshedStatus: AgentVoiceStatusSnapshot?
 
         do {
-            status = try await cli.status()
+            let snapshot = try await cli.status()
+            status = snapshot
+            refreshedStatus = snapshot
         } catch {
             errors.append("status: \(String(describing: error))")
         }
 
-        do {
-            history = try await cli.history(limit: 50)
-        } catch {
-            errors.append("history: \(String(describing: error))")
+        if shouldRefreshHistory(after: refreshedStatus) {
+            do {
+                try await refreshNewestHistoryPage(preserveLoadedPages: true)
+                if let refreshedStatus {
+                    lastHistoryTerminalCounts = TerminalQueueCounts(refreshedStatus.queues)
+                }
+            } catch {
+                errors.append("history: \(String(describing: error))")
+            }
         }
 
         do {
@@ -161,6 +173,34 @@ public final class AppModel: ObservableObject {
         return json
     }
 
+    public func refreshHistory() async {
+        do {
+            try await refreshNewestHistoryPage(preserveLoadedPages: true)
+            if let status {
+                lastHistoryTerminalCounts = TerminalQueueCounts(status.queues)
+            }
+            lastError = nil
+        } catch {
+            lastError = "history: \(String(describing: error))"
+        }
+    }
+
+    public func loadMoreHistory() async {
+        guard !isLoadingHistoryPage else { return }
+        guard history?.pageInfo.hasMore == true, let cursor = history?.pageInfo.nextCursor else { return }
+
+        isLoadingHistoryPage = true
+        defer { isLoadingHistoryPage = false }
+
+        do {
+            let nextPage = try await cli.history(limit: Self.defaultHistoryPageSize, before: cursor)
+            appendHistoryPage(nextPage)
+            lastError = nil
+        } catch {
+            lastError = "history: \(String(describing: error))"
+        }
+    }
+
     public func setSummarizerMode(_ mode: String) async {
         await perform { try await cli.setSummarizerMode(mode) }
     }
@@ -195,6 +235,48 @@ public final class AppModel: ObservableObject {
         await perform { try await cli.uninstallAgentHook(agent) }
     }
 
+    private func shouldRefreshHistory(after refreshedStatus: AgentVoiceStatusSnapshot?) -> Bool {
+        guard let refreshedStatus else { return history == nil }
+        let terminalCounts = TerminalQueueCounts(refreshedStatus.queues)
+        return history == nil || terminalCounts != lastHistoryTerminalCounts
+    }
+
+    private func refreshNewestHistoryPage(preserveLoadedPages: Bool) async throws {
+        guard !isLoadingHistoryPage else { return }
+        isLoadingHistoryPage = true
+        defer { isLoadingHistoryPage = false }
+
+        let newestPage = try await cli.history(limit: Self.defaultHistoryPageSize)
+        if preserveLoadedPages, let existingHistory = history, !existingHistory.jobs.isEmpty {
+            let mergedJobs = mergeHistoryJobs(newestPage.jobs + existingHistory.jobs)
+            let pageInfo = loadedHistoryPageCount > 1 ? existingHistory.pageInfo : newestPage.pageInfo
+            history = AgentVoiceHistorySnapshot(version: newestPage.version, jobs: mergedJobs, pageInfo: pageInfo)
+        } else {
+            history = newestPage
+        }
+        loadedHistoryPageCount = max(loadedHistoryPageCount, 1)
+    }
+
+    private func appendHistoryPage(_ nextPage: AgentVoiceHistorySnapshot) {
+        if let existingHistory = history {
+            let mergedJobs = mergeHistoryJobs(existingHistory.jobs + nextPage.jobs)
+            history = AgentVoiceHistorySnapshot(version: nextPage.version, jobs: mergedJobs, pageInfo: nextPage.pageInfo)
+        } else {
+            history = nextPage
+        }
+        loadedHistoryPageCount += 1
+    }
+
+    private func mergeHistoryJobs(_ jobs: [AgentVoiceHistoryJob]) -> [AgentVoiceHistoryJob] {
+        var seen = Set<String>()
+        var merged: [AgentVoiceHistoryJob] = []
+        for job in jobs where !seen.contains(job.id) {
+            seen.insert(job.id)
+            merged.append(job)
+        }
+        return merged
+    }
+
     private func perform(_ operation: () async throws -> Void) async {
         do {
             try await operation()
@@ -202,6 +284,18 @@ public final class AppModel: ObservableObject {
         } catch {
             lastError = String(describing: error)
         }
+    }
+}
+
+private struct TerminalQueueCounts: Equatable {
+    let done: Int
+    let failed: Int
+    let skipped: Int
+
+    init(_ queues: QueueCounts) {
+        done = queues.done
+        failed = queues.failed
+        skipped = queues.skipped
     }
 }
 

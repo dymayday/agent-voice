@@ -1,15 +1,51 @@
 import XCTest
 @testable import AgentVoiceCore
 
-private func statusJSON(uiState: String = "ready") -> String {
+private func statusJSON(
+    uiState: String = "ready",
+    done: Int = 1,
+    failed: Int = 0,
+    skipped: Int = 0
+) -> String {
     """
     {
       "version": 1,
       "daemon": { "state": "running", "running": true, "pid": 123 },
-      "queues": { "pending": 0, "processing": 0, "done": 1, "failed": 0, "skipped": 0 },
+      "queues": { "pending": 0, "processing": 0, "done": \(done), "failed": \(failed), "skipped": \(skipped) },
       "config": { "enabled": true, "agents": { "pi": { "enabled": true, "mode": "native" } } },
       "paths": { "home": "/tmp/av", "config": "/tmp/av/config.json", "db": "/tmp/av/queue.db" },
       "ui": { "state": "\(uiState)", "attention": [] }
+    }
+    """
+}
+
+private func historyJobJSON(id: String, status: String = "done", text: String? = nil) -> String {
+    """
+    {
+      "id": "\(id)",
+      "agent": "claude",
+      "status": "\(status)",
+      "text": "\(text ?? "raw \(id)")",
+      "createdAt": "2026-06-15T00:00:00.000Z",
+      "finishedAt": "2026-06-15T00:01:00.000Z",
+      "summary": "Summary \(id)",
+      "attempts": 1
+    }
+    """
+}
+
+private func historyPageJSON(
+    jobs: [String],
+    limit: Int = 10,
+    hasMore: Bool = false,
+    nextCursor: String? = nil
+) -> String {
+    let cursorJSON = nextCursor.map { "\"\($0)\"" } ?? "null"
+    return """
+    {
+      "version": 1,
+      "jobs": [\(jobs.joined(separator: ","))],
+      "pageInfo": { "limit": \(limit), "hasMore": \(hasMore), "nextCursor": \(cursorJSON) }
     }
     """
 }
@@ -33,7 +69,7 @@ private func fullConfigJSON(voice: String = "af_heart", thinking: String = "off"
 }
 
 private let emptyHistoryJSON = """
-{ "version": 1, "jobs": [] }
+{ "version": 1, "jobs": [], "pageInfo": { "limit": 10, "hasMore": false, "nextCursor": null } }
 """
 
 private let emptyDoctorJSON = """
@@ -53,7 +89,8 @@ private let doneHistoryJSON = """
       "summary": "Claude finished.",
       "attempts": 1
     }
-  ]
+  ],
+  "pageInfo": { "limit": 10, "hasMore": false, "nextCursor": null }
 }
 """
 
@@ -106,7 +143,8 @@ private let diagnosticHistoryJSON = """
       "lastError": null,
       "attempts": 1
     }
-  ]
+  ],
+  "pageInfo": { "limit": 10, "hasMore": true, "nextCursor": "diagnostic-cursor" }
 }
 """
 
@@ -187,7 +225,7 @@ final class AppModelTests: XCTestCase {
         let requests = await runner.capturedRequests()
         XCTAssertEqual(requests.map(\.arguments), [
             ["status", "--json"],
-            ["history", "--json", "--limit", "50"],
+            ["history", "--json", "--limit", "10"],
             ["doctor", "--json"],
             ["config", "get"]
         ])
@@ -232,9 +270,105 @@ final class AppModelTests: XCTestCase {
         let requests = await runner.capturedRequests()
         XCTAssertEqual(requests.map(\.arguments), [
             ["status", "--json"],
-            ["history", "--json", "--limit", "50"],
+            ["history", "--json", "--limit", "10"],
             ["doctor", "--json"],
             ["config", "get"]
+        ])
+    }
+
+    func testRefreshSkipsHistoryWhenTerminalCountsAreUnchanged() async throws {
+        let runner = RecordingRunner(results: [
+            ProcessResult(exitCode: 0, stdout: statusJSON(done: 1, failed: 0, skipped: 0), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyHistoryJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyDoctorJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: fullConfigJSON(), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: statusJSON(done: 1, failed: 0, skipped: 0), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyDoctorJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: fullConfigJSON(), stderr: "")
+        ])
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+        let model = AppModel(cli: cli)
+
+        await model.refresh()
+        await model.refresh()
+
+        let requests = await runner.capturedRequests()
+        XCTAssertEqual(requests.map(\.arguments), [
+            ["status", "--json"],
+            ["history", "--json", "--limit", "10"],
+            ["doctor", "--json"],
+            ["config", "get"],
+            ["status", "--json"],
+            ["doctor", "--json"],
+            ["config", "get"]
+        ])
+    }
+
+    func testRefreshReloadsFirstHistoryPageWhenTerminalCountsChange() async throws {
+        let runner = RecordingRunner(results: [
+            ProcessResult(exitCode: 0, stdout: statusJSON(done: 1, failed: 0, skipped: 0), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyHistoryJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyDoctorJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: fullConfigJSON(), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: statusJSON(done: 2, failed: 0, skipped: 0), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: doneHistoryJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyDoctorJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: fullConfigJSON(), stderr: "")
+        ])
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+        let model = AppModel(cli: cli)
+
+        await model.refresh()
+        await model.refresh()
+
+        let requests = await runner.capturedRequests()
+        XCTAssertEqual(requests.map(\.arguments), [
+            ["status", "--json"],
+            ["history", "--json", "--limit", "10"],
+            ["doctor", "--json"],
+            ["config", "get"],
+            ["status", "--json"],
+            ["history", "--json", "--limit", "10"],
+            ["doctor", "--json"],
+            ["config", "get"]
+        ])
+        XCTAssertEqual(model.history?.jobs.map(\.id), ["done-1"])
+    }
+
+    func testLoadMoreHistoryAppendsAndDeduplicatesJobs() async throws {
+        let firstPage = historyPageJSON(
+            jobs: [historyJobJSON(id: "job-a"), historyJobJSON(id: "job-b")],
+            hasMore: true,
+            nextCursor: "cursor-1"
+        )
+        let secondPage = historyPageJSON(
+            jobs: [historyJobJSON(id: "job-b"), historyJobJSON(id: "job-c")],
+            hasMore: false,
+            nextCursor: nil
+        )
+        let runner = RecordingRunner(results: [
+            ProcessResult(exitCode: 0, stdout: statusJSON(done: 2, failed: 0, skipped: 0), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: firstPage, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyDoctorJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: fullConfigJSON(), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: secondPage, stderr: "")
+        ])
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+        let model = AppModel(cli: cli)
+
+        await model.refresh()
+        await model.loadMoreHistory()
+
+        XCTAssertEqual(model.history?.jobs.map(\.id), ["job-a", "job-b", "job-c"])
+        XCTAssertEqual(model.history?.pageInfo.hasMore, false)
+        XCTAssertEqual(model.history?.pageInfo.nextCursor, nil)
+        let requests = await runner.capturedRequests()
+        XCTAssertEqual(requests.map(\.arguments), [
+            ["status", "--json"],
+            ["history", "--json", "--limit", "10"],
+            ["doctor", "--json"],
+            ["config", "get"],
+            ["history", "--json", "--limit", "10", "--before", "cursor-1"]
         ])
     }
 
@@ -277,7 +411,7 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(requests.map(\.arguments), [
             ["pause"],
             ["status", "--json"],
-            ["history", "--json", "--limit", "50"],
+            ["history", "--json", "--limit", "10"],
             ["doctor", "--json"],
             ["config", "get"]
         ])
@@ -301,7 +435,7 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(requests.map(\.arguments), [
             ["test", "Claude finished the refactor."],
             ["status", "--json"],
-            ["history", "--json", "--limit", "50"],
+            ["history", "--json", "--limit", "10"],
             ["doctor", "--json"],
             ["config", "get"]
         ])
@@ -445,7 +579,7 @@ final class AppModelTests: XCTestCase {
         let requests = await runner.capturedRequests()
         XCTAssertEqual(requests.map(\.arguments), [
             ["status", "--json"],
-            ["history", "--json", "--limit", "50"],
+            ["history", "--json", "--limit", "10"],
             ["doctor", "--json"],
             ["config", "get"]
         ])
@@ -472,7 +606,7 @@ extension AppModelTests {
         XCTAssertEqual(requests.map(\.arguments), [
             ["install", "--agents", "pi"],
             ["status", "--json"],
-            ["history", "--json", "--limit", "50"],
+            ["history", "--json", "--limit", "10"],
             ["doctor", "--json"],
             ["config", "get"]
         ])
@@ -496,7 +630,7 @@ extension AppModelTests {
         XCTAssertEqual(requests.map(\.arguments), [
             ["uninstall", "--agents", "pi"],
             ["status", "--json"],
-            ["history", "--json", "--limit", "50"],
+            ["history", "--json", "--limit", "10"],
             ["doctor", "--json"],
             ["config", "get"]
         ])
@@ -520,7 +654,7 @@ extension AppModelTests {
         XCTAssertEqual(requests.map(\.arguments), [
             ["queue", "clear"],
             ["status", "--json"],
-            ["history", "--json", "--limit", "50"],
+            ["history", "--json", "--limit", "10"],
             ["doctor", "--json"],
             ["config", "get"]
         ])
@@ -545,7 +679,7 @@ extension AppModelTests {
         XCTAssertEqual(requests.map(\.arguments), [
             ["stop"],
             ["status", "--json"],
-            ["history", "--json", "--limit", "50"],
+            ["history", "--json", "--limit", "10"],
             ["doctor", "--json"],
             ["config", "get"]
         ])
@@ -585,7 +719,7 @@ extension AppModelTests {
         XCTAssertEqual(requests.map(\.arguments), [
             ["config", "set", "tts.voice", "bf_emma"],
             ["status", "--json"],
-            ["history", "--json", "--limit", "50"],
+            ["history", "--json", "--limit", "10"],
             ["doctor", "--json"],
             ["config", "get"]
         ])
@@ -625,7 +759,7 @@ extension AppModelTests {
         XCTAssertEqual(requests.map(\.arguments), [
             ["config", "set", "summarizer.thinking", "xhigh"],
             ["status", "--json"],
-            ["history", "--json", "--limit", "50"],
+            ["history", "--json", "--limit", "10"],
             ["doctor", "--json"],
             ["config", "get"]
         ])
