@@ -18,9 +18,22 @@ export interface AppHistoryJob {
 	attempts: number;
 }
 
+export interface AppHistoryPageInfo {
+	limit: number;
+	hasMore: boolean;
+	nextCursor: string | null;
+}
+
 export interface AppHistorySnapshot {
 	version: 1;
 	jobs: AppHistoryJob[];
+	pageInfo: AppHistoryPageInfo;
+}
+
+export interface HistoryCursor {
+	sortAt: string;
+	createdAt: string;
+	id: string;
 }
 
 interface HistoryRow {
@@ -36,30 +49,102 @@ interface HistoryRow {
 	skip_reason: string | null;
 	last_error: string | null;
 	attempts: number;
+	sort_at: string;
+}
+
+export function encodeHistoryCursor(row: HistoryRow): string {
+	const cursor: HistoryCursor = {
+		sortAt: row.sort_at,
+		createdAt: row.created_at,
+		id: row.id,
+	};
+	return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
+}
+
+export function decodeHistoryCursor(raw: string): HistoryCursor | null {
+	try {
+		const decoded = Buffer.from(raw, "base64url").toString("utf8");
+		const parsed = JSON.parse(decoded) as Partial<HistoryCursor>;
+		if (
+			typeof parsed.sortAt !== "string" ||
+			typeof parsed.createdAt !== "string" ||
+			typeof parsed.id !== "string" ||
+			parsed.sortAt.length === 0 ||
+			parsed.createdAt.length === 0 ||
+			parsed.id.length === 0
+		) {
+			return null;
+		}
+		return {
+			sortAt: parsed.sortAt,
+			createdAt: parsed.createdAt,
+			id: parsed.id,
+		};
+	} catch {
+		return null;
+	}
 }
 
 export function buildHistorySnapshot(
 	paths: AgentVoicePaths,
 	limit = 50,
+	before?: HistoryCursor,
 ): AppHistorySnapshot {
-	if (!existsSync(paths.db)) return { version: 1, jobs: [] };
+	const boundedLimit = Math.max(1, Math.min(200, Math.trunc(limit || 50)));
+	if (!existsSync(paths.db)) {
+		return emptyHistorySnapshot(boundedLimit);
+	}
 
 	const db = new Database(paths.db, { readonly: true });
 	try {
-		const boundedLimit = Math.max(1, Math.min(200, Math.trunc(limit || 50)));
+		const params: Record<string, string | number> = {
+			$limit: boundedLimit + 1,
+		};
+		let cursorPredicate = "";
+		if (before) {
+			params.$sortAt = before.sortAt;
+			params.$createdAt = before.createdAt;
+			params.$id = before.id;
+			cursorPredicate = `
+				 AND (
+					COALESCE(finished_at, created_at) < $sortAt
+					OR (COALESCE(finished_at, created_at) = $sortAt AND created_at < $createdAt)
+					OR (COALESCE(finished_at, created_at) = $sortAt AND created_at = $createdAt AND id < $id)
+				 )`;
+		}
 		const rows = db
 			.query(
-				`SELECT id, agent, status, text, cwd, created_at, finished_at, summary, summarizer_used, skip_reason, last_error, attempts
+				`SELECT id, agent, status, text, cwd, created_at, finished_at, summary, summarizer_used, skip_reason, last_error, attempts,
+				        COALESCE(finished_at, created_at) AS sort_at
 				 FROM jobs
-				 WHERE status IN ('done', 'failed', 'skipped')
-				 ORDER BY COALESCE(finished_at, created_at) DESC, created_at DESC
+				 WHERE status IN ('done', 'failed', 'skipped')${cursorPredicate}
+				 ORDER BY COALESCE(finished_at, created_at) DESC, created_at DESC, id DESC
 				 LIMIT $limit`,
 			)
-			.all({ $limit: boundedLimit }) as HistoryRow[];
-		return { version: 1, jobs: rows.map(rowToHistoryJob) };
+			.all(params) as HistoryRow[];
+		const pageRows = rows.slice(0, boundedLimit);
+		const hasMore = rows.length > boundedLimit;
+		const lastPageRow = pageRows.at(-1);
+		return {
+			version: 1,
+			jobs: pageRows.map(rowToHistoryJob),
+			pageInfo: {
+				limit: boundedLimit,
+				hasMore,
+				nextCursor: hasMore && lastPageRow ? encodeHistoryCursor(lastPageRow) : null,
+			},
+		};
 	} finally {
 		db.close();
 	}
+}
+
+function emptyHistorySnapshot(limit: number): AppHistorySnapshot {
+	return {
+		version: 1,
+		jobs: [],
+		pageInfo: { limit, hasMore: false, nextCursor: null },
+	};
 }
 
 function rowToHistoryJob(row: HistoryRow): AppHistoryJob {

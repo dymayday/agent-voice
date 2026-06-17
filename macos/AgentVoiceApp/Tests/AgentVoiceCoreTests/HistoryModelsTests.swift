@@ -3,13 +3,39 @@ import XCTest
 
 final class HistoryModelsTests: XCTestCase {
     func testBuildsHistoryJsonCommand() async throws {
-        let runner = RecordingRunner(stdout: "{\"version\":1,\"jobs\":[]}")
+        let runner = RecordingRunner(stdout: "{\"version\":1,\"jobs\":[],\"pageInfo\":{\"limit\":25,\"hasMore\":false,\"nextCursor\":null}}")
         let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
 
         _ = try await cli.history(limit: 25)
 
         let requests = await runner.capturedRequests()
         XCTAssertEqual(requests.first?.arguments, ["history", "--json", "--limit", "25"])
+    }
+
+    func testBuildsHistoryJsonCommandWithCursor() async throws {
+        let runner = RecordingRunner(stdout: "{\"version\":1,\"jobs\":[],\"pageInfo\":{\"limit\":10,\"hasMore\":true,\"nextCursor\":\"cursor-123\"}}")
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+
+        _ = try await cli.history(limit: 10, before: "cursor-123")
+
+        let requests = await runner.capturedRequests()
+        XCTAssertEqual(requests.first?.arguments, ["history", "--json", "--limit", "10", "--before", "cursor-123"])
+    }
+
+    func testDecodesHistoryPageInfo() throws {
+        let data = Data("""
+        {
+          "version": 1,
+          "jobs": [],
+          "pageInfo": { "limit": 10, "hasMore": true, "nextCursor": "cursor-123" }
+        }
+        """.utf8)
+
+        let snapshot = try JSONDecoder().decode(AgentVoiceHistorySnapshot.self, from: data)
+
+        XCTAssertEqual(snapshot.pageInfo.limit, 10)
+        XCTAssertTrue(snapshot.pageInfo.hasMore)
+        XCTAssertEqual(snapshot.pageInfo.nextCursor, "cursor-123")
     }
 
     func testDecodesHistorySnapshot() throws {

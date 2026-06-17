@@ -19,7 +19,11 @@ import {
 } from "./config";
 import { buildDoctorReport } from "./doctor";
 import { createEvent, type AgentVoiceEvent, validateEvent } from "./events";
-import { buildHistorySnapshot, formatHistoryJson } from "./history";
+import {
+	buildHistorySnapshot,
+	decodeHistoryCursor,
+	formatHistoryJson,
+} from "./history";
 import {
 	installClaude,
 	installPi,
@@ -57,7 +61,7 @@ Usage:
   agent-voice start
   agent-voice stop
   agent-voice status [--json]
-  agent-voice history --json [--limit 50]
+  agent-voice history --json [--limit 50] [--before CURSOR]
   agent-voice queue clear
   agent-voice pause
   agent-voice resume
@@ -310,7 +314,15 @@ export async function runCli(
 		if (limit === null) {
 			return result(2, "", "--limit must be an integer between 1 and 200\n");
 		}
-		return result(0, formatHistoryJson(buildHistorySnapshot(paths, limit)));
+		const rawBefore = getOption(args, "--before");
+		const before = rawBefore ? decodeHistoryCursor(rawBefore) : undefined;
+		if (rawBefore && !before) {
+			return result(2, "", "--before must be a valid history cursor\n");
+		}
+		return result(
+			0,
+			formatHistoryJson(buildHistorySnapshot(paths, limit, before ?? undefined)),
+		);
 	}
 
 	if (command === "enqueue") {
