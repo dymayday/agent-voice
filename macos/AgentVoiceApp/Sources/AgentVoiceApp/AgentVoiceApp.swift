@@ -39,7 +39,7 @@ struct AgentVoiceApplication: App {
         }
         .defaultSize(width: 760, height: 620)
 
-        Window("Installing Kokoro", id: AgentVoiceWindowID.kokoroSetup) {
+        Window("Kokoro Installer", id: AgentVoiceWindowID.kokoroSetup) {
             KokoroSetupProgressView(model: model)
         }
         .defaultSize(width: 620, height: 520)

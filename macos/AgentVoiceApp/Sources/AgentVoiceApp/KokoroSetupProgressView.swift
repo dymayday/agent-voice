@@ -9,13 +9,21 @@ struct KokoroSetupProgressView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Installing Kokoro")
+            Text("Kokoro Installer")
                 .font(.largeTitle.bold())
                 .accessibilityAddTraits(.isHeader)
 
             Text(statusMessage)
                 .font(.headline)
                 .textSelection(.enabled)
+
+            Text(
+                "Kokoro enables local voice playback. Installing may download managed uv, " +
+                    "Python dependencies, and model files, and stores them under Agent Voice Home."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
 
             ProgressView(value: progressValue, total: 1.0)
                 .accessibilityLabel("Kokoro setup progress")
@@ -30,7 +38,7 @@ struct KokoroSetupProgressView: View {
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(minHeight: 120)
+                .frame(minHeight: 120, maxHeight: 180)
             }
 
             if model.kokoroSetup.phase == .failed, let error = model.kokoroSetup.error {
@@ -48,16 +56,14 @@ struct KokoroSetupProgressView: View {
         }
         .padding(24)
         .frame(minWidth: 520, minHeight: 420)
-        .task {
-            if model.kokoroSetup.phase == .idle {
-                await model.installKokoro()
-            }
-        }
     }
 
     private var controls: some View {
         HStack {
-            if model.kokoroSetup.phase == .running {
+            if model.kokoroSetup.phase == .idle {
+                Button("Start Installing") { Task { await model.installKokoro() } }
+                    .keyboardShortcut(.defaultAction)
+            } else if model.kokoroSetup.phase == .running {
                 Button("Cancel") { model.cancelKokoroSetup() }
                     .keyboardShortcut(.cancelAction)
             } else if model.kokoroSetup.phase == .failed || model.kokoroSetup.phase == .cancelled {
@@ -80,7 +86,7 @@ struct KokoroSetupProgressView: View {
 
             if model.kokoroSetup.phase != .running {
                 Button(doneTitle) { NSApp.keyWindow?.close() }
-                    .keyboardShortcut(.defaultAction)
+                    .keyboardShortcut(model.kokoroSetup.phase == .idle ? .cancelAction : .defaultAction)
             }
         }
     }

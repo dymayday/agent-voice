@@ -33,13 +33,10 @@ final class DockMenuSourceTests: XCTestCase {
         XCTAssertTrue(source.contains("static weak var model: AppModel?"))
         XCTAssertTrue(source.contains("static var openDashboardWindow: (() -> Void)?"))
         XCTAssertTrue(source.contains("static var openSetupWindow: (() -> Void)?"))
+        XCTAssertTrue(source.contains("static var openKokoroSetupWindow: (() -> Void)?"))
         XCTAssertTrue(source.contains("private static var didRouteInitialWindow = false"))
         XCTAssertTrue(source.contains("private static var didUserOpenWindow = false"))
         XCTAssertTrue(source.contains("static func routeInitialWindowIfNeeded(model: AppModel)"))
-        XCTAssertFalse(
-            source.contains("static var openKokoroSetupWindow"),
-            "Launch diagnostics should prompt in Setup, not open the installing Kokoro window directly."
-        )
         XCTAssertTrue(source.contains("await model.startDaemon()"))
         XCTAssertTrue(source.contains("await model.stopDaemon()"))
         XCTAssertFalse(source.contains("await model.pause()"))
@@ -62,13 +59,10 @@ final class DockMenuSourceTests: XCTestCase {
         XCTAssertTrue(bridge.contains("@Environment(\\.openWindow)"))
         XCTAssertTrue(bridge.contains("openWindow(id: AgentVoiceWindowID.dashboard)"))
         XCTAssertTrue(bridge.contains("openWindow(id: AgentVoiceWindowID.setup)"))
-        XCTAssertFalse(
-            bridge.contains("openWindow(id: AgentVoiceWindowID.kokoroSetup)"),
-            "The bridge must not open Kokoro setup progress automatically because that starts downloads."
-        )
+        XCTAssertTrue(bridge.contains("openWindow(id: AgentVoiceWindowID.kokoroSetup)"))
         XCTAssertFalse(
             bridge.contains("installKokoro"),
-            "Launch routing must never start Kokoro installation directly."
+            "Launch routing may open the Kokoro installer window but must never start installation directly."
         )
         XCTAssertTrue(bridge.contains("NSApplication.shared.activate(ignoringOtherApps: true)"))
     }
@@ -91,8 +85,8 @@ final class DockMenuSourceTests: XCTestCase {
         )
         XCTAssertTrue(delegate.contains("await model.refresh()"))
         XCTAssertTrue(delegate.contains("promptForKokoroSetupIfNeeded(model: model)"))
-        XCTAssertTrue(delegate.contains("model.requestSetupStep(.kokoro)"))
-        XCTAssertTrue(delegate.contains("openSetupWindow?()"))
+        XCTAssertFalse(delegate.contains("model.requestSetupStep(.kokoro)"))
+        XCTAssertTrue(delegate.contains("openKokoroSetupWindow?()"))
         XCTAssertTrue(delegate.contains("openDashboardWindow?()"))
         XCTAssertLessThan(
             try offset(of: "openDashboardWindow?()", in: delegate),
@@ -101,11 +95,12 @@ final class DockMenuSourceTests: XCTestCase {
         )
         XCTAssertFalse(
             bridge.contains("AgentVoiceDockMenuDelegate.openKokoroSetupWindow?()"),
-            "Downloads must wait until the user clicks Install Kokoro."
+            "The bridge should register an opener closure; the delegate decides when diagnostics " +
+                "require the Kokoro installer."
         )
         XCTAssertFalse(
             delegate.contains("installKokoro"),
-            "Cold launch may request the Kokoro setup step but must not start installation."
+            "Cold launch may open the Kokoro installer but must not start installation."
         )
     }
 
@@ -166,7 +161,8 @@ final class DockMenuSourceTests: XCTestCase {
             || reopen.contains("await Self.promptForKokoroSetupIfNeeded")
         XCTAssertTrue(
             promptsForSetup,
-            "Clicking the Dock icon should open Dashboard and still evaluate whether Setup should be shown for missing Kokoro."
+            "Clicking the Dock icon should open Dashboard and still evaluate whether the Kokoro " +
+                "installer should be shown."
         )
     }
 

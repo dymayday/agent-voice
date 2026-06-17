@@ -18,6 +18,10 @@ struct DockMenuWindowBridge: View {
                     openSetup: {
                         NSApplication.shared.activate(ignoringOtherApps: true)
                         openWindow(id: AgentVoiceWindowID.setup)
+                    },
+                    openKokoroSetup: {
+                        NSApplication.shared.activate(ignoringOtherApps: true)
+                        openWindow(id: AgentVoiceWindowID.kokoroSetup)
                     }
                 )
                 AgentVoiceDockMenuDelegate.routeInitialWindowIfNeeded(model: model)
@@ -30,6 +34,7 @@ final class AgentVoiceDockMenuDelegate: NSObject, NSApplicationDelegate {
     static weak var model: AppModel?
     static var openDashboardWindow: (() -> Void)?
     static var openSetupWindow: (() -> Void)?
+    static var openKokoroSetupWindow: (() -> Void)?
     private static var didRouteInitialWindow = false
     private static var didUserOpenWindow = false
     private static var initialWindowRoutingTask: Task<Void, Never>?
@@ -40,7 +45,8 @@ final class AgentVoiceDockMenuDelegate: NSObject, NSApplicationDelegate {
 
     static func configureWindowOpeners(
         openDashboard: @escaping () -> Void,
-        openSetup: @escaping () -> Void
+        openSetup: @escaping () -> Void,
+        openKokoroSetup: @escaping () -> Void
     ) {
         openDashboardWindow = {
             didUserOpenWindow = true
@@ -50,6 +56,10 @@ final class AgentVoiceDockMenuDelegate: NSObject, NSApplicationDelegate {
             didUserOpenWindow = true
             openSetup()
         }
+        openKokoroSetupWindow = {
+            didUserOpenWindow = true
+            openKokoroSetup()
+        }
         if let model {
             routeInitialWindowIfNeeded(model: model)
         }
@@ -57,7 +67,7 @@ final class AgentVoiceDockMenuDelegate: NSObject, NSApplicationDelegate {
 
     static func routeInitialWindowIfNeeded(model: AppModel) {
         guard !didRouteInitialWindow, initialWindowRoutingTask == nil else { return }
-        guard openDashboardWindow != nil, openSetupWindow != nil else { return }
+        guard openDashboardWindow != nil, openSetupWindow != nil, openKokoroSetupWindow != nil else { return }
         guard !didUserOpenWindow else {
             didRouteInitialWindow = true
             return
@@ -75,8 +85,7 @@ final class AgentVoiceDockMenuDelegate: NSObject, NSApplicationDelegate {
 
     static func promptForKokoroSetupIfNeeded(model: AppModel) {
         guard model.shouldPromptForKokoroSetup else { return }
-        model.requestSetupStep(.kokoro)
-        openSetupWindow?()
+        openKokoroSetupWindow?()
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows _: Bool) -> Bool {

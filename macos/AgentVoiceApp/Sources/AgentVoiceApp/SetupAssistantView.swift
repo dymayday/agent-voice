@@ -97,7 +97,7 @@ struct SetupAssistantView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                Button("Install Kokoro") {
+                Button("Open Kokoro Installer") {
                     openWindow(id: AgentVoiceWindowID.kokoroSetup)
                 }
                 voiceControls

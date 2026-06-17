@@ -5,18 +5,18 @@ final class KokoroSetupProgressViewSourceTests: XCTestCase {
         let source = try appSource("AgentVoiceApp.swift")
 
         XCTAssertTrue(source.contains("static let kokoroSetup"))
-        XCTAssertTrue(source.contains("Window(\"Installing Kokoro\", id: AgentVoiceWindowID.kokoroSetup)"))
+        XCTAssertTrue(source.contains("Window(\"Kokoro Installer\", id: AgentVoiceWindowID.kokoroSetup)"))
         XCTAssertTrue(source.contains("KokoroSetupProgressView(model: model)"))
     }
 
-    func testSetupAssistantShowsInstallKokoroButton() throws {
+    func testSetupAssistantShowsOpenKokoroInstallerButton() throws {
         let source = try appSource("SetupAssistantView.swift")
 
-        XCTAssertTrue(source.contains("Install Kokoro"))
+        XCTAssertTrue(source.contains("Open Kokoro Installer"))
         XCTAssertTrue(source.contains("openWindow(id: AgentVoiceWindowID.kokoroSetup)"))
         XCTAssertFalse(
             source.contains("model.installKokoro()"),
-            "SetupAssistant should only open the setup window; the progress window owns starting the install."
+            "SetupAssistant should only open the installer window; installation starts after explicit consent there."
         )
     }
 
@@ -28,7 +28,19 @@ final class KokoroSetupProgressViewSourceTests: XCTestCase {
         XCTAssertTrue(source.contains("model.clearPreferredSetupStep(step)"))
         XCTAssertFalse(
             source.contains("await model.installKokoro()"),
-            "Opening Setup to the Kokoro step must not start downloads until Install Kokoro is clicked."
+            "Opening Setup to the Kokoro step must not start downloads."
+        )
+    }
+
+    func testProgressViewRequiresExplicitStartBeforeInstalling() throws {
+        let source = try appSource("KokoroSetupProgressView.swift")
+
+        XCTAssertTrue(source.contains("Ready to install Kokoro"))
+        XCTAssertTrue(source.contains("Start Installing"))
+        XCTAssertTrue(source.contains("Task { await model.installKokoro() }"))
+        XCTAssertFalse(
+            source.contains(".task {\n            if model.kokoroSetup.phase == .idle {\n                await model.installKokoro()\n            }\n        }"),
+            "Opening the Kokoro installer window must not start network/download work without a button click."
         )
     }
 
@@ -57,6 +69,22 @@ final class KokoroSetupProgressViewSourceTests: XCTestCase {
         XCTAssertTrue(source.contains("accessibilityLabel(\"Kokoro setup progress\")"))
         XCTAssertTrue(source.contains("Setup failed"))
         XCTAssertTrue(source.contains("textSelection(.enabled)"))
+    }
+
+    func testDetailsLogIsHeightBoundedSoItScrollsInsideInstallerWindow() throws {
+        let source = try appSource("KokoroSetupProgressView.swift")
+        let details = try sourceSlice(
+            in: source,
+            from: "DisclosureGroup(\"Details\"",
+            to: "if model.kokoroSetup.phase == .failed"
+        )
+
+        XCTAssertTrue(details.contains("ScrollView"))
+        XCTAssertTrue(
+            details.contains(".frame(minHeight: 120, maxHeight:"),
+            "Details log must have a maximum height so long diagnostics " +
+                "scroll instead of expanding the installer window."
+        )
     }
 
     private func appSource(_ fileName: String) throws -> String {
