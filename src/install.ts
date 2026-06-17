@@ -149,19 +149,41 @@ function cwdFromContext(ctx: unknown): string {
   return typeof cwd === "string" && cwd.trim().length > 0 ? cwd : process.cwd();
 }
 
+function logEnqueueFailure(message) {
+  console.error("[agent-voice] " + message);
+}
+
 function enqueue(text: string, cwd: string): void {
   try {
-    if (!existsSync(AGENT_VOICE)) return;
+    if (!existsSync(AGENT_VOICE)) {
+      logEnqueueFailure("agent-voice executable not found: " + AGENT_VOICE);
+      return;
+    }
     const child = spawn(AGENT_VOICE, ["enqueue", "--format", "text", "--agent", "pi", "--cwd", cwd], {
-      stdio: ["pipe", "ignore", "ignore"],
+      stdio: ["pipe", "ignore", "pipe"],
       detached: true,
       env: { ...process.env, AGENT_VOICE_DISABLE: "1" },
     });
-    child.on("error", () => {});
-    child.stdin.on("error", () => {});
+    let stderr = "";
+    child.stderr?.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+    child.on("error", (error) => {
+      logEnqueueFailure("agent-voice enqueue failed to start: " + error.message);
+    });
+    child.on("close", (code) => {
+      if (code && code !== 0) {
+        const detail = stderr.trim().length > 0 ? ": " + stderr.trim() : "";
+        logEnqueueFailure("agent-voice enqueue failed with exit " + code + detail);
+      }
+    });
+    child.stdin.on("error", (error) => {
+      logEnqueueFailure("agent-voice enqueue stdin failed: " + error.message);
+    });
     child.stdin.end(text);
     child.unref();
-  } catch {
+  } catch (error) {
+    logEnqueueFailure("agent-voice enqueue failed: " + (error instanceof Error ? error.message : String(error)));
   }
 }
 
@@ -339,26 +361,18 @@ function ensureHooks(settings: JsonRecord): JsonRecord {
 	return settings.hooks;
 }
 
-function ensureStopGroups(hooks: JsonRecord): unknown[] {
-	if (hooks.Stop === undefined) {
-		hooks.Stop = [];
-		return hooks.Stop as unknown[];
+function ensureHookGroups(
+	hooks: JsonRecord,
+	key: "Stop" | "PreToolUse",
+): unknown[] {
+	if (hooks[key] === undefined) {
+		hooks[key] = [];
+		return hooks[key] as unknown[];
 	}
-	if (!Array.isArray(hooks.Stop)) {
-		throw new Error("Claude settings hooks.Stop must be an array");
+	if (!Array.isArray(hooks[key])) {
+		throw new Error(`Claude settings hooks.${key} must be an array`);
 	}
-	return hooks.Stop;
-}
-
-function ensurePreToolUseGroups(hooks: JsonRecord): unknown[] {
-	if (hooks.PreToolUse === undefined) {
-		hooks.PreToolUse = [];
-		return hooks.PreToolUse as unknown[];
-	}
-	if (!Array.isArray(hooks.PreToolUse)) {
-		throw new Error("Claude settings hooks.PreToolUse must be an array");
-	}
-	return hooks.PreToolUse;
+	return hooks[key];
 }
 
 function hookHandlers(group: unknown): unknown[] | null {
@@ -564,8 +578,8 @@ export function installClaude(
 	const target = claudeSettingsPath(env);
 	const { settings, original } = loadClaudeSettings(target);
 	const hooks = ensureHooks(settings);
-	const stopGroups = ensureStopGroups(hooks);
-	const preToolUseGroups = ensurePreToolUseGroups(hooks);
+	const stopGroups = ensureHookGroups(hooks, "Stop");
+	const preToolUseGroups = ensureHookGroups(hooks, "PreToolUse");
 
 	const suspendedEntries = options.suspendExistingStopHooks
 		? suspendPeonStopHooks(stopGroups)
@@ -603,7 +617,7 @@ export function uninstallClaude(
 
 	const { settings, original } = loadClaudeSettings(target);
 	const hooks = ensureHooks(settings);
-	const stopGroups = ensureStopGroups(hooks);
+	const stopGroups = ensureHookGroups(hooks, "Stop");
 	const removed = removeAgentVoiceClaudeStopHooks(stopGroups);
 	const restored = restoreSuspendedEntries(stopGroups, backup);
 

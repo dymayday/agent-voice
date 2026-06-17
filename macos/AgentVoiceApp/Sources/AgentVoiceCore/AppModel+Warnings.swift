@@ -16,23 +16,14 @@ public extension AppModel {
             status.ui.state == .daemonStopped ||
             hasUnresolvedDoctorCheck("daemon.running")
 
-        var didRunAnyAction = false
-
         if shouldResolveSystemPause {
-            didRunAnyAction = true
             await resume()
         }
         if shouldResolveFailedJobs {
-            didRunAnyAction = true
             await clearFailedJobs()
         }
         if shouldResolveDaemonState {
-            didRunAnyAction = true
             await startDaemon()
-        }
-
-        if didRunAnyAction {
-            return
         }
     }
 

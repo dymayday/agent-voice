@@ -155,6 +155,24 @@ describe("agent-voice daemon CLI", () => {
 		});
 	});
 
+	test("start refuses to report success when spawned daemon is not alive", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+
+			const result = await runCli(["start"], {
+				env: { AGENT_VOICE_HOME: home },
+				daemonDeps: {
+					spawnDetached: () => 4040,
+					isPidAlive: () => false,
+				},
+			});
+
+			expect(result.exitCode).toBe(1);
+			expect(result.stderr).toContain("daemon exited before becoming healthy");
+			expect(readDaemonLock(paths)).toBe(null);
+		});
+	});
+
 	test("start reports launcher failure without rejecting", async () => {
 		await withTempHome(async (home) => {
 			const result = await runCli(["start"], {

@@ -54,6 +54,7 @@ function parseMetadata(
 }
 
 function rowToStoredJob(row: JobRow): StoredJob {
+	const metadata = parseMetadata(row.metadata);
 	return {
 		id: row.id,
 		version: 1,
@@ -69,9 +70,7 @@ function rowToStoredJob(row: JobRow): StoredJob {
 		...(row.next_attempt_at ? { nextAttemptAt: row.next_attempt_at } : {}),
 		...(row.summary ? { summary: row.summary } : {}),
 		...(row.summarizer_used ? { summarizerUsed: row.summarizer_used } : {}),
-		...(parseMetadata(row.metadata)
-			? { metadata: parseMetadata(row.metadata) }
-			: {}),
+		...(metadata ? { metadata } : {}),
 	};
 }
 
@@ -327,6 +326,5 @@ export function runMaintenance(db: Database): void {
 	db.exec("PRAGMA optimize");
 }
 
-// Internal helpers shared by later tasks.
 export { rowToStoredJob };
 export type { JobRow };

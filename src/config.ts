@@ -72,8 +72,7 @@ export const defaultConfig: AgentVoiceConfig = {
 		maxSummaryChars: 180,
 	},
 	tts: {
-		kokoroScript:
-			"/Users/meidhy/junk/repo/kokoro-tts/Python/kokoro_tts_service.py",
+		kokoroScript: "",
 		python: "python3",
 		voice: "af_heart",
 		timeoutSeconds: 30,
@@ -87,8 +86,159 @@ export const defaultConfig: AgentVoiceConfig = {
 	},
 };
 
+const SUMMARIZER_NAMES: SummarizerName[] = [
+	"codex-fast",
+	"pi-fast",
+	"opencode",
+	"heuristic",
+];
+const SUMMARIZER_THINKING_VALUES: SummarizerThinking[] = [
+	"off",
+	"minimal",
+	"low",
+	"medium",
+	"high",
+	"xhigh",
+];
+
 function cloneConfig(config: AgentVoiceConfig): AgentVoiceConfig {
 	return JSON.parse(JSON.stringify(config)) as AgentVoiceConfig;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function invalidConfig(path: string, expected: string): never {
+	throw new Error(`Invalid config ${path}: expected ${expected}`);
+}
+
+function assertBoolean(value: unknown, path: string): asserts value is boolean {
+	if (typeof value !== "boolean") invalidConfig(path, "boolean");
+}
+
+function assertString(
+	value: unknown,
+	path: string,
+	options: { allowEmpty?: boolean } = {},
+): asserts value is string {
+	if (typeof value !== "string") invalidConfig(path, "string");
+	if (!options.allowEmpty && value.trim().length === 0) {
+		invalidConfig(path, "non-empty string");
+	}
+}
+
+function assertIntegerInRange(
+	value: unknown,
+	path: string,
+	{ min, max }: { min: number; max?: number },
+): asserts value is number {
+	if (
+		typeof value !== "number" ||
+		!Number.isInteger(value) ||
+		value < min ||
+		(max !== undefined && value > max)
+	) {
+		invalidConfig(
+			path,
+			max === undefined
+				? `integer >= ${min}`
+				: `integer between ${min} and ${max}`,
+		);
+	}
+}
+
+function assertOneOf<T extends string>(
+	value: unknown,
+	path: string,
+	allowed: readonly T[],
+): asserts value is T {
+	if (typeof value !== "string" || !(allowed as readonly string[]).includes(value)) {
+		invalidConfig(path, `one of ${allowed.join(", ")}`);
+	}
+}
+
+export function validateConfig(config: AgentVoiceConfig): AgentVoiceConfig {
+	assertBoolean(config.enabled, "enabled");
+	if (!isRecord(config.agents)) invalidConfig("agents", "object");
+	for (const name of AGENT_NAMES) {
+		const agent = config.agents[name];
+		if (!isRecord(agent)) invalidConfig(`agents.${name}`, "object");
+		assertBoolean(agent.enabled, `agents.${name}.enabled`);
+		assertString(agent.mode, `agents.${name}.mode`);
+	}
+	assertOneOf(config.speakPolicy, "speakPolicy", ["every_turn"]);
+	if (
+		!Array.isArray(config.ignoreCwdPatterns) ||
+		!config.ignoreCwdPatterns.every((pattern) => typeof pattern === "string")
+	) {
+		invalidConfig("ignoreCwdPatterns", "array of strings");
+	}
+
+	if (!isRecord(config.summarizer)) invalidConfig("summarizer", "object");
+	if (
+		!Array.isArray(config.summarizer.priority) ||
+		config.summarizer.priority.length === 0
+	) {
+		invalidConfig("summarizer.priority", "non-empty array");
+	}
+	for (const [index, name] of config.summarizer.priority.entries()) {
+		assertOneOf(name, `summarizer.priority.${index}`, SUMMARIZER_NAMES);
+	}
+	assertString(config.summarizer.codexModel, "summarizer.codexModel");
+	assertString(config.summarizer.piModel, "summarizer.piModel");
+	if (config.summarizer.opencodeModel !== null) {
+		assertString(config.summarizer.opencodeModel, "summarizer.opencodeModel");
+	}
+	assertOneOf(
+		config.summarizer.thinking,
+		"summarizer.thinking",
+		SUMMARIZER_THINKING_VALUES,
+	);
+	assertIntegerInRange(config.summarizer.timeoutSeconds, "summarizer.timeoutSeconds", { min: 1 });
+	assertIntegerInRange(config.summarizer.maxInputChars, "summarizer.maxInputChars", { min: 1 });
+	assertIntegerInRange(config.summarizer.maxSummaryChars, "summarizer.maxSummaryChars", { min: 1 });
+
+	if (!isRecord(config.tts)) invalidConfig("tts", "object");
+	assertString(config.tts.kokoroScript, "tts.kokoroScript", { allowEmpty: true });
+	assertString(config.tts.python, "tts.python");
+	assertString(config.tts.voice, "tts.voice");
+	assertIntegerInRange(config.tts.timeoutSeconds, "tts.timeoutSeconds", { min: 1 });
+
+	if (!isRecord(config.spool)) invalidConfig("spool", "object");
+	assertIntegerInRange(config.spool.processingTimeoutSeconds, "spool.processingTimeoutSeconds", { min: 1 });
+	assertIntegerInRange(config.spool.retentionDays, "spool.retentionDays", { min: 0 });
+	assertIntegerInRange(config.spool.maxEventBytes, "spool.maxEventBytes", { min: 1 });
+	assertIntegerInRange(config.spool.maxAttempts, "spool.maxAttempts", { min: 1 });
+	assertIntegerInRange(config.spool.retryBackoffSeconds, "spool.retryBackoffSeconds", { min: 0 });
+
+	return config;
+}
+
+function mergeRecord<T extends Record<string, unknown>>(
+	target: T,
+	source: unknown,
+): T {
+	if (source === undefined) return target;
+	if (!isRecord(source)) invalidConfig("config", "object");
+	for (const [key, value] of Object.entries(source)) {
+		const current = target[key];
+		if (isRecord(current) && isRecord(value) && !Array.isArray(current)) {
+			mergeRecord(current, value);
+		} else {
+			target[key as keyof T] = value as T[keyof T];
+		}
+	}
+	return target;
+}
+
+function normalizeConfig(raw: unknown): AgentVoiceConfig {
+	if (!isRecord(raw)) invalidConfig("config", "object");
+	const merged = mergeRecord(
+		cloneConfig(defaultConfig) as unknown as Record<string, unknown>,
+		raw,
+	) as unknown as AgentVoiceConfig;
+	return validateConfig(merged);
 }
 
 function ensureConfigDir(paths: AgentVoicePaths): void {
@@ -99,8 +249,9 @@ export function saveConfig(
 	paths: AgentVoicePaths,
 	config: AgentVoiceConfig,
 ): void {
+	const validated = validateConfig(cloneConfig(config));
 	ensureConfigDir(paths);
-	writeFileSync(paths.config, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+	writeFileSync(paths.config, `${JSON.stringify(validated, null, 2)}\n`, "utf8");
 }
 
 export function loadConfig(
@@ -117,10 +268,7 @@ export function loadConfig(
 		return config;
 	}
 
-	const loaded = JSON.parse(
-		readFileSync(paths.config, "utf8"),
-	) as AgentVoiceConfig;
-	return loaded;
+	return normalizeConfig(JSON.parse(readFileSync(paths.config, "utf8")));
 }
 
 function parseValue(value: string): unknown {
@@ -182,7 +330,7 @@ export function setConfigValue(
 	}
 
 	(cursor as Record<string, unknown>)[finalKey] = parseValue(value);
-	return next;
+	return validateConfig(next);
 }
 
 export function isAgentName(value: string): value is AgentName {

@@ -450,9 +450,7 @@ extension MenuBarSentinelView {
     }
 
     private var doctorIssues: [DoctorCheck] {
-        model.doctorReport?.checks.filter {
-            !$0.ok || $0.severity == .warning || $0.severity == .error
-        } ?? []
+        model.doctorReport?.checks.filter(\.needsReview) ?? []
     }
 
     private var failedJobs: [AgentVoiceHistoryJob] {

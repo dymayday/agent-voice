@@ -419,7 +419,7 @@ private extension DashboardView {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("\(job.agent.capitalized) failed")
                                 .font(.headline)
-                            Text(job.lastError ?? "No error exposed by current CLI yet")
+                            Text(job.lastError ?? "No error recorded")
                                 .foregroundStyle(.secondary)
                                 .lineLimit(3)
                             Text("Attempts: \(job.attempts) · \(job.finishedAt ?? job.createdAt)")
@@ -484,7 +484,7 @@ private extension DashboardView {
                                 systemImage: isEnabled ? "checkmark.circle.fill" : "pause.circle"
                             )
                             .foregroundStyle(isEnabled ? .green : .secondary)
-                            Text(agent?.mode ?? "Not exposed by current CLI yet")
+                            Text(agent?.mode ?? "Mode unavailable")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                             if name == "pi" || name == "claude" {

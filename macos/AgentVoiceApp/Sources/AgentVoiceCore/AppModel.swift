@@ -25,6 +25,7 @@ public final class AppModel: ObservableObject {
     private var didLoadSummarizerModels = false
     private var lastHistoryTerminalCounts: TerminalQueueCounts?
     private var loadedHistoryPageCount = 0
+    private var shouldReplaceHistoryOnNextRefresh = false
 
     public static let kokoroVoicePresets = [
         "af_heart",
@@ -232,10 +233,13 @@ public final class AppModel: ObservableObject {
         do {
             let response = try await cli.summarizerModels()
             availableSummarizerModels = response.models
+            didLoadSummarizerModels = true
+            lastError = nil
         } catch {
             availableSummarizerModels = []
+            didLoadSummarizerModels = false
+            lastError = "models: \(String(describing: error))"
         }
-        didLoadSummarizerModels = true
         summarizerModelsTask = nil
     }
 
@@ -244,6 +248,7 @@ public final class AppModel: ObservableObject {
     }
 
     public func clearFailedJobs() async {
+        shouldReplaceHistoryOnNextRefresh = true
         await perform { try await cli.clearFailedJobs() }
     }
 
@@ -312,17 +317,23 @@ public final class AppModel: ObservableObject {
                 try await self.cli.setSummarizerModel(binding.path, to: model)
             }
 
+            var validationError: Error?
             do {
                 try await self.cli.runVoiceTest("Agent voice model validation check.")
             } catch {
-                if shouldRestore {
-                    try await self.cli.setSummarizerModel(binding.path, to: binding.current)
-                }
-                throw error
+                validationError = error
             }
 
             if shouldRestore {
-                try await self.cli.setSummarizerModel(binding.path, to: binding.current)
+                do {
+                    try await self.cli.setSummarizerModel(binding.path, to: binding.current)
+                } catch {
+                    throw SummarizerModelRestoreError(validationError: validationError, restoreError: error)
+                }
+            }
+
+            if let validationError {
+                throw validationError
             }
         }
     }
@@ -342,37 +353,32 @@ public final class AppModel: ObservableObject {
 
     private func summarizerModelBinding(from summarizer: SummarizerConfig) -> SummarizerModelBinding? {
         for name in summarizer.priority {
-            switch name {
-            case "pi-fast":
-                if !summarizer.piModel.isEmpty {
-                    return SummarizerModelBinding(path: "summarizer.piModel", label: "Pi model", current: summarizer.piModel)
-                }
-            case "codex-fast":
-                if !summarizer.codexModel.isEmpty {
-                    return SummarizerModelBinding(path: "summarizer.codexModel", label: "Codex model", current: summarizer.codexModel)
-                }
-            case "opencode":
-                if let value = summarizer.opencodeModel, !value.isEmpty {
-                    return SummarizerModelBinding(path: "summarizer.opencodeModel", label: "OpenCode model", current: value)
-                }
-            default:
-                continue
+            if let binding = summarizerModelBinding(for: name, in: summarizer) {
+                return binding
             }
         }
 
-        if !summarizer.piModel.isEmpty {
-            return SummarizerModelBinding(path: "summarizer.piModel", label: "Pi model", current: summarizer.piModel)
-        }
-
-        if !summarizer.codexModel.isEmpty {
-            return SummarizerModelBinding(path: "summarizer.codexModel", label: "Codex model", current: summarizer.codexModel)
-        }
-
-        if let opencodeModel = summarizer.opencodeModel, !opencodeModel.isEmpty {
-            return SummarizerModelBinding(path: "summarizer.opencodeModel", label: "OpenCode model", current: opencodeModel)
+        for name in ["pi-fast", "codex-fast", "opencode"] {
+            if let binding = summarizerModelBinding(for: name, in: summarizer) {
+                return binding
+            }
         }
 
         return nil
+    }
+
+    private func summarizerModelBinding(for name: String, in summarizer: SummarizerConfig) -> SummarizerModelBinding? {
+        switch name {
+        case "pi-fast" where !summarizer.piModel.isEmpty:
+            return SummarizerModelBinding(path: "summarizer.piModel", label: "Pi model", current: summarizer.piModel)
+        case "codex-fast" where !summarizer.codexModel.isEmpty:
+            return SummarizerModelBinding(path: "summarizer.codexModel", label: "Codex model", current: summarizer.codexModel)
+        case "opencode":
+            guard let value = summarizer.opencodeModel, !value.isEmpty else { return nil }
+            return SummarizerModelBinding(path: "summarizer.opencodeModel", label: "OpenCode model", current: value)
+        default:
+            return nil
+        }
     }
 
     private func shouldRefreshHistory(after refreshedStatus: AgentVoiceStatusSnapshot?) -> Bool {
@@ -387,13 +393,17 @@ public final class AppModel: ObservableObject {
         defer { isLoadingHistoryPage = false }
 
         let newestPage = try await cli.history(limit: Self.defaultHistoryPageSize)
-        if preserveLoadedPages, let existingHistory = history, !existingHistory.jobs.isEmpty {
+        let shouldPreservePages = preserveLoadedPages && !shouldReplaceHistoryOnNextRefresh
+        shouldReplaceHistoryOnNextRefresh = false
+        if shouldPreservePages, let existingHistory = history, !existingHistory.jobs.isEmpty {
             let mergedJobs = mergeHistoryJobs(newestPage.jobs + existingHistory.jobs)
             let pageInfo = loadedHistoryPageCount > 1 ? existingHistory.pageInfo : newestPage.pageInfo
             history = AgentVoiceHistorySnapshot(version: newestPage.version, jobs: mergedJobs, pageInfo: pageInfo)
         } else {
             history = newestPage
+            loadedHistoryPageCount = 0
         }
+
         loadedHistoryPageCount = max(loadedHistoryPageCount, 1)
     }
 
@@ -431,6 +441,18 @@ private struct SummarizerModelBinding {
     let path: String
     let label: String
     let current: String
+}
+
+private struct SummarizerModelRestoreError: Error, CustomStringConvertible {
+    let validationError: Error?
+    let restoreError: Error
+
+    var description: String {
+        if let validationError {
+            return "Validation failed with \(String(describing: validationError)); restore also failed with \(String(describing: restoreError))"
+        }
+        return "Restore failed after validation: \(String(describing: restoreError))"
+    }
 }
 
 private struct TerminalQueueCounts: Equatable {
@@ -484,7 +506,7 @@ private struct AgentVoiceDiagnosticSnapshot: Encodable {
         let checks = doctorReport?.checks ?? []
         doctorChecks = checks.map(DiagnosticDoctorCheck.init)
         doctorIssues = checks
-            .filter { !$0.ok || $0.severity == .warning || $0.severity == .error }
+            .filter(\.needsReview)
             .map(DiagnosticDoctorCheck.init)
 
         let jobs = history?.jobs ?? []

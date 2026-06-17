@@ -2,12 +2,14 @@ import { spawn } from "node:child_process";
 import {
 	existsSync,
 	mkdirSync,
+	openSync,
+	closeSync,
 	readFileSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
-import type { AgentVoiceConfig } from "./config";
+import { dirname, join } from "node:path";
+import { loadConfig, type AgentVoiceConfig } from "./config";
 import type { AgentVoicePaths } from "./paths";
 import {
 	processNextJob,
@@ -28,10 +30,13 @@ export interface DetachedDaemonRequest {
 	args: string[];
 	env: Record<string, string | undefined>;
 	cwd: string;
+	stdoutPath: string;
+	stderrPath: string;
 }
 
 export interface DaemonCliDeps {
 	processorDeps?: ProcessorDeps;
+	processorDepsForConfig?: (config: AgentVoiceConfig) => ProcessorDeps;
 	isPidAlive?: (pid: number) => boolean;
 	startBackground?: (paths: AgentVoicePaths) => Promise<number> | number;
 	spawnDetached?: (request: DetachedDaemonRequest) => Promise<number> | number;
@@ -114,21 +119,31 @@ function detachedDaemonRequest(paths: AgentVoicePaths): DetachedDaemonRequest {
 			AGENT_VOICE_HOME: paths.home,
 		},
 		cwd: paths.home,
+		stdoutPath: join(paths.logs, "daemon.out.log"),
+		stderrPath: join(paths.logs, "daemon.err.log"),
 	};
 }
 
 function defaultSpawnDetached(request: DetachedDaemonRequest): number {
-	const child = spawn(request.command, request.args, {
-		cwd: request.cwd,
-		detached: true,
-		env: request.env as NodeJS.ProcessEnv,
-		stdio: "ignore",
-	});
-	child.unref();
-	if (child.pid === undefined) {
-		throw new Error("Detached daemon did not expose a pid");
+	mkdirSync(dirname(request.stdoutPath), { recursive: true });
+	const stdoutFd = openSync(request.stdoutPath, "a");
+	const stderrFd = openSync(request.stderrPath, "a");
+	try {
+		const child = spawn(request.command, request.args, {
+			cwd: request.cwd,
+			detached: true,
+			env: request.env as NodeJS.ProcessEnv,
+			stdio: ["ignore", stdoutFd, stderrFd],
+		});
+		child.unref();
+		if (child.pid === undefined) {
+			throw new Error("Detached daemon did not expose a pid");
+		}
+		return child.pid;
+	} finally {
+		closeSync(stdoutFd);
+		closeSync(stderrFd);
 	}
-	return child.pid;
 }
 
 const STATUS_ORDER: JobStatus[] = [
@@ -201,6 +216,21 @@ function requireProcessorDeps(deps: DaemonCliDeps): ProcessorDeps {
 	return deps.processorDeps;
 }
 
+function processorDepsForConfig(
+	deps: DaemonCliDeps,
+	config: AgentVoiceConfig,
+): ProcessorDeps {
+	return deps.processorDepsForConfig?.(config) ?? requireProcessorDeps(deps);
+}
+
+function currentDaemonConfig(
+	paths: AgentVoicePaths,
+	fallback: AgentVoiceConfig,
+): AgentVoiceConfig {
+	if (!existsSync(paths.config)) return fallback;
+	return loadConfig(paths, { createIfMissing: false });
+}
+
 export async function runDaemonOnce(
 	paths: AgentVoicePaths,
 	config: AgentVoiceConfig,
@@ -237,7 +267,9 @@ export async function runDaemonLoop(
 	config: AgentVoiceConfig,
 	deps: DaemonCliDeps,
 ): Promise<DaemonLoopResult> {
-	requireProcessorDeps(deps);
+	if (!deps.processorDeps && !deps.processorDepsForConfig) {
+		throw new Error("Processor dependencies are required");
+	}
 	const summary: DaemonLoopResult = {
 		iterations: 0,
 		processed: 0,
@@ -248,29 +280,34 @@ export async function runDaemonLoop(
 	const maxIterations = deps.maxIterations ?? Number.POSITIVE_INFINITY;
 	const pollIntervalMs = deps.pollIntervalMs ?? 200;
 	const pruneEvery = deps.pruneEveryIterations ?? 300;
-	const procDeps = requireProcessorDeps(deps);
-	try {
-		await procDeps.prewarm?.();
-	} catch {
-		// Best-effort warm-up; the first job will retry readiness if this failed.
+	let activeProcessorDeps: ProcessorDeps | null = null;
+	async function getProcessorDeps(currentConfig: AgentVoiceConfig): Promise<ProcessorDeps> {
+		const nextDeps = processorDepsForConfig(deps, currentConfig);
+		if (nextDeps !== activeProcessorDeps) {
+			activeProcessorDeps = nextDeps;
+			try {
+				await activeProcessorDeps.prewarm?.();
+			} catch {
+				// Best-effort warm-up; the first job will retry readiness if this failed.
+			}
+		}
+		return nextDeps;
 	}
+
 	const db = openDb(paths.db);
 	try {
 		const clock = deps.now ?? (() => new Date());
 		while (summary.iterations < maxIterations && !hasIntentionalStop(paths)) {
-			const result = await processNextJob(
-				db,
-				config,
-				requireProcessorDeps(deps),
-				clock,
-			);
+			const currentConfig = currentDaemonConfig(paths, config);
+			const procDeps = await getProcessorDeps(currentConfig);
+			const result = await processNextJob(db, currentConfig, procDeps, clock);
 			summary.iterations += 1;
 			if (result.kind === "processed") summary.processed += 1;
 			if (result.kind === "idle") summary.idle += 1;
 			if (result.kind === "retry_scheduled") summary.retryScheduled += 1;
 			if (result.kind === "failed") summary.failed += 1;
 			if (summary.iterations % pruneEvery === 0) {
-				pruneRetention(db, config.spool.retentionDays, clock());
+				pruneRetention(db, currentConfig.spool.retentionDays, clock());
 				runMaintenance(db);
 			}
 			if (result.kind === "idle") await sleep(pollIntervalMs);
@@ -297,6 +334,12 @@ export async function startDaemon(
 		: await (deps.spawnDetached ?? defaultSpawnDetached)(
 				detachedDaemonRequest(paths),
 			);
+	const shouldVerifyHealth =
+		!deps.startBackground && (Boolean(deps.isPidAlive) || !deps.spawnDetached);
+	if (shouldVerifyHealth && !(deps.isPidAlive ?? defaultIsPidAlive)(pid)) {
+		clearDaemonLock(paths);
+		return { ok: false, reason: "daemon exited before becoming healthy" };
+	}
 	writeDaemonLock(paths, pid);
 	return { ok: true, pid };
 }
