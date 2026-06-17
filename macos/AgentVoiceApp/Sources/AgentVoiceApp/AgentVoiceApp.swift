@@ -78,6 +78,7 @@ extension DashboardView {
         _ title: String,
         systemImage: String? = nil,
         tint: Color = .secondary,
+        fillHeight: Bool = false,
         @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -95,6 +96,7 @@ extension DashboardView {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
+        .frame(maxWidth: .infinity, maxHeight: fillHeight ? .infinity : nil, alignment: .topLeading)
         .background(.regularMaterial)
         .overlay {
             RoundedRectangle(cornerRadius: 16, style: .continuous)

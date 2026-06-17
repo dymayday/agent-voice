@@ -6,9 +6,8 @@ private let recentEventsPreviewLimit = 5
 private let failedJobsPreviewLimit = 4
 private let dashboardColumns = [GridItem(.adaptive(minimum: 340), spacing: 16)]
 private let dashboardOperationsColumns: [GridItem] = [
-    GridItem(.flexible(minimum: 220), spacing: 16),
-    GridItem(.flexible(minimum: 220), spacing: 16),
-    GridItem(.flexible(minimum: 220), spacing: 16)
+    GridItem(.flexible(minimum: 340), spacing: 16),
+    GridItem(.flexible(minimum: 340), spacing: 16)
 ]
 private let dashboardAttentionColumns = [GridItem(.adaptive(minimum: 290), spacing: 16)]
 private let queueMetricColumns = [GridItem(.adaptive(minimum: 135), spacing: 12)]
@@ -244,7 +243,7 @@ private extension DashboardView {
     }
 
     private var kokoroCard: some View {
-        card("Voice and local config", systemImage: "speaker.wave.2", tint: .teal) {
+        card("Voice and local config", systemImage: "speaker.wave.2", tint: .teal, fillHeight: true) {
             VStack(alignment: .leading, spacing: 12) {
                 labeledRow("Voice", model.config?.tts.voice ?? "Unknown")
                 voiceControls
@@ -436,7 +435,7 @@ private extension DashboardView {
 
     @ViewBuilder
     private var recentEventsSection: some View {
-        card("Recent spoken events", systemImage: "text.bubble", tint: .blue) {
+        card("Recent spoken events", systemImage: "text.bubble", tint: .blue, fillHeight: true) {
             if model.history == nil {
                 Text("History unavailable")
                     .foregroundStyle(.secondary)

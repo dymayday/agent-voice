@@ -43,6 +43,37 @@ final class DashboardViewSourceTests: XCTestCase {
         XCTAssertTrue(operationsGrid.contains("kokoroCard"))
     }
 
+    func testOperationsGridUsesTwoReadableColumnsForConfigAndRecentEvents() throws {
+        let source = try dashboardViewSource()
+        let operationsGrid = try propertyBody(named: "operationsGrid", in: source)
+        let readableColumnCount = source.components(
+            separatedBy: "GridItem(.flexible(minimum: 340), spacing: 16)"
+        ).count - 1
+
+        XCTAssertTrue(operationsGrid.contains("LazyVGrid(columns: dashboardOperationsColumns"))
+        XCTAssertEqual(
+            readableColumnCount,
+            2,
+            "Voice/local config and recent spoken events should use two balanced readable columns."
+        )
+        XCTAssertFalse(
+            source.contains("GridItem(.flexible(minimum: 220), spacing: 16)"),
+            "The operations cards should not be squeezed into three narrow dashboard columns."
+        )
+    }
+
+    func testOperationsCardsStretchToEqualHeight() throws {
+        let source = try dashboardViewSource()
+        let appSource = try appSource("AgentVoiceApp.swift")
+        let kokoroCard = try propertyBody(named: "kokoroCard", in: source)
+        let recentEvents = try propertyBody(named: "recentEventsSection", in: source)
+
+        XCTAssertTrue(kokoroCard.contains("fillHeight: true"))
+        XCTAssertTrue(recentEvents.contains("fillHeight: true"))
+        XCTAssertTrue(appSource.contains("fillHeight: Bool = false"))
+        XCTAssertTrue(appSource.contains("maxHeight: fillHeight ? .infinity : nil"))
+    }
+
     func testActivityGridShowsDiagnosticsLeftOfFailedJobs() throws {
         let source = try dashboardViewSource()
         let activityGrid = try propertyBody(named: "activityGrid", in: source)
