@@ -185,10 +185,21 @@ export function validateConfig(config: AgentVoiceConfig): AgentVoiceConfig {
 	for (const [index, name] of config.summarizer.priority.entries()) {
 		assertOneOf(name, `summarizer.priority.${index}`, SUMMARIZER_NAMES);
 	}
-	assertString(config.summarizer.codexModel, "summarizer.codexModel");
-	assertString(config.summarizer.piModel, "summarizer.piModel");
-	if (config.summarizer.opencodeModel !== null) {
-		assertString(config.summarizer.opencodeModel, "summarizer.opencodeModel");
+	const activeSummarizers = new Set(config.summarizer.priority);
+	assertString(config.summarizer.codexModel, "summarizer.codexModel", {
+		allowEmpty: !activeSummarizers.has("codex-fast"),
+	});
+	assertString(config.summarizer.piModel, "summarizer.piModel", {
+		allowEmpty: !activeSummarizers.has("pi-fast"),
+	});
+	if (config.summarizer.opencodeModel === null) {
+		if (activeSummarizers.has("opencode")) {
+			invalidConfig("summarizer.opencodeModel", "non-empty string");
+		}
+	} else {
+		assertString(config.summarizer.opencodeModel, "summarizer.opencodeModel", {
+			allowEmpty: !activeSummarizers.has("opencode"),
+		});
 	}
 	assertOneOf(
 		config.summarizer.thinking,

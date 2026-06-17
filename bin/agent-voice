@@ -13,41 +13,9 @@ done
 SCRIPT_DIR="$(CDPATH= cd -P -- "$(dirname -- "$SOURCE")" && pwd)"
 ROOT_DIR="$(dirname -- "$SCRIPT_DIR")"
 
-find_bun() {
-  if command -v bun >/dev/null 2>&1; then
-    command -v bun
-    return 0
-  fi
+. "$SCRIPT_DIR/lib/find-bun.sh"
 
-  local candidate
-  for candidate in \
-    "${BUN_INSTALL:-}/bin/bun" \
-    "${HOME:-}/.bun/bin/bun" \
-    "${HOME:-}/.nvm/current/bin/bun"; do
-    if [[ -n "$candidate" && -x "$candidate" ]]; then
-      printf '%s\n' "$candidate"
-      return 0
-    fi
-  done
-
-  if [[ -n "${HOME:-}" ]]; then
-    local nvm_bun=""
-    local found_bun
-    while IFS= read -r found_bun; do
-      if [[ -x "$found_bun" ]]; then
-        nvm_bun="$found_bun"
-      fi
-    done < <(find "$HOME/.nvm/versions/node" -path '*/bin/bun' \( -type f -o -type l \) 2>/dev/null | sort -V)
-    if [[ -n "$nvm_bun" ]]; then
-      printf '%s\n' "$nvm_bun"
-      return 0
-    fi
-  fi
-
-  return 1
-}
-
-BUN_BIN="$(find_bun)" || {
+BUN_BIN="$(find_agent_voice_bun)" || {
   printf 'agent-voice: bun not found. Install Bun or set BUN_INSTALL/PATH so the app can find bun.\n' >&2
   exit 127
 }

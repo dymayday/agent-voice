@@ -1,14 +1,14 @@
 import XCTest
 @testable import AgentVoiceCore
 
-private let emptyDoctorJSON = """
+private let draftEmptyDoctorJSON = """
 {
   "version": 1,
   "checks": []
 }
 """
 
-private let emptyHistoryJSON = """
+private let draftEmptyHistoryJSON = """
 {
   "version": 1,
   "jobs": [],
@@ -16,7 +16,7 @@ private let emptyHistoryJSON = """
 }
 """
 
-private func statusJSON() -> String {
+private func draftStatusJSON() -> String {
     """
     {
       "version": 1,
@@ -29,7 +29,7 @@ private func statusJSON() -> String {
     """
 }
 
-private func fullConfigJSON(voice: String) -> String {
+private func draftFullConfigJSON(voice: String) -> String {
     """
     {
       "version": 1,
@@ -49,13 +49,13 @@ private func fullConfigJSON(voice: String) -> String {
 final class AppModelDraftPreservationTests: XCTestCase {
     func testVoiceDraftPreservedDuringRefresh() async throws {
         let runner = RecordingRunner(results: [
-            ProcessResult(exitCode: 0, stdout: statusJSON(), stderr: ""),
-            ProcessResult(exitCode: 0, stdout: emptyHistoryJSON, stderr: ""),
-            ProcessResult(exitCode: 0, stdout: emptyDoctorJSON, stderr: ""),
-            ProcessResult(exitCode: 0, stdout: fullConfigJSON(voice: "af_heart"), stderr: ""),
-            ProcessResult(exitCode: 0, stdout: statusJSON(), stderr: ""),
-            ProcessResult(exitCode: 0, stdout: emptyDoctorJSON, stderr: ""),
-            ProcessResult(exitCode: 0, stdout: fullConfigJSON(voice: "af_sky"), stderr: "")
+            ProcessResult(exitCode: 0, stdout: draftStatusJSON(), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: draftEmptyHistoryJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: draftEmptyDoctorJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: draftFullConfigJSON(voice: "af_heart"), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: draftStatusJSON(), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: draftEmptyDoctorJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: draftFullConfigJSON(voice: "af_sky"), stderr: "")
         ])
         let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
         let model = AppModel(cli: cli)

@@ -160,22 +160,12 @@ function enqueue(text: string, cwd: string): void {
       return;
     }
     const child = spawn(AGENT_VOICE, ["enqueue", "--format", "text", "--agent", "pi", "--cwd", cwd], {
-      stdio: ["pipe", "ignore", "pipe"],
+      stdio: ["pipe", "ignore", "ignore"],
       detached: true,
       env: { ...process.env, AGENT_VOICE_DISABLE: "1" },
     });
-    let stderr = "";
-    child.stderr?.on("data", (chunk) => {
-      stderr += String(chunk);
-    });
     child.on("error", (error) => {
       logEnqueueFailure("agent-voice enqueue failed to start: " + error.message);
-    });
-    child.on("close", (code) => {
-      if (code && code !== 0) {
-        const detail = stderr.trim().length > 0 ? ": " + stderr.trim() : "";
-        logEnqueueFailure("agent-voice enqueue failed with exit " + code + detail);
-      }
     });
     child.stdin.on("error", (error) => {
       logEnqueueFailure("agent-voice enqueue stdin failed: " + error.message);

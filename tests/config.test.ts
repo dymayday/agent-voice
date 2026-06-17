@@ -105,6 +105,44 @@ describe("agent-voice config and paths", () => {
 		});
 	});
 
+	test("heuristic-only configs may leave inactive provider model strings empty", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			writeFileSync(
+				paths.config,
+				JSON.stringify({
+					summarizer: {
+						priority: ["heuristic"],
+						codexModel: "",
+						piModel: "",
+						opencodeModel: "",
+					},
+				}),
+			);
+
+			const config = loadConfig(paths);
+
+			expect(config.summarizer.priority).toEqual(["heuristic"]);
+			expect(config.summarizer.codexModel).toBe("");
+			expect(config.summarizer.piModel).toBe("");
+			expect(config.summarizer.opencodeModel).toBe("");
+		});
+	});
+
+	test("active external summarizers still require configured model strings", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			writeFileSync(
+				paths.config,
+				JSON.stringify({
+					summarizer: { priority: ["pi-fast", "heuristic"], piModel: "" },
+				}),
+			);
+
+			expect(() => loadConfig(paths)).toThrow("summarizer.piModel");
+		});
+	});
+
 	test("loadConfig merges older partial config files with current defaults", async () => {
 		await withTempHome(async (home) => {
 			const paths = resolvePaths({ AGENT_VOICE_HOME: home });

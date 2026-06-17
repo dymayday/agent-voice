@@ -151,7 +151,7 @@ function parseClaudeHookPayload(
 		payload = parseJson(input);
 	} catch (error) {
 		return result(
-			2,
+			0,
 			"",
 			`Malformed ${format} JSON: ${error instanceof Error ? error.message : String(error)}\n`,
 		);
