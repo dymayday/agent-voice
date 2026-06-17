@@ -70,9 +70,9 @@ The existing auto-refresh loop can continue to refresh lightweight system state 
 Instead:
 
 - `refresh()` fetches status as it does today.
-- After status refresh, compare terminal queue counts: `done + failed + skipped`.
+- After status refresh, compare the terminal queue count tuple: `(done, failed, skipped)`.
 - If history has never loaded, fetch the first page.
-- If the terminal count changed since the last history page refresh, fetch only the first page.
+- If any terminal count changed since the last history page refresh, fetch only the first page.
 - Preserve already appended older pages where possible.
 - Do not fetch older pages automatically.
 
@@ -213,6 +213,7 @@ Add or update CLI tests to cover:
 - `history --json --limit N` returns `pageInfo`.
 - `history --json --limit N --before CURSOR` returns the next older page.
 - Cursor pagination does not duplicate rows across pages.
+- Cursor pagination remains stable when a newer terminal job appears between page fetches.
 - Missing database remains read-only and returns empty `pageInfo`.
 - Invalid cursor returns a clear error.
 
