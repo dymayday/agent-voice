@@ -508,6 +508,7 @@ final class AppModelTests: XCTestCase {
         let doctorIssues = try XCTUnwrap(root["doctorIssues"] as? [[String: Any]])
         let recentJobs = try XCTUnwrap(root["recentJobs"] as? [[String: Any]])
         let failedJobs = try XCTUnwrap(root["failedJobs"] as? [[String: Any]])
+        let historyPageInfo = try XCTUnwrap(root["historyPageInfo"] as? [String: Any])
         let failedRecentJob = try XCTUnwrap(recentJobs.first { $0["id"] as? String == "failed-diagnostic-1" })
         let skippedRecentJob = try XCTUnwrap(recentJobs.first { $0["id"] as? String == "skipped-diagnostic-1" })
 
@@ -529,6 +530,9 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(doctorIssues.first?["id"] as? String, "tts.script")
         XCTAssertEqual(doctorIssues.first?["ok"] as? Bool, false)
         XCTAssertEqual(doctorIssues.first?["action"] as? String, "Set tts.kokoroScript")
+        XCTAssertEqual(historyPageInfo["limit"] as? Int, 10)
+        XCTAssertEqual(historyPageInfo["hasMore"] as? Bool, true)
+        XCTAssertEqual(historyPageInfo["nextCursor"] as? String, "diagnostic-cursor")
         XCTAssertEqual(recentJobs.count, 2)
         XCTAssertEqual(failedRecentJob["status"] as? String, "failed")
         XCTAssertEqual(failedRecentJob["text"] as? String, diagnosticFailedText)

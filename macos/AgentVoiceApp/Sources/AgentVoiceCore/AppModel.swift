@@ -308,6 +308,7 @@ private struct AgentVoiceDiagnosticSnapshot: Encodable {
     private let doctorIssues: [DiagnosticDoctorCheck]
     private let recentJobs: [DiagnosticJob]
     private let failedJobs: [DiagnosticJob]
+    private let historyPageInfo: DiagnosticHistoryPageInfo?
     private let paths: Paths?
     private let config: DiagnosticConfig?
     private let executablePath: String
@@ -343,6 +344,7 @@ private struct AgentVoiceDiagnosticSnapshot: Encodable {
         let jobs = history?.jobs ?? []
         recentJobs = jobs.map(DiagnosticJob.init)
         failedJobs = jobs.filter { $0.status == .failed }.map(DiagnosticJob.init)
+        historyPageInfo = history.map { DiagnosticHistoryPageInfo($0.pageInfo) }
 
         paths = status.map {
             Paths(
@@ -369,6 +371,7 @@ private struct AgentVoiceDiagnosticSnapshot: Encodable {
         try container.encode(doctorIssues, forKey: .doctorIssues)
         try container.encode(recentJobs, forKey: .recentJobs)
         try container.encode(failedJobs, forKey: .failedJobs)
+        try container.encode(historyPageInfo, forKey: .historyPageInfo)
         try container.encode(paths, forKey: .paths)
         try container.encode(config, forKey: .config)
         try container.encode(executablePath, forKey: .executablePath)
@@ -385,6 +388,7 @@ private struct AgentVoiceDiagnosticSnapshot: Encodable {
         case doctorIssues
         case recentJobs
         case failedJobs
+        case historyPageInfo
         case paths
         case config
         case executablePath
@@ -506,6 +510,31 @@ private struct AgentVoiceDiagnosticSnapshot: Encodable {
             case lastError
             case attempts
             case timestamp
+        }
+    }
+
+    private struct DiagnosticHistoryPageInfo: Encodable {
+        let limit: Int
+        let hasMore: Bool
+        let nextCursor: String?
+
+        init(_ pageInfo: AgentVoiceHistoryPageInfo) {
+            limit = pageInfo.limit
+            hasMore = pageInfo.hasMore
+            nextCursor = pageInfo.nextCursor
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(limit, forKey: .limit)
+            try container.encode(hasMore, forKey: .hasMore)
+            try container.encode(nextCursor, forKey: .nextCursor)
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case limit
+            case hasMore
+            case nextCursor
         }
     }
 

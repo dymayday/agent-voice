@@ -132,14 +132,23 @@ private extension AttentionDetailView {
                 Divider()
 
                 VStack(alignment: .leading, spacing: 12) {
-                    HStack(alignment: .firstTextBaseline) {
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
                         Text("Recent jobs")
                             .font(.headline)
                         Spacer()
-                        Text("\(recentJobs.count) shown · \(failedJobs.count) failed")
+                        Text("\(recentJobs.count) loaded jobs · \(failedJobs.count) failed")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                        Button("Refresh history") {
+                            Task { await model.refreshHistory() }
+                        }
+                        .disabled(model.isLoadingHistoryPage)
                     }
+
+                    Text("Newest jobs refresh when terminal queue counts change. Raw snapshots include loaded jobs only.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
 
                     if model.history == nil {
                         emptyState("History unavailable. Refresh diagnostics to load recent jobs.")
@@ -149,6 +158,18 @@ private extension AttentionDetailView {
                         VStack(alignment: .leading, spacing: 12) {
                             ForEach(recentJobs) { job in
                                 jobCard(job)
+                            }
+
+                            if model.history?.pageInfo.hasMore == true {
+                                Button(model.isLoadingHistoryPage ? "Loading…" : "Load more") {
+                                    Task { await model.loadMoreHistory() }
+                                }
+                                .disabled(model.isLoadingHistoryPage)
+                            } else {
+                                Text("No more loaded history pages.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .textSelection(.enabled)
                             }
                         }
                     }
@@ -246,7 +267,7 @@ private extension AttentionDetailView {
         detailCard("Raw diagnostic snapshot", systemImage: "doc.text.magnifyingglass", tint: .purple) {
             VStack(alignment: .leading, spacing: 12) {
                 Label(
-                    "Includes full raw job text. Copy uses the local pasteboard only.",
+                    "Includes full raw job text for loaded jobs only. Copy uses the local pasteboard only.",
                     systemImage: "exclamationmark.triangle.fill"
                 )
                 .font(.caption)
