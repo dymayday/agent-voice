@@ -286,6 +286,16 @@ final class AgentVoiceCLITests: XCTestCase {
         XCTAssertEqual(requests.first?.arguments, ["config", "set", "summarizer.thinking", "xhigh"])
     }
 
+    func testSetSummarizerModelCommand() async throws {
+        let runner = RecordingRunner(stdout: "ok\n")
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+
+        try await cli.setSummarizerModel("summarizer.piModel", to: "openai-custom/model")
+
+        let requests = await runner.capturedRequests()
+        XCTAssertEqual(requests.first?.arguments, ["config", "set", "summarizer.piModel", "openai-custom/model"])
+    }
+
     func testClearQueueCommand() async throws {
         let runner = RecordingRunner(stdout: "Cleared 2 queued job(s).\n")
         let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)

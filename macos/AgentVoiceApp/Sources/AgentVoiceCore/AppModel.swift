@@ -11,6 +11,7 @@ public final class AppModel: ObservableObject {
     @Published public private(set) var isLoadingHistoryPage = false
     @Published public var draftVoice: String = ""
     @Published public var draftThinking: String = "off"
+    @Published public var draftSummarizerModel: String = ""
 
     public static let defaultAutoRefreshIntervalNanoseconds: UInt64 = 2_000_000_000
     public static let defaultHistoryPageSize = 10
@@ -84,6 +85,7 @@ public final class AppModel: ObservableObject {
             config = refreshedConfig
             draftVoice = refreshedConfig.tts.voice
             draftThinking = refreshedConfig.summarizer.thinking
+            draftSummarizerModel = summarizerModelBinding(from: refreshedConfig.summarizer)?.current ?? ""
         } catch {
             errors.append("config: \(String(describing: error))")
         }
@@ -227,12 +229,111 @@ public final class AppModel: ObservableObject {
         await perform { try await cli.setSummarizerThinking(thinking) }
     }
 
+    public var summarizerModelInUseLabel: String {
+        summarizerModelBinding()?.label ?? "Summarizer model"
+    }
+
+    public var summarizerModelInUseValue: String {
+        summarizerModelBinding()?.current ?? "Unknown"
+    }
+
+    public var isSummarizerModelEditable: Bool {
+        summarizerModelBinding() != nil
+    }
+
+    public func saveSummarizerModel() async {
+        let model = draftSummarizerModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !model.isEmpty else {
+            lastError = "Summarizer model cannot be empty"
+            return
+        }
+        guard let binding = summarizerModelBinding() else {
+            lastError = "No active summarizer model configuration available"
+            return
+        }
+
+        await perform { try await cli.setSummarizerModel(binding.path, to: model) }
+    }
+
+    public func validateSummarizerModel() async {
+        let model = draftSummarizerModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !model.isEmpty else {
+            lastError = "Summarizer model cannot be empty"
+            return
+        }
+        guard let binding = summarizerModelBinding() else {
+            lastError = "No active summarizer model configuration available"
+            return
+        }
+
+        await perform {
+            let shouldRestore = binding.current != model
+
+            if shouldRestore {
+                try await self.cli.setSummarizerModel(binding.path, to: model)
+            }
+
+            do {
+                try await self.cli.runVoiceTest("Agent voice model validation check.")
+            } catch {
+                if shouldRestore {
+                    try await self.cli.setSummarizerModel(binding.path, to: binding.current)
+                }
+                throw error
+            }
+
+            if shouldRestore {
+                try await self.cli.setSummarizerModel(binding.path, to: binding.current)
+            }
+        }
+    }
+
     public func installAgentHook(_ agent: String) async {
         await perform { try await cli.installAgentHook(agent) }
     }
 
     public func uninstallAgentHook(_ agent: String) async {
         await perform { try await cli.uninstallAgentHook(agent) }
+    }
+
+    private func summarizerModelBinding() -> SummarizerModelBinding? {
+        guard let summarizer = config?.summarizer else { return nil }
+        return summarizerModelBinding(from: summarizer)
+    }
+
+    private func summarizerModelBinding(from summarizer: SummarizerConfig) -> SummarizerModelBinding? {
+        for name in summarizer.priority {
+            switch name {
+            case "pi-fast":
+                if !summarizer.piModel.isEmpty {
+                    return SummarizerModelBinding(path: "summarizer.piModel", label: "Pi model", current: summarizer.piModel)
+                }
+            case "codex-fast":
+                if !summarizer.codexModel.isEmpty {
+                    return SummarizerModelBinding(path: "summarizer.codexModel", label: "Codex model", current: summarizer.codexModel)
+                }
+            case "opencode":
+                if let value = summarizer.opencodeModel, !value.isEmpty {
+                    return SummarizerModelBinding(path: "summarizer.opencodeModel", label: "OpenCode model", current: value)
+                }
+            default:
+                continue
+            }
+        }
+
+        if !summarizer.piModel.isEmpty {
+            return SummarizerModelBinding(path: "summarizer.piModel", label: "Pi model", current: summarizer.piModel)
+        }
+
+        if !summarizer.codexModel.isEmpty {
+            return SummarizerModelBinding(path: "summarizer.codexModel", label: "Codex model", current: summarizer.codexModel)
+        }
+
+        if let opencodeModel = summarizer.opencodeModel, !opencodeModel.isEmpty {
+            return SummarizerModelBinding(path: "summarizer.opencodeModel", label: "OpenCode model", current: opencodeModel)
+        }
+
+        return nil
     }
 
     private func shouldRefreshHistory(after refreshedStatus: AgentVoiceStatusSnapshot?) -> Bool {
@@ -285,6 +386,12 @@ public final class AppModel: ObservableObject {
             lastError = String(describing: error)
         }
     }
+}
+
+private struct SummarizerModelBinding {
+    let path: String
+    let label: String
+    let current: String
 }
 
 private struct TerminalQueueCounts: Equatable {

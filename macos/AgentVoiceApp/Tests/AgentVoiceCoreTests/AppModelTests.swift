@@ -50,8 +50,18 @@ private func historyPageJSON(
     """
 }
 
-private func fullConfigJSON(voice: String = "af_heart", thinking: String = "off") -> String {
-    """
+private func fullConfigJSON(
+    voice: String = "af_heart",
+    thinking: String = "off",
+    piModel: String = "openai-codex/gpt-5.5",
+    codexModel: String = "gpt-5.3-codex",
+    opencodeModel: String? = nil,
+    priority: [String] = ["pi-fast", "codex-fast", "heuristic"]
+) -> String {
+    let priorityJSON = priority.map { "\"\($0)\"" }.joined(separator: ", ")
+    let opencodeModelJSON = opencodeModel.map { "\"\($0)\"" } ?? "null"
+
+    return """
     {
       "enabled": true,
       "agents": {},
@@ -62,7 +72,11 @@ private func fullConfigJSON(voice: String = "af_heart", thinking: String = "off"
         "timeoutSeconds": 30
       },
       "summarizer": {
-        "thinking": "\(thinking)"
+        "thinking": "\(thinking)",
+        "piModel": "\(piModel)",
+        "codexModel": "\(codexModel)",
+        "opencodeModel": \(opencodeModelJSON),
+        "priority": [\(priorityJSON)]
       }
     }
     """
@@ -780,5 +794,152 @@ extension AppModelTests {
         XCTAssertEqual(model.lastError, "Unsupported summarizer thinking effort")
         let requests = await runner.capturedRequests()
         XCTAssertTrue(requests.isEmpty)
+    }
+
+    func testSaveSummarizerModelTrimsDelegatesAndRefreshes() async throws {
+        let runner = RecordingRunner(results: [
+            ProcessResult(exitCode: 0, stdout: statusJSON(), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyHistoryJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyDoctorJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: fullConfigJSON(), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: "", stderr: ""),
+            ProcessResult(exitCode: 0, stdout: statusJSON(), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyDoctorJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: fullConfigJSON(piModel: "custom-openai-model"), stderr: "")
+        ])
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+        let model = AppModel(cli: cli)
+
+        await model.refresh()
+        model.draftSummarizerModel = "  custom-openai-model  "
+
+        await model.saveSummarizerModel()
+
+        XCTAssertNil(model.lastError)
+        XCTAssertEqual(model.draftSummarizerModel, "custom-openai-model")
+        XCTAssertEqual(model.config?.summarizer.piModel, "custom-openai-model")
+        let requests = await runner.capturedRequests()
+        XCTAssertEqual(requests.map(\.arguments), [
+            ["status", "--json"],
+            ["history", "--json", "--limit", "10"],
+            ["doctor", "--json"],
+            ["config", "get"],
+            ["config", "set", "summarizer.piModel", "custom-openai-model"],
+            ["status", "--json"],
+            ["doctor", "--json"],
+            ["config", "get"]
+        ])
+    }
+
+    func testSaveSummarizerModelRejectsEmptyDraftWithoutCallingCLI() async throws {
+        let runner = RecordingRunner(results: [
+            ProcessResult(exitCode: 0, stdout: statusJSON(), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyHistoryJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyDoctorJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: fullConfigJSON(), stderr: "")
+        ])
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+        let model = AppModel(cli: cli)
+
+        await model.refresh()
+        model.draftSummarizerModel = "   "
+
+        await model.saveSummarizerModel()
+
+        XCTAssertEqual(model.lastError, "Summarizer model cannot be empty")
+        let requests = await runner.capturedRequests()
+        XCTAssertEqual(requests.map(\.arguments), [
+            ["status", "--json"],
+            ["history", "--json", "--limit", "10"],
+            ["doctor", "--json"],
+            ["config", "get"]
+        ])
+    }
+
+    func testSummarizerModelInUseUsesPriority() async throws {
+        let runner = RecordingRunner(results: [
+            ProcessResult(exitCode: 0, stdout: statusJSON(), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyHistoryJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyDoctorJSON, stderr: ""),
+            ProcessResult(
+                exitCode: 0,
+                stdout: fullConfigJSON(
+                    piModel: "pi-model",
+                    codexModel: "codex-model",
+                    priority: ["codex-fast", "pi-fast", "heuristic"]
+                ),
+                stderr: ""
+            )
+        ])
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+        let model = AppModel(cli: cli)
+
+        await model.refresh()
+
+        XCTAssertEqual(model.summarizerModelInUseLabel, "Codex model")
+        XCTAssertEqual(model.summarizerModelInUseValue, "codex-model")
+        XCTAssertTrue(model.isSummarizerModelEditable)
+    }
+
+    func testSummarizerModelInUseFallsBackToOpencodePriority() async throws {
+        let runner = RecordingRunner(results: [
+            ProcessResult(exitCode: 0, stdout: statusJSON(), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyHistoryJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyDoctorJSON, stderr: ""),
+            ProcessResult(
+                exitCode: 0,
+                stdout: fullConfigJSON(
+                    piModel: "pi-model",
+                    codexModel: "codex-model",
+                    opencodeModel: "opencode-model",
+                    priority: ["opencode", "codex-fast", "pi-fast"]
+                ),
+                stderr: ""
+            )
+        ])
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+        let model = AppModel(cli: cli)
+
+        await model.refresh()
+
+        XCTAssertEqual(model.summarizerModelInUseLabel, "OpenCode model")
+        XCTAssertEqual(model.summarizerModelInUseValue, "opencode-model")
+    }
+
+    func testValidateSummarizerModelTemporarilyWritesAndRestoresConfig() async throws {
+        let runner = RecordingRunner(results: [
+            ProcessResult(exitCode: 0, stdout: statusJSON(), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyHistoryJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyDoctorJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: fullConfigJSON(piModel: "pi-original"), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: "", stderr: ""),
+            ProcessResult(exitCode: 0, stdout: "", stderr: ""),
+            ProcessResult(exitCode: 0, stdout: "", stderr: ""),
+            ProcessResult(exitCode: 0, stdout: statusJSON(), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyDoctorJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: fullConfigJSON(piModel: "pi-original"), stderr: "")
+        ])
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+        let model = AppModel(cli: cli)
+
+        await model.refresh()
+        model.draftSummarizerModel = "  pi-validated-model  "
+
+        await model.validateSummarizerModel()
+
+        XCTAssertNil(model.lastError)
+        let requests = await runner.capturedRequests()
+        XCTAssertEqual(requests.map(\.arguments), [
+            ["status", "--json"],
+            ["history", "--json", "--limit", "10"],
+            ["doctor", "--json"],
+            ["config", "get"],
+            ["config", "set", "summarizer.piModel", "pi-validated-model"],
+            ["test", "Agent voice model validation check."],
+            ["config", "set", "summarizer.piModel", "pi-original"],
+            ["status", "--json"],
+            ["doctor", "--json"],
+            ["config", "get"]
+        ])
     }
 }
