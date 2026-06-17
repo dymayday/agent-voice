@@ -41,18 +41,41 @@ public struct AgentVoiceFullConfig: Codable, Equatable, Sendable {
 
 public struct SummarizerConfig: Codable, Equatable, Sendable {
     public let thinking: String
+    public let piModel: String
+    public let codexModel: String
+    public let opencodeModel: String?
+    public let priority: [String]
 
-    public init(thinking: String = "off") {
+    public init(
+        thinking: String = "off",
+        piModel: String = "openai-codex/gpt-5.5",
+        codexModel: String = "gpt-5.3-codex",
+        opencodeModel: String? = nil,
+        priority: [String] = ["pi-fast", "codex-fast", "heuristic"]
+    ) {
         self.thinking = thinking
+        self.piModel = piModel
+        self.codexModel = codexModel
+        self.opencodeModel = opencodeModel
+        self.priority = priority
     }
 
     private enum CodingKeys: String, CodingKey {
         case thinking
+        case piModel = "piModel"
+        case codexModel = "codexModel"
+        case opencodeModel = "opencodeModel"
+        case priority
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         thinking = try container.decodeIfPresent(String.self, forKey: .thinking) ?? "off"
+        piModel = try container.decodeIfPresent(String.self, forKey: .piModel) ?? "openai-codex/gpt-5.5"
+        codexModel = try container.decodeIfPresent(String.self, forKey: .codexModel) ?? "gpt-5.3-codex"
+        opencodeModel = try container.decodeIfPresent(String.self, forKey: .opencodeModel)
+        priority = try container.decodeIfPresent([String].self, forKey: .priority)
+            ?? ["pi-fast", "codex-fast", "heuristic"]
     }
 }
 

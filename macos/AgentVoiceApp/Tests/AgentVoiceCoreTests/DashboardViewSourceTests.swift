@@ -80,6 +80,23 @@ final class DashboardViewSourceTests: XCTestCase {
         XCTAssertTrue(thinkingControls.contains("options.contains"))
     }
 
+    func testDashboardExposesSummarizerModelSaveAndValidateControls() throws {
+        let source = try dashboardViewSource()
+        let kokoroCard = try propertyBody(named: "kokoroCard", in: source)
+        let summarizerModelControls = try propertyBody(named: "summarizerModelControls", in: source)
+
+        XCTAssertTrue(kokoroCard.contains("summarizerModelControls"))
+        XCTAssertTrue(kokoroCard.contains("labeledRow(model.summarizerModelInUseLabel"))
+        XCTAssertTrue(source.contains("private var summarizerModelControls"))
+        XCTAssertTrue(summarizerModelControls.contains("TextField(\"Model identifier\""))
+        XCTAssertTrue(summarizerModelControls.contains("model.draftSummarizerModel"))
+        XCTAssertTrue(summarizerModelControls.contains("Button(\"Save\")"))
+        XCTAssertTrue(summarizerModelControls.contains("Button(\"Validate\")"))
+        XCTAssertTrue(summarizerModelControls.contains("model.saveSummarizerModel()"))
+        XCTAssertTrue(summarizerModelControls.contains("model.validateSummarizerModel()"))
+        XCTAssertTrue(summarizerModelControls.contains("Choose from models discovered at startup"))
+    }
+
     func testDashboardAttentionSurfacesOpenAttentionWindow() throws {
         let source = try dashboardViewSource()
         let health = try propertyBody(named: "healthCard", in: source)

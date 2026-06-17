@@ -16,16 +16,24 @@ This keeps each job visually bounded, prevents one long raw text payload from st
 
 ## Layout
 
-The Diagnostics window keeps one primary page scroll for the whole window. The top sections remain focused on health, runtime, queue counts, configuration, doctor checks, and the raw diagnostic snapshot. Recent jobs move to the bottom of the page.
+The Diagnostics window keeps one primary page scroll for the whole window. The top
+sections remain focused on health, runtime, queue counts, configuration, doctor
+checks, and the raw diagnostic snapshot. Recent jobs move to the bottom of the
+page.
 
 To preserve queue visibility, split the existing queue/activity section into:
 
-1. A queue summary section near the top, containing only the existing five queue counters: pending, processing, done, failed, and skipped.
-2. A recent jobs section at the bottom, containing the history refresh controls, explanatory copy, recent job cards, and pagination controls.
+1. A queue summary section near the top, containing only the existing five queue
+   counters: pending, processing, done, failed, and skipped.
+2. A recent jobs section at the bottom, containing the history refresh controls,
+   explanatory copy, recent job cards, and pagination controls.
 
 ## Job Card Behavior
 
-Each recent-job card uses a balanced default height of 300 points. The card frame remains stable. Its content is wrapped in an internal vertical `ScrollView`, so long metadata values, summaries, errors, or raw job text can be inspected without changing the card height or pushing other sections around.
+Each recent-job card uses a balanced default height of 300 points. The card frame
+remains stable. Its content is wrapped in an internal vertical `ScrollView`, so
+long metadata values, summaries, errors, or raw job text can be inspected without
+changing the card height or pushing other sections around.
 
 The existing card content remains available:
 
@@ -48,6 +56,7 @@ Update source-level Swift tests to assert:
 - The Diagnostics body renders the recent jobs section after the raw snapshot section.
 - `jobCard` uses a fixed balanced card height of 300 points.
 - `jobCard` contains an internal `ScrollView`.
-- Existing one-primary-scroll-region tests are updated to allow the page-level `ScrollView` plus the intentional per-job-card scroll region.
+- Existing one-primary-scroll-region tests are updated to allow the page-level
+  `ScrollView` plus the intentional per-job-card scroll region.
 
 Run the Swift package tests for `AgentVoiceApp` and project type checks where practical.

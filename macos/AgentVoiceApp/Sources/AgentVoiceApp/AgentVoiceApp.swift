@@ -15,6 +15,7 @@ struct AgentVoiceApplication: App {
     init() {
         let appModel = AppModel()
         _model = StateObject(wrappedValue: appModel)
+        appModel.preloadSummarizerModels()
         AgentVoiceDockMenuDelegate.configure(model: appModel)
     }
 

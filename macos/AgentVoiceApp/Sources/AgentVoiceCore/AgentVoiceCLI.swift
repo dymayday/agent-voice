@@ -38,6 +38,11 @@ public struct AgentVoiceCLIError: Error, Equatable {
     }
 }
 
+public struct SummarizerModelsResponse: Codable, Equatable, Sendable {
+    public let providers: [String: [String]]
+    public let models: [String]
+}
+
 public struct AgentVoiceCLI: Sendable {
     public let executableURL: URL
     public let agentVoiceHome: URL?
@@ -80,6 +85,11 @@ public struct AgentVoiceCLI: Sendable {
         return try JSONDecoder().decode(AgentVoiceFullConfig.self, from: Data(result.stdout.utf8))
     }
 
+    public func summarizerModels() async throws -> SummarizerModelsResponse {
+        let result = try await run(["models", "list"])
+        return try JSONDecoder().decode(SummarizerModelsResponse.self, from: Data(result.stdout.utf8))
+    }
+
     public func pause() async throws {
         _ = try await run(["pause"])
     }
@@ -104,12 +114,20 @@ public struct AgentVoiceCLI: Sendable {
         _ = try await run(["summarizer", "mode", mode])
     }
 
+    public func setConfigValue(_ path: String, to value: String) async throws {
+        _ = try await run(["config", "set", path, value])
+    }
+
     public func setVoice(_ voice: String) async throws {
-        _ = try await run(["config", "set", "tts.voice", voice])
+        try await setConfigValue("tts.voice", to: voice)
     }
 
     public func setSummarizerThinking(_ thinking: String) async throws {
-        _ = try await run(["config", "set", "summarizer.thinking", thinking])
+        try await setConfigValue("summarizer.thinking", to: thinking)
+    }
+
+    public func setSummarizerModel(_ path: String, to model: String) async throws {
+        try await setConfigValue(path, to: model)
     }
 
     public func clearQueue() async throws {
