@@ -7,6 +7,26 @@ public struct KokoroSetupEvent: Codable, Equatable, Sendable {
         case complete
     }
 
+    private enum CodingKeys: String, CodingKey {
+        case type
+        case id
+        case status
+        case title
+        case stream
+        case message
+        case ok
+        case error
+    }
+
+    private static let allowedStepStatuses: Set<String> = [
+        "pending",
+        "running",
+        "done",
+        "failed",
+        "skipped"
+    ]
+    private static let allowedLogStreams: Set<String> = ["stdout", "stderr"]
+
     public let type: EventType
     public let id: String?
     public let status: String?
@@ -34,6 +54,101 @@ public struct KokoroSetupEvent: Codable, Equatable, Sendable {
         self.message = message
         self.ok = ok
         self.error = error
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let type = try container.decode(EventType.self, forKey: .type)
+        let id = try container.decodeIfPresent(String.self, forKey: .id)
+        let status = try container.decodeIfPresent(String.self, forKey: .status)
+        let title = try container.decodeIfPresent(String.self, forKey: .title)
+        let stream = try container.decodeIfPresent(String.self, forKey: .stream)
+        let message = try container.decodeIfPresent(String.self, forKey: .message)
+        let ok = try container.decodeIfPresent(Bool.self, forKey: .ok)
+        let error = try container.decodeIfPresent(String.self, forKey: .error)
+
+        switch type {
+        case .step:
+            try Self.validateStep(id: id, status: status, title: title, container: container)
+        case .log:
+            try Self.validateLog(stream: stream, message: message, container: container)
+        case .complete:
+            try Self.validateComplete(ok: ok, container: container)
+        }
+
+        self.init(
+            type: type,
+            id: id,
+            status: status,
+            title: title,
+            stream: stream,
+            message: message,
+            ok: ok,
+            error: error
+        )
+    }
+
+    private static func validateStep(
+        id: String?,
+        status: String?,
+        title: String?,
+        container: KeyedDecodingContainer<CodingKeys>
+    ) throws {
+        guard let id, KokoroSetupSteps.all.contains(where: { $0.id == id }) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .id,
+                in: container,
+                debugDescription: "Unknown Kokoro setup step id"
+            )
+        }
+        guard let status, allowedStepStatuses.contains(status) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .status,
+                in: container,
+                debugDescription: "Unknown Kokoro setup step status"
+            )
+        }
+        guard let title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .title,
+                in: container,
+                debugDescription: "Kokoro setup step title is required"
+            )
+        }
+    }
+
+    private static func validateLog(
+        stream: String?,
+        message: String?,
+        container: KeyedDecodingContainer<CodingKeys>
+    ) throws {
+        guard let stream, allowedLogStreams.contains(stream) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .stream,
+                in: container,
+                debugDescription: "Unknown Kokoro setup log stream"
+            )
+        }
+        guard message != nil else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .message,
+                in: container,
+                debugDescription: "Kokoro setup log message is required"
+            )
+        }
+    }
+
+    private static func validateComplete(
+        ok: Bool?,
+        container: KeyedDecodingContainer<CodingKeys>
+    ) throws {
+        guard ok != nil else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .ok,
+                in: container,
+                debugDescription: "Kokoro setup complete event requires ok"
+            )
+        }
     }
 }
 

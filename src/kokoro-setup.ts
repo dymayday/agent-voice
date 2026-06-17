@@ -5,6 +5,7 @@ import {
 	lstatSync,
 	mkdirSync,
 	openSync,
+	readFileSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
@@ -103,6 +104,7 @@ const STEP_TITLES: Record<KokoroSetupStepId, string> = {
 const DEFAULT_COMMAND_TIMEOUT_MS = 10 * 60 * 1000;
 const DEFAULT_SMOKE_TEST_TIMEOUT_MS = 60 * 1000;
 const KOKORO_REPO_ID = "hexgrad/Kokoro-82M";
+const SMOKE_TEST_TEXT = "Agent Voice Kokoro setup smoke test.";
 
 export function kokoroManagedHome(paths: AgentVoicePaths): string {
 	return join(paths.home, "kokoro");
@@ -252,13 +254,39 @@ function assertSafeManagedDirectoryTarget(
 	}
 }
 
-function acquireSetupLock(paths: AgentVoicePaths): () => void {
-	assertManagedRoot(paths);
-	const lockPath = kokoroSetupLockPath(paths);
-	assertManagedChild(paths, lockPath);
-	let fd: number;
+function processExists(pid: number): boolean {
+	if (!Number.isInteger(pid) || pid <= 0) return false;
 	try {
-		fd = openSync(lockPath, "wx");
+		process.kill(pid, 0);
+		return true;
+	} catch (error) {
+		const code = (error as NodeJS.ErrnoException).code;
+		if (code === "ESRCH") return false;
+		if (code === "EPERM") return true;
+		return true;
+	}
+}
+
+function removeStaleSetupLock(lockPath: string): boolean {
+	const stat = lstatIfExists(lockPath);
+	if (!stat || stat.isSymbolicLink() || !stat.isFile()) return false;
+
+	const pidText = readFileSync(lockPath, "utf8").trim();
+	if (!pidText) {
+		rmSync(lockPath, { force: true });
+		return true;
+	}
+
+	const pid = Number(pidText);
+	if (!Number.isInteger(pid) || processExists(pid)) return false;
+
+	rmSync(lockPath, { force: true });
+	return true;
+}
+
+function openSetupLock(lockPath: string): number {
+	try {
+		return openSync(lockPath, "wx");
 	} catch (error) {
 		const code = (error as NodeJS.ErrnoException).code;
 		if (code === "EEXIST") {
@@ -267,6 +295,26 @@ function acquireSetupLock(paths: AgentVoicePaths): () => void {
 			);
 		}
 		throw error;
+	}
+}
+
+function acquireSetupLock(paths: AgentVoicePaths): () => void {
+	assertManagedRoot(paths);
+	const lockPath = kokoroSetupLockPath(paths);
+	assertManagedChild(paths, lockPath);
+	let fd: number;
+	try {
+		fd = openSetupLock(lockPath);
+	} catch (error) {
+		if (
+			error instanceof Error &&
+			error.message.includes("already running") &&
+			removeStaleSetupLock(lockPath)
+		) {
+			fd = openSetupLock(lockPath);
+		} else {
+			throw error;
+		}
 	}
 
 	let closed = false;
@@ -390,16 +438,21 @@ async function run(request: {
 	}
 }
 
-function parseServiceLine(
-	line: string,
-): { status?: string; error?: string } | null {
+interface KokoroServiceMessage {
+	status?: string;
+	error?: string;
+	audio?: unknown;
+	duration?: unknown;
+}
+
+function parseServiceLine(line: string): KokoroServiceMessage | null {
 	const trimmed = line.trim();
 	if (!trimmed) return null;
 	const parsed = JSON.parse(trimmed) as unknown;
 	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
 		throw new Error(`Invalid Kokoro smoke-test response: ${trimmed}`);
 	}
-	return parsed as { status?: string; error?: string };
+	return parsed as KokoroServiceMessage;
 }
 
 async function readServiceLine(
@@ -426,7 +479,40 @@ async function readServiceLine(
 	}
 }
 
-async function smokeTest(
+async function readServiceMessage(
+	reader: ReadableStreamDefaultReader<Uint8Array>,
+	buffer: { value: string },
+	decoder: TextDecoder,
+	timeoutMessage: string,
+): Promise<KokoroServiceMessage | null> {
+	let timeout: ReturnType<typeof setTimeout> | undefined;
+	try {
+		const line = await Promise.race([
+			readServiceLine(reader, buffer, decoder),
+			new Promise<never>((_resolve, reject) => {
+				timeout = setTimeout(
+					() => reject(new Error(timeoutMessage)),
+					DEFAULT_SMOKE_TEST_TIMEOUT_MS,
+				);
+			}),
+		]);
+		return line === null ? null : parseServiceLine(line);
+	} finally {
+		if (timeout) clearTimeout(timeout);
+	}
+}
+
+function isSmokeTestAudio(message: KokoroServiceMessage): boolean {
+	return (
+		typeof message.audio === "string" &&
+		message.audio.length > 0 &&
+		typeof message.duration === "number" &&
+		Number.isFinite(message.duration) &&
+		message.duration >= 0
+	);
+}
+
+export async function testKokoroService(
 	pythonPath: string,
 	scriptPath: string,
 	env: Record<string, string>,
@@ -447,24 +533,16 @@ async function smokeTest(
 	const reader = stdout.getReader();
 	const decoder = new TextDecoder();
 	const buffer = { value: "" };
-	let timeout: ReturnType<typeof setTimeout> | undefined;
 
 	try {
 		while (true) {
-			const line = await Promise.race([
-				readServiceLine(reader, buffer, decoder),
-				new Promise<never>((_resolve, reject) => {
-					timeout = setTimeout(
-						() => reject(new Error("Timed out waiting for Kokoro ready")),
-						DEFAULT_SMOKE_TEST_TIMEOUT_MS,
-					);
-				}),
-			]);
-			if (timeout) {
-				clearTimeout(timeout);
-				timeout = undefined;
-			}
-			if (line === null) {
+			const message = await readServiceMessage(
+				reader,
+				buffer,
+				decoder,
+				"Timed out waiting for Kokoro ready",
+			);
+			if (message === null) {
 				const stderr = (await stderrText).trim();
 				return {
 					ok: false,
@@ -473,21 +551,44 @@ async function smokeTest(
 						: "Kokoro exited before ready",
 				};
 			}
-
-			let message;
-			try {
-				message = parseServiceLine(line);
-			} catch (error) {
-				return { ok: false, error: errorMessage(error) };
-			}
-			if (!message) continue;
 			if (message.error) return { ok: false, error: message.error };
-			if (message.status === "ready") return { ok: true };
+			if (message.status === "ready") break;
+		}
+
+		const stdin = proc.stdin;
+		if (!stdin || typeof stdin === "number") {
+			return { ok: false, error: "Kokoro smoke-test stdin is not writable" };
+		}
+		stdin.write(`${JSON.stringify({ text: SMOKE_TEST_TEXT })}\n`);
+		stdin.end();
+
+		while (true) {
+			const message = await readServiceMessage(
+				reader,
+				buffer,
+				decoder,
+				"Timed out waiting for Kokoro audio",
+			);
+			if (message === null) {
+				const stderr = (await stderrText).trim();
+				return {
+					ok: false,
+					error: stderr
+						? `Kokoro exited before audio: ${stderr}`
+						: "Kokoro exited before audio",
+				};
+			}
+			if (message.error) return { ok: false, error: message.error };
+			if (isSmokeTestAudio(message)) return { ok: true };
+			if (message.status) continue;
+			return {
+				ok: false,
+				error: "Invalid Kokoro smoke-test audio response",
+			};
 		}
 	} catch (error) {
 		return { ok: false, error: errorMessage(error) };
 	} finally {
-		if (timeout) clearTimeout(timeout);
 		try {
 			reader.releaseLock();
 		} catch {
@@ -510,7 +611,7 @@ async function smokeTest(
 const defaultDeps: KokoroSetupDeps = {
 	commandExists,
 	run,
-	smokeTest,
+	smokeTest: testKokoroService,
 };
 
 function emitLogs(

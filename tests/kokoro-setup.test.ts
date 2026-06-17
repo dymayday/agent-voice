@@ -18,6 +18,7 @@ import {
 	kokoroManagedPython,
 	kokoroManagedScript,
 	runKokoroSetup,
+	testKokoroService,
 	type KokoroSetupDeps,
 	type KokoroSetupEvent,
 } from "../src/kokoro-setup";
@@ -193,7 +194,10 @@ describe("Kokoro setup module", () => {
 		try {
 			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
 			mkdirSync(kokoroManagedHome(paths), { recursive: true });
-			writeFileSync(join(kokoroManagedHome(paths), "setup.lock"), "123\n");
+			writeFileSync(
+				join(kokoroManagedHome(paths), "setup.lock"),
+				`${process.pid}\n`,
+			);
 			const outcome = await runKokoroSetup(paths, {
 				deps: fakeDeps(),
 				emit: () => {},
@@ -202,6 +206,27 @@ describe("Kokoro setup module", () => {
 			expect(outcome.error).toContain("already running");
 			expect(existsSync(join(kokoroManagedHome(paths), "setup.lock"))).toBe(
 				true,
+			);
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	test("kokoro setup removes a stale empty setup lock and proceeds", async () => {
+		const home = tempHome();
+		try {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			mkdirSync(kokoroManagedHome(paths), { recursive: true });
+			writeFileSync(join(kokoroManagedHome(paths), "setup.lock"), "");
+
+			const outcome = await runKokoroSetup(paths, {
+				deps: fakeDeps(),
+				emit: () => {},
+			});
+
+			expect(outcome.ok).toBe(true);
+			expect(existsSync(join(kokoroManagedHome(paths), "setup.lock"))).toBe(
+				false,
 			);
 		} finally {
 			rmSync(home, { recursive: true, force: true });
@@ -264,6 +289,52 @@ describe("Kokoro setup module", () => {
 			expect(second.ok).toBe(true);
 			expect(secondConfig).toEqual(firstConfig);
 			expect(existsSync(kokoroManagedScript(paths))).toBe(true);
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	test("kokoro service smoke test exercises synthesis after readiness", async () => {
+		const home = tempHome();
+		try {
+			const script = join(home, "fake-kokoro-service.js");
+			writeFileSync(
+				script,
+				[
+					'process.stdout.write(JSON.stringify({ status: "ready" }) + "\\n");',
+					"process.stdin.setEncoding('utf8');",
+					"process.stdin.on('data', (chunk) => {",
+					"  const request = JSON.parse(chunk.trim());",
+					"  if (request.text === 'Agent Voice Kokoro setup smoke test.') {",
+					'    process.stdout.write(JSON.stringify({ audio: "UklGRg==", duration: 0.1 }) + "\\n");',
+					"  } else {",
+					'    process.stdout.write(JSON.stringify({ error: "unexpected text" }) + "\\n");',
+					"  }",
+					"});",
+				].join("\n"),
+			);
+
+			const result = await testKokoroService(process.execPath, script, {});
+
+			expect(result).toEqual({ ok: true });
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	test("kokoro service smoke test rejects ready-only services", async () => {
+		const home = tempHome();
+		try {
+			const script = join(home, "ready-only-service.js");
+			writeFileSync(
+				script,
+				'process.stdout.write(JSON.stringify({ status: "ready" }) + "\\n");\n',
+			);
+
+			const result = await testKokoroService(process.execPath, script, {});
+
+			expect(result.ok).toBe(false);
+			expect(result.error).toContain("audio");
 		} finally {
 			rmSync(home, { recursive: true, force: true });
 		}
@@ -381,6 +452,50 @@ describe("Kokoro setup CLI", () => {
 				.split("\n")
 				.map((line) => JSON.parse(line));
 			expect(lines.at(-1)).toMatchObject({ type: "complete", ok: true });
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	test("CLI kokoro setup --jsonl streams only parseable JSON lines", async () => {
+		const home = tempHome();
+		try {
+			const chunks: string[] = [];
+			const result = await runCli(["kokoro", "setup", "--jsonl"], {
+				env: { AGENT_VOICE_HOME: home },
+				kokoroSetupDeps: fakeDeps({
+					run: async (request) => {
+						if (
+							request.cmd === "uv" &&
+							request.args[0] === "venv" &&
+							request.cwd
+						) {
+							const binDir = join(request.cwd, ".venv", "bin");
+							mkdirSync(binDir, { recursive: true });
+							writeFileSync(join(binDir, "python"), "#!/bin/sh\n", "utf8");
+						}
+						return {
+							ok: true,
+							stdout: "raw child stdout that is not JSON",
+							stderr: "raw child stderr that is not JSON",
+						};
+					},
+				}),
+				writeStdout: async (chunk) => {
+					chunks.push(chunk);
+				},
+			});
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toBe("");
+			expect(result.stderr).toBe("");
+			const events = chunks
+				.join("")
+				.trim()
+				.split("\n")
+				.map((line) => JSON.parse(line));
+			expect(events.some((event) => event.type === "log")).toBe(true);
+			expect(events.at(-1)).toMatchObject({ type: "complete", ok: true });
 		} finally {
 			rmSync(home, { recursive: true, force: true });
 		}
