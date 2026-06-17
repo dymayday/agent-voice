@@ -248,8 +248,14 @@ public final class AppModel: ObservableObject {
     }
 
     public func clearFailedJobs() async {
-        shouldReplaceHistoryOnNextRefresh = true
-        await perform { try await cli.clearFailedJobs() }
+        do {
+            try await cli.clearFailedJobs()
+            shouldReplaceHistoryOnNextRefresh = true
+            await refresh()
+        } catch {
+            shouldReplaceHistoryOnNextRefresh = false
+            lastError = String(describing: error)
+        }
     }
 
     public func saveVoice() async {

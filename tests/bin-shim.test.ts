@@ -1,6 +1,8 @@
 import {
+	existsSync,
 	mkdtempSync,
 	mkdirSync,
+	readFileSync,
 	rmSync,
 	symlinkSync,
 	writeFileSync,
@@ -30,6 +32,24 @@ function withFakeNvmBun<T>(fn: (home: string) => T): T {
 }
 
 describe("agent-voice bin shim", () => {
+	test("bin shims source one shared Bun lookup helper", () => {
+		expect(existsSync("bin/lib/find-bun.sh")).toBe(true);
+		const helper = readFileSync("bin/lib/find-bun.sh", "utf8");
+		expect(helper).toContain("find_agent_voice_bun()");
+
+		for (const shim of ["bin/agent-voice", "bin/voice-codex", "bin/voice-opencode"]) {
+			const source = readFileSync(shim, "utf8");
+			expect(source).toContain('. "$SCRIPT_DIR/lib/find-bun.sh"');
+			expect(source).not.toContain("find_bun()");
+		}
+	});
+
+	test("macOS bundle script copies the shared Bun lookup helper", () => {
+		const source = readFileSync("scripts/build-macos-app.sh", "utf8");
+		expect(source).toContain('mkdir -p "$MACOS_DIR" "$RESOURCES_DIR" "$CLI_DIR/bin" "$CLI_DIR/bin/lib"');
+		expect(source).toContain('cp -R "$ROOT_DIR/bin/lib/." "$CLI_DIR/bin/lib/"');
+	});
+
 	test("finds nvm-installed bun when launched with a GUI-like PATH", () => {
 		withFakeNvmBun((home) => {
 			const result = Bun.spawnSync({

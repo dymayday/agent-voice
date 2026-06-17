@@ -24,13 +24,14 @@ swift build -c release --package-path "$PACKAGE_DIR"
 BIN_DIR="$(swift build -c release --package-path "$PACKAGE_DIR" --show-bin-path)"
 
 rm -rf "$APP_DIR"
-mkdir -p "$MACOS_DIR" "$RESOURCES_DIR" "$CLI_DIR/bin"
+mkdir -p "$MACOS_DIR" "$RESOURCES_DIR" "$CLI_DIR/bin" "$CLI_DIR/bin/lib"
 
 install -m 755 "$BIN_DIR/AgentVoiceApp" "$MACOS_DIR/AgentVoiceApp"
 cp "$PACKAGE_DIR/Resources/Info.plist" "$CONTENTS_DIR/Info.plist"
 cp "$PACKAGE_DIR/Resources/AppIcon.icns" "$RESOURCES_DIR/AppIcon.icns"
 
 install -m 755 "$ROOT_DIR/bin/agent-voice" "$CLI_DIR/bin/agent-voice"
+cp -R "$ROOT_DIR/bin/lib/." "$CLI_DIR/bin/lib/"
 cp -R "$ROOT_DIR/src" "$CLI_DIR/src"
 cp "$ROOT_DIR/package.json" "$CLI_DIR/package.json"
 if [[ -f "$ROOT_DIR/bun.lock" ]]; then

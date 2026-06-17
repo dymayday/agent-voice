@@ -57,7 +57,7 @@ export function buildDoctorReport(
 				? {}
 				: {
 						action:
-							"Run: agent-voice config set tts.kokoroScript /absolute/path/to/kokoro_tts_service.py",
+							"Open Setup to configure Kokoro, or run: agent-voice config set tts.kokoroScript /absolute/path/to/kokoro_tts_service.py",
 					}),
 		});
 	}

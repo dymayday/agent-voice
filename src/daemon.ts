@@ -6,6 +6,7 @@ import {
 	closeSync,
 	readFileSync,
 	rmSync,
+	statSync,
 	writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
@@ -223,12 +224,35 @@ function processorDepsForConfig(
 	return deps.processorDepsForConfig?.(config) ?? requireProcessorDeps(deps);
 }
 
+interface DaemonConfigCache {
+	config: AgentVoiceConfig;
+	mtimeMs: number | null;
+}
+
 function currentDaemonConfig(
 	paths: AgentVoicePaths,
-	fallback: AgentVoiceConfig,
+	cache: DaemonConfigCache,
 ): AgentVoiceConfig {
-	if (!existsSync(paths.config)) return fallback;
-	return loadConfig(paths, { createIfMissing: false });
+	if (!existsSync(paths.config)) {
+		cache.mtimeMs = null;
+		return cache.config;
+	}
+
+	let mtimeMs: number;
+	try {
+		mtimeMs = statSync(paths.config).mtimeMs;
+	} catch {
+		return cache.config;
+	}
+	if (cache.mtimeMs === mtimeMs) return cache.config;
+
+	cache.mtimeMs = mtimeMs;
+	try {
+		cache.config = loadConfig(paths, { createIfMissing: false });
+	} catch {
+		// Keep serving the last known-good config until the file changes again.
+	}
+	return cache.config;
 }
 
 export async function runDaemonOnce(
@@ -280,6 +304,7 @@ export async function runDaemonLoop(
 	const maxIterations = deps.maxIterations ?? Number.POSITIVE_INFINITY;
 	const pollIntervalMs = deps.pollIntervalMs ?? 200;
 	const pruneEvery = deps.pruneEveryIterations ?? 300;
+	const configCache: DaemonConfigCache = { config, mtimeMs: null };
 	let activeProcessorDeps: ProcessorDeps | null = null;
 	async function getProcessorDeps(currentConfig: AgentVoiceConfig): Promise<ProcessorDeps> {
 		const nextDeps = processorDepsForConfig(deps, currentConfig);
@@ -298,7 +323,7 @@ export async function runDaemonLoop(
 	try {
 		const clock = deps.now ?? (() => new Date());
 		while (summary.iterations < maxIterations && !hasIntentionalStop(paths)) {
-			const currentConfig = currentDaemonConfig(paths, config);
+			const currentConfig = currentDaemonConfig(paths, configCache);
 			const procDeps = await getProcessorDeps(currentConfig);
 			const result = await processNextJob(db, currentConfig, procDeps, clock);
 			summary.iterations += 1;

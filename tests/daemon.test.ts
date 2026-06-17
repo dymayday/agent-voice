@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defaultConfig, saveConfig, type AgentVoiceConfig } from "../src/config";
@@ -154,6 +154,52 @@ describe("agent-voice daemon processor", () => {
 				expect(readJob(check, second.id).status).toBe("skipped");
 				expect(readJob(check, second.id).skip_reason).toBe("disabled_system");
 				expect(spoken).toEqual([`Summary for ${first.id}`]);
+			} finally {
+				check.close();
+			}
+		});
+	});
+
+	test("running daemon keeps the last valid config when a reload is temporarily invalid", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			const first = createEvent({ agent: "claude", text: "First job." });
+			const second = createEvent({ agent: "claude", text: "Second job." });
+			const initialConfig = config({ enabled: true });
+			saveConfig(paths, initialConfig);
+			const db = openDb(paths.db);
+			try {
+				enqueue(db, first);
+				enqueue(db, second);
+			} finally {
+				db.close();
+			}
+
+			const spoken: string[] = [];
+			await runDaemonLoop(paths, initialConfig, {
+				maxIterations: 2,
+				pollIntervalMs: 0,
+				processorDeps: deps({
+					summarize: async (event) => {
+						if (event.id === first.id) {
+							writeFileSync(paths.config, "{ invalid json", "utf8");
+						}
+						return `Summary for ${event.id}`;
+					},
+					speak: async (summary) => {
+						spoken.push(summary);
+					},
+				}),
+			});
+
+			const check = openDb(paths.db);
+			try {
+				expect(readJob(check, first.id).status).toBe("done");
+				expect(readJob(check, second.id).status).toBe("done");
+				expect(spoken).toEqual([
+					`Summary for ${first.id}`,
+					`Summary for ${second.id}`,
+				]);
 			} finally {
 				check.close();
 			}

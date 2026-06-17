@@ -357,7 +357,7 @@ describe("agent-voice enqueue CLI", () => {
 		});
 	});
 
-	test("malformed Claude hook JSON reports a diagnostic and does not enqueue generic speech", async () => {
+	test("malformed Claude hook JSON exits successfully with a diagnostic and does not enqueue generic speech", async () => {
 		await withTempHome(async (home) => {
 			for (const format of ["claude-stop-hook", "claude-pretooluse-hook"]) {
 				const malformed = await runCli(
@@ -367,7 +367,7 @@ describe("agent-voice enqueue CLI", () => {
 						stdin: "not json",
 					},
 				);
-				expect(malformed.exitCode, format).toBe(2);
+				expect(malformed.exitCode, format).toBe(0);
 				expect(malformed.stderr).toContain(`Malformed ${format} JSON`);
 			}
 			expect(pendingCount(home)).toBe(0);

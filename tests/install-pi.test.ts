@@ -250,7 +250,7 @@ describe("agent-voice Pi installer", () => {
 		});
 	});
 
-	test("generated Pi extension reports enqueue command failures without blocking", async () => {
+	test("generated Pi extension launches enqueue failures without observing child stderr", async () => {
 		await withTempHome(async (home) => {
 			const executablePath = join(home, "failing-agent-voice");
 			writeFileSync(
@@ -268,8 +268,7 @@ describe("agent-voice Pi installer", () => {
 
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("extension callback returned");
-			expect(result.stderr).toContain("agent-voice enqueue failed");
-			expect(result.stderr).toContain("database unavailable");
+			expect(result.stderr).toBe("");
 		});
 	});
 
@@ -395,6 +394,16 @@ await handlers.agent_end({
 			AGENT_VOICE_EXECUTABLE: "/repo/bin/agent-voice",
 		});
 		expect(source).not.toContain("Pi finished responding.");
+	});
+
+	test("generated Pi extension does not keep child stderr open", () => {
+		const source = buildPiExtensionSource({
+			HOME: "/home/test",
+			AGENT_VOICE_EXECUTABLE: "/repo/bin/agent-voice",
+		});
+		expect(source).toContain('stdio: ["pipe", "ignore", "ignore"]');
+		expect(source).not.toContain("child.stderr");
+		expect(source).not.toContain("stderr +=");
 	});
 
 	test("install refuses to overwrite unowned Pi extension", async () => {

@@ -51,6 +51,28 @@ describe("agent-voice doctor --json", () => {
 		});
 	});
 
+	test("missing Kokoro script recommends setup before manual path editing", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			loadConfig(paths);
+
+			const result = await runCli(["doctor", "--json"], {
+				env: { AGENT_VOICE_HOME: home },
+				daemonDeps: { isPidAlive: () => false },
+			});
+
+			expect(result.exitCode).toBe(0);
+			const parsed = JSON.parse(result.stdout) as {
+				checks: Array<{ id: string; action?: string }>;
+			};
+			const ttsCheck = parsed.checks.find(
+				(check) => check.id === "tts.kokoroScript.exists",
+			);
+			expect(ttsCheck?.action).toContain("Open Setup");
+			expect(ttsCheck?.action).toContain("agent-voice config set");
+		});
+	});
+
 	test("reports missing config without creating config or queue files", async () => {
 		await withTempHome(async (home) => {
 			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
