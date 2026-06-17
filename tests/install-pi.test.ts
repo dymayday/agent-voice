@@ -95,7 +95,9 @@ function countAgentVoiceClaudeHooks(settings: Record<string, any>): number {
 	return agentVoiceClaudeHooks(settings).length;
 }
 
-function preToolUseGroups(settings: Record<string, any>): Record<string, any>[] {
+function preToolUseGroups(
+	settings: Record<string, any>,
+): Record<string, any>[] {
 	const groups = settings.hooks?.PreToolUse;
 	return Array.isArray(groups) ? groups : [];
 }

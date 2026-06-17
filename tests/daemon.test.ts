@@ -2,7 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { defaultConfig, saveConfig, type AgentVoiceConfig } from "../src/config";
+import {
+	defaultConfig,
+	saveConfig,
+	type AgentVoiceConfig,
+} from "../src/config";
 import { runDaemonLoop } from "../src/daemon";
 import { openDb } from "../src/db";
 import { createEvent, type AgentVoiceEvent } from "../src/events";

@@ -402,7 +402,13 @@ describe("agent-voice enqueue CLI", () => {
 					stdin: JSON.stringify(event),
 				},
 				{
-					args: ["enqueue", "--format", "claude-stop-hook", "--agent", "claude"],
+					args: [
+						"enqueue",
+						"--format",
+						"claude-stop-hook",
+						"--agent",
+						"claude",
+					],
 					stdin: JSON.stringify({ assistant_response: longText }),
 				},
 				{
