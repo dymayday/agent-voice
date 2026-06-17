@@ -198,6 +198,9 @@ struct MenuBarSentinelView: View {
                 actionButton("Clear Queue", systemImage: "trash", role: .destructive, disabled: !canClearQueue) {
                     Task { await model.clearQueue() }
                 }
+                actionButton("Clear Failed Jobs", systemImage: "xmark.octagon", role: .destructive, disabled: !canClearFailedQueue) {
+                    Task { await model.clearFailedJobs() }
+                }
             }
         }
     }
@@ -471,6 +474,11 @@ extension MenuBarSentinelView {
     private var canClearQueue: Bool {
         guard let queues = model.status?.queues else { return false }
         return queues.pending + queues.processing > 0
+    }
+
+    private var canClearFailedQueue: Bool {
+        guard let queues = model.status?.queues else { return false }
+        return queues.failed > 0
     }
 
     private var daemonButtonTitle: String {

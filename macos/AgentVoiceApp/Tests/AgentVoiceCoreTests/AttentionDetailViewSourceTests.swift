@@ -31,6 +31,7 @@ final class AttentionDetailViewSourceTests: XCTestCase {
         XCTAssertTrue(source.contains("model.startAutoRefresh()"))
         XCTAssertTrue(source.contains("model.stopAutoRefresh()"))
         XCTAssertTrue(source.contains("textSelection(.enabled)"))
+        XCTAssertTrue(source.contains("model.clearFailedJobs()"))
     }
 
     func testAttentionDetailViewUsesPageScrollPlusJobCardScroll() throws {
@@ -77,6 +78,8 @@ final class AttentionDetailViewSourceTests: XCTestCase {
         XCTAssertTrue(queueSummary.contains("Done"))
         XCTAssertTrue(queueSummary.contains("Failed"))
         XCTAssertTrue(queueSummary.contains("Skipped"))
+        XCTAssertTrue(queueSummary.contains("Clear Failed Jobs"))
+        XCTAssertTrue(queueSummary.contains(".disabled(queues.failed == 0)"))
         XCTAssertFalse(queueSummary.contains("Refresh history"))
         XCTAssertFalse(queueSummary.contains("ForEach(recentJobs)"))
 

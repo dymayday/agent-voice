@@ -326,6 +326,16 @@ final class AgentVoiceCLITests: XCTestCase {
         XCTAssertEqual(requests.first?.arguments, ["queue", "clear"])
     }
 
+    func testClearFailedJobsCommand() async throws {
+        let runner = RecordingRunner(stdout: "Cleared 1 failed job.\n")
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+
+        try await cli.clearFailedJobs()
+
+        let requests = await runner.capturedRequests()
+        XCTAssertEqual(requests.first?.arguments, ["queue", "clear", "--failed"])
+    }
+
     func testDefaultExecutablePrefersEnvironmentOverride() throws {
         let settings = AppSettings.defaultSettings(env: ["AGENT_VOICE_EXECUTABLE": "/tmp/agent-voice"])
         XCTAssertEqual(settings.executableURL.path, "/tmp/agent-voice")

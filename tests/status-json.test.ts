@@ -116,6 +116,40 @@ describe("agent-voice status --json", () => {
 		});
 	});
 
+	test("queue clear --failed removes failed-job attention", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			const event = createEvent({ agent: "codex", text: "Failed." });
+			const db = openDb(paths.db);
+			enqueue(db, event);
+			markFailed(db, event.id, new Date("2026-06-15T00:00:00.000Z"), "boom");
+			db.close();
+
+			const before = await runCli(["status", "--json"], {
+				env: { AGENT_VOICE_HOME: home },
+				daemonDeps: { isPidAlive: () => false },
+			});
+			const beforeParsed = JSON.parse(before.stdout) as JsonStatus;
+			expect(beforeParsed.ui.state).toBe("needs_attention");
+			expect(beforeParsed.ui.attention).toContain("failed_jobs");
+			expect(beforeParsed.queues.failed).toBe(1);
+
+			const clearResult = await runCli(["queue", "clear", "--failed"], {
+				env: { AGENT_VOICE_HOME: home },
+			});
+			expect(clearResult.exitCode).toBe(0);
+			expect(clearResult.stdout).toBe("Cleared 1 failed job.\n");
+
+			const after = await runCli(["status", "--json"], {
+				env: { AGENT_VOICE_HOME: home },
+				daemonDeps: { isPidAlive: () => false },
+			});
+			const afterParsed = JSON.parse(after.stdout) as JsonStatus;
+			expect(afterParsed.queues.failed).toBe(0);
+			expect(afterParsed.ui.attention).not.toContain("failed_jobs");
+		});
+	});
+
 	test("reports stale daemon lock as needs attention", async () => {
 		await withTempHome(async (home) => {
 			const paths = resolvePaths({ AGENT_VOICE_HOME: home });

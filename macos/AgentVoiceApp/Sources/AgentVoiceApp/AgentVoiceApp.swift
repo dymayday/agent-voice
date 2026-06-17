@@ -122,6 +122,11 @@ extension DashboardView {
         return queues.pending + queues.processing > 0
     }
 
+    var canClearFailedQueue: Bool {
+        guard let queues = model.status?.queues else { return false }
+        return queues.failed > 0
+    }
+
     var doctorIssues: [DoctorCheck] {
         model.doctorReport?.checks.filter {
             !$0.ok || $0.severity == .warning || $0.severity == .error
@@ -165,6 +170,27 @@ extension DashboardView {
 
     var daemonTint: Color {
         model.status?.daemon.running == true ? .green : .orange
+    }
+
+    var canClearWarningState: Bool {
+        guard model.status != nil else { return false }
+
+        if model.status?.ui.attention.contains("failed_jobs") == true {
+            return true
+        }
+        if model.status?.ui.attention.contains("system_paused") == true {
+            return true
+        }
+        if model.status?.ui.attention.contains("stale_daemon_lock") == true {
+            return true
+        }
+        if model.status?.ui.state == .daemonStopped {
+            return true
+        }
+
+        return model.doctorReport?.checks.contains {
+            (!$0.ok && $0.id == "daemon.running") || (!$0.ok && $0.id == "queue.failed.empty")
+        } == true
     }
 
     func queueTint(for queues: QueueCounts) -> Color {

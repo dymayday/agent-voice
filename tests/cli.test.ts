@@ -38,6 +38,37 @@ describe("agent-voice CLI", () => {
 		}
 	});
 
+	test("queue clear --failed removes failed jobs and reports count", async () => {
+		const home = mkdtempSync(join(tmpdir(), "agent-voice-cli-clear-failed-"));
+		const db = openDb(join(home, "queue.db"));
+		try {
+			const pending = createEvent({ agent: "claude", text: "Pending." });
+			const done = createEvent({ agent: "pi", text: "Done." });
+			const failed = createEvent({ agent: "codex", text: "Failed." });
+			enqueue(db, pending);
+			enqueue(db, done);
+			enqueue(db, failed);
+			db.query("UPDATE jobs SET status='processing' WHERE id=?").run(
+				pending.id,
+			);
+			db.query("UPDATE jobs SET status='done' WHERE id=?").run(done.id);
+			db.query("UPDATE jobs SET status='failed' WHERE id=?").run(failed.id);
+
+			const result = await runCli(["queue", "clear", "--failed"], {
+				env: { AGENT_VOICE_HOME: home },
+			});
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toBe("Cleared 1 failed job.\n");
+			expect(countByStatus(db).failed).toBe(0);
+			expect(countByStatus(db).processing).toBe(1);
+			expect(countByStatus(db).done).toBe(1);
+		} finally {
+			db.close();
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
 	test("prints help with core commands", async () => {
 		const result = await runCli(["--help"], { stdout: "", stderr: "" });
 

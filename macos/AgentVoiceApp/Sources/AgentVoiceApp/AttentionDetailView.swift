@@ -124,6 +124,20 @@ private extension AttentionDetailView {
                     labeledRow("Done", String(queues.done), valueTint: .green)
                     labeledRow("Failed", String(queues.failed), valueTint: queues.failed > 0 ? .red : .primary)
                     labeledRow("Skipped", String(queues.skipped), valueTint: queues.skipped > 0 ? .secondary : .primary)
+
+                    HStack {
+                        Text("Queue actions")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+
+                        Spacer()
+
+                        Button("Clear Failed Jobs", role: .destructive) {
+                            Task { await model.clearFailedJobs() }
+                        }
+                        .disabled(queues.failed == 0)
+                    }
+                    .accessibilityElement(children: .combine)
                 } else {
                     emptyState("Queue counts unavailable. Refresh diagnostics to load queue state.")
                 }

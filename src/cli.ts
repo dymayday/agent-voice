@@ -37,7 +37,7 @@ import { resolvePaths } from "./paths";
 import type { ProcessorDeps } from "./processor";
 import { summarizeWithSource } from "./summarizers";
 import { openDb } from "./db";
-import { clearActiveQueue, enqueue } from "./store";
+import { clearActiveQueue, clearFailedJobs, enqueue } from "./store";
 import { buildAppStatusSnapshot, formatAppStatusJson } from "./status";
 import { isSummarizerMode, setSummarizerMode } from "./summarizer-mode";
 import { KokoroClient, playWav } from "./tts";
@@ -66,6 +66,7 @@ Usage:
   agent-voice status [--json]
   agent-voice history --json [--limit 50] [--before CURSOR]
   agent-voice queue clear
+  agent-voice queue clear --failed
   agent-voice pause
   agent-voice resume
   agent-voice enqueue --format text --agent claude --cwd "$PWD"
@@ -334,11 +335,20 @@ export async function runCli(
 	if (command === "queue") {
 		const [, subcommand] = args;
 		if (subcommand !== "clear") {
-			return result(2, "", "Usage: agent-voice queue clear\n");
+			return result(2, "", "Usage: agent-voice queue clear [--failed]\n");
 		}
+		const includeFailed = args.includes("--failed");
 		const db = openDb(paths.db);
 		try {
-			const deleted = clearActiveQueue(db);
+			const deleted = includeFailed
+				? clearFailedJobs(db)
+				: clearActiveQueue(db);
+			if (includeFailed) {
+				return result(
+					0,
+					`Cleared ${deleted} failed job${deleted === 1 ? "" : "s"}.\n`,
+				);
+			}
 			return result(0, `Cleared ${deleted} queued job(s).\n`);
 		} finally {
 			db.close();

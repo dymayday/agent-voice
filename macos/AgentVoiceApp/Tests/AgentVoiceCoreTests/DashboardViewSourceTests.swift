@@ -35,6 +35,36 @@ final class DashboardViewSourceTests: XCTestCase {
         )
     }
 
+    func testOperationsGridNowHostsRecentEvents() throws {
+        let source = try dashboardViewSource()
+        let operationsGrid = try propertyBody(named: "operationsGrid", in: source)
+
+        XCTAssertTrue(operationsGrid.contains("recentEventsSection"))
+        XCTAssertTrue(operationsGrid.contains("kokoroCard"))
+    }
+
+    func testActivityGridShowsDiagnosticsLeftOfFailedJobs() throws {
+        let source = try dashboardViewSource()
+        let activityGrid = try propertyBody(named: "activityGrid", in: source)
+
+        let diagnosticsIndex = try offset(of: "diagnosticsCard", in: activityGrid)
+        let failedIndex = try offset(of: "failedJobsSection", in: activityGrid)
+        XCTAssertTrue(activityGrid.contains("diagnosticsCard"))
+        XCTAssertTrue(activityGrid.contains("failedJobsSection"))
+        XCTAssertLessThan(diagnosticsIndex, failedIndex)
+    }
+
+    func testHealthCardExposesClearWarningsAction() throws {
+        let source = try dashboardViewSource()
+        let health = try propertyBody(named: "healthCard", in: source)
+        let appSource = try appSource("AgentVoiceApp.swift")
+
+        XCTAssertTrue(health.contains("if canClearWarningState"))
+        XCTAssertTrue(health.contains("model.clearDashboardWarnings()"))
+        XCTAssertTrue(health.contains("Text(\"Clear warnings\")"))
+        XCTAssertTrue(appSource.contains("var canClearWarningState"))
+    }
+
     func testDashboardDoesNotClaimEmptySuccessWhenHistoryOrDiagnosticsAreUnavailable() throws {
         let source = try dashboardViewSource()
         let failedJobs = try propertyBody(named: "failedJobsSection", in: source)
@@ -53,14 +83,17 @@ final class DashboardViewSourceTests: XCTestCase {
         XCTAssertLessThan(attentionOffset, diagnosticsUnavailableOffset)
     }
 
-    func testQueueClearActionIsDestructiveAndOnlyEnabledForActiveQueue() throws {
+    func testQueueClearActionsAreDestructiveAndConditioned() throws {
         let source = try dashboardViewSource()
         let queueOverview = try propertyBody(named: "queueOverviewCard", in: source)
         let helpers = try appSource("AgentVoiceApp.swift")
 
         XCTAssertTrue(queueOverview.contains("Button(\"Clear Pending Queue\", role: .destructive)"))
+        XCTAssertTrue(queueOverview.contains("Button(\"Clear Failed Jobs\", role: .destructive)"))
         XCTAssertTrue(queueOverview.contains(".disabled(!canClearQueue)"))
+        XCTAssertTrue(queueOverview.contains(".disabled(!canClearFailedQueue)"))
         XCTAssertTrue(helpers.contains("queues.pending + queues.processing > 0"))
+        XCTAssertTrue(helpers.contains("queues.failed > 0"))
     }
 
     func testDashboardExposesSummarizerThinkingInLocalConfigCard() throws {

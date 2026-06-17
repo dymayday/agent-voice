@@ -4,3 +4,4 @@ macos/AgentVoiceApp/.build/
 dist/
 .worktrees/
 .superpowers/
+.ralph/

@@ -127,12 +127,25 @@ export function countByStatus(db: Database): Record<JobStatus, number> {
 	return counts;
 }
 
-export function clearActiveQueue(db: Database): number {
-	const res = db
-		.query("DELETE FROM jobs WHERE status IN ('pending', 'processing')")
-		.run();
+function clearQueueByStatus(db: Database, statuses: JobStatus[]): number {
+	const unique = Array.from(new Set(statuses));
+	if (unique.length === 0) return 0;
+	const placeholder = unique.map((_, index) => `$status${index}`).join(", ");
+	const query = db.query(`DELETE FROM jobs WHERE status IN (${placeholder})`);
+	const params: Record<string, string> = Object.fromEntries(
+		unique.map((status, index) => [`$status${index}`, status]),
+	) as Record<string, string>;
+	const res = query.run(params);
 	db.exec("PRAGMA incremental_vacuum");
 	return res.changes;
+}
+
+export function clearActiveQueue(db: Database): number {
+	return clearQueueByStatus(db, ["pending", "processing"]);
+}
+
+export function clearFailedJobs(db: Database): number {
+	return clearQueueByStatus(db, ["failed"]);
 }
 
 function markSkippedInternal(

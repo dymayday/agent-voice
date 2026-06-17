@@ -134,6 +134,10 @@ public struct AgentVoiceCLI: Sendable {
         _ = try await run(["queue", "clear"])
     }
 
+    public func clearFailedJobs() async throws {
+        _ = try await run(["queue", "clear", "--failed"])
+    }
+
     public func installAgentHook(_ agent: String) async throws {
         _ = try await run(["install", "--agents", agent])
     }

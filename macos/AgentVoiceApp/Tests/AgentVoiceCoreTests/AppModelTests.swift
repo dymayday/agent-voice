@@ -5,20 +5,21 @@ private func statusJSON(
     uiState: String = "ready",
     done: Int = 1,
     failed: Int = 0,
-    skipped: Int = 0
+    skipped: Int = 0,
+    attention: [String] = []
 ) -> String {
-    """
+    let attentionJSON = attention.map { "\"\($0)\"" }.joined(separator: ",")
+    return """
     {
       "version": 1,
       "daemon": { "state": "running", "running": true, "pid": 123 },
       "queues": { "pending": 0, "processing": 0, "done": \(done), "failed": \(failed), "skipped": \(skipped) },
       "config": { "enabled": true, "agents": { "pi": { "enabled": true, "mode": "native" } } },
       "paths": { "home": "/tmp/av", "config": "/tmp/av/config.json", "db": "/tmp/av/queue.db" },
-      "ui": { "state": "\(uiState)", "attention": [] }
+      "ui": { "state": "\(uiState)", "attention": [\(attentionJSON)] }
     }
     """
 }
-
 private func historyJobJSON(id: String, status: String = "done", text: String? = nil) -> String {
     """
     {
@@ -671,6 +672,29 @@ extension AppModelTests {
         let requests = await runner.capturedRequests()
         XCTAssertEqual(requests.map(\.arguments), [
             ["queue", "clear"],
+            ["status", "--json"],
+            ["history", "--json", "--limit", "10"],
+            ["doctor", "--json"],
+            ["config", "get"]
+        ])
+    }
+
+    func testClearFailedJobsDelegatesToCLIAndRefreshes() async throws {
+        let runner = RecordingRunner(results: [
+            ProcessResult(exitCode: 0, stdout: "Cleared 1 failed job.\n", stderr: ""),
+            ProcessResult(exitCode: 0, stdout: statusJSON(), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyHistoryJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyDoctorJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: fullConfigJSON(), stderr: "")
+        ])
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+        let model = AppModel(cli: cli)
+
+        await model.clearFailedJobs()
+        XCTAssertNil(model.lastError)
+        let requests = await runner.capturedRequests()
+        XCTAssertEqual(requests.map(\.arguments), [
+            ["queue", "clear", "--failed"],
             ["status", "--json"],
             ["history", "--json", "--limit", "10"],
             ["doctor", "--json"],

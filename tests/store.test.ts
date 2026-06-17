@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { openDb } from "../src/db";
 import { createEvent } from "../src/events";
-import { enqueue, countByStatus, clearActiveQueue } from "../src/store";
+import {
+	enqueue,
+	countByStatus,
+	clearActiveQueue,
+	clearFailedJobs,
+} from "../src/store";
 
 describe("store: clear active queue", () => {
 	test("deletes pending and processing jobs while preserving history", () => {
@@ -30,6 +35,33 @@ describe("store: clear active queue", () => {
 				done: 1,
 				failed: 1,
 				skipped: 1,
+			});
+		} finally {
+			db.close();
+		}
+	});
+
+	test("clears failed jobs without touching active or done history", () => {
+		const db = openDb(":memory:");
+		try {
+			const pending = createEvent({ agent: "claude", text: "Pending." });
+			const done = createEvent({ agent: "pi", text: "Done." });
+			const failed = createEvent({ agent: "codex", text: "Failed." });
+			enqueue(db, pending);
+			enqueue(db, done);
+			enqueue(db, failed);
+			db.query("UPDATE jobs SET status='failed' WHERE id=?").run(failed.id);
+			db.query("UPDATE jobs SET status='done' WHERE id=?").run(done.id);
+
+			const deleted = clearFailedJobs(db);
+
+			expect(deleted).toBe(1);
+			expect(countByStatus(db)).toEqual({
+				pending: 1,
+				processing: 0,
+				done: 1,
+				failed: 0,
+				skipped: 0,
 			});
 		} finally {
 			db.close();

@@ -5,6 +5,12 @@ import SwiftUI
 private let recentEventsPreviewLimit = 5
 private let failedJobsPreviewLimit = 4
 private let dashboardColumns = [GridItem(.adaptive(minimum: 340), spacing: 16)]
+private let dashboardOperationsColumns: [GridItem] = [
+    GridItem(.flexible(minimum: 220), spacing: 16),
+    GridItem(.flexible(minimum: 220), spacing: 16),
+    GridItem(.flexible(minimum: 220), spacing: 16)
+]
+private let dashboardAttentionColumns = [GridItem(.adaptive(minimum: 290), spacing: 16)]
 private let queueMetricColumns = [GridItem(.adaptive(minimum: 135), spacing: 12)]
 
 struct DashboardView: View {
@@ -144,6 +150,17 @@ private extension DashboardView {
                     .accessibilityLabel("Open diagnostic review details")
                     .accessibilityValue("\(doctorIssues.count) diagnostic \(noun) need review")
                 }
+
+                if canClearWarningState {
+                    Button {
+                        Task { await model.clearDashboardWarnings() }
+                    } label: {
+                        Text("Clear warnings")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(statusTint)
+                    .font(.subheadline)
+                }
             }
         }
     }
@@ -189,13 +206,23 @@ private extension DashboardView {
                         queueMetric("Skipped", queues.skipped, systemImage: "forward.end", tint: .secondary)
                     }
 
-                    HStack {
-                        Button("Clear Pending Queue", role: .destructive) {
-                            Task { await model.clearQueue() }
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Button("Clear Pending Queue", role: .destructive) {
+                                Task { await model.clearQueue() }
+                            }
+                            .disabled(!canClearQueue)
+
+                            Button("Clear Failed Jobs", role: .destructive) {
+                                Task { await model.clearFailedJobs() }
+                            }
+                            .disabled(!canClearFailedQueue)
                         }
-                        .disabled(!canClearQueue)
 
                         Text("Clears pending and processing jobs only; completed history is preserved.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text("Clears failed jobs only.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -210,9 +237,9 @@ private extension DashboardView {
     }
 
     private var operationsGrid: some View {
-        LazyVGrid(columns: dashboardColumns, alignment: .leading, spacing: 16) {
+        LazyVGrid(columns: dashboardOperationsColumns, alignment: .leading, spacing: 16) {
             kokoroCard
-            diagnosticsCard
+            recentEventsSection
         }
     }
 
@@ -372,9 +399,9 @@ private extension DashboardView {
     }
 
     private var activityGrid: some View {
-        LazyVGrid(columns: dashboardColumns, alignment: .leading, spacing: 16) {
+        LazyVGrid(columns: dashboardAttentionColumns, alignment: .leading, spacing: 16) {
+            diagnosticsCard
             failedJobsSection
-            recentEventsSection
         }
     }
 

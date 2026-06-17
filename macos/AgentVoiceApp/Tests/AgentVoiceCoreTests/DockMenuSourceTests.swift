@@ -12,6 +12,7 @@ final class DockMenuSourceTests: XCTestCase {
     func testDockMenuControllerProvidesUsefulDockMenuItems() throws {
         let source = try appSource("DockMenuController.swift")
 
+        XCTAssertTrue(source.contains("func applicationShouldHandleReopen"))
         XCTAssertTrue(source.contains("func applicationDockMenu(_ sender: NSApplication) -> NSMenu?"))
         XCTAssertTrue(source.contains("NSMenu(title: \"Agent Voice\")"))
         XCTAssertTrue(source.contains("Open Dashboard"))

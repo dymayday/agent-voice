@@ -243,6 +243,10 @@ public final class AppModel: ObservableObject {
         await perform { try await cli.clearQueue() }
     }
 
+    public func clearFailedJobs() async {
+        await perform { try await cli.clearFailedJobs() }
+    }
+
     public func saveVoice() async {
         let voice = draftVoice.trimmingCharacters(in: .whitespacesAndNewlines)
         draftVoice = voice

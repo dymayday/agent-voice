@@ -112,6 +112,16 @@ final class AgentVoiceAppSourceTests: XCTestCase {
         XCTAssertTrue(footer.contains("actionButton(\"Quit Agent Voice\", systemImage: \"power\", role: .destructive)"))
     }
 
+    func testMenuControlIncludesClearFailedJobsButton() throws {
+        let source = try appSource("MenuBarSentinelView.swift")
+        let controls = try sourceSlice(in: source, from: "private var controls", to: "private var footer")
+
+        XCTAssertTrue(controls.contains("actionButton(\"Clear Queue\", systemImage: \"trash\", role: .destructive"))
+        XCTAssertTrue(controls.contains("actionButton(\"Clear Failed Jobs\", systemImage: \"xmark.octagon\", role: .destructive"))
+        XCTAssertTrue(controls.contains("!canClearQueue"))
+        XCTAssertTrue(controls.contains("!canClearFailedQueue"))
+    }
+
     func testSmartActionsExposeStateAwareEntries() throws {
         let source = try appSource("MenuBarSentinelView.swift")
         let smartActions = try sourceSlice(

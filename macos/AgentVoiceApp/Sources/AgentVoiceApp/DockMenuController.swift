@@ -31,6 +31,11 @@ final class AgentVoiceDockMenuDelegate: NSObject, NSApplicationDelegate {
         self.model = model
     }
 
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows _: Bool) -> Bool {
+        Self.openDashboardWindow?()
+        return true
+    }
+
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
         let menu = NSMenu(title: "Agent Voice")
         menu.addItem(menuItem(title: "Open Dashboard", action: #selector(openDashboardFromDockMenu(_:))))
