@@ -295,49 +295,53 @@ private extension AttentionDetailView {
     }
 
     func jobCard(_ job: AgentVoiceHistoryJob) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(job.agent.capitalized)
-                    .font(.headline)
-                Spacer()
-                Text(job.status.rawValue.capitalized)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(jobStatusTint(job.status))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(jobStatusTint(job.status).opacity(0.12))
-                    .clipShape(Capsule())
-                    .textSelection(.enabled)
-            }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(job.agent.capitalized)
+                        .font(.headline)
+                    Spacer()
+                    Text(job.status.rawValue.capitalized)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(jobStatusTint(job.status))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(jobStatusTint(job.status).opacity(0.12))
+                        .clipShape(Capsule())
+                        .textSelection(.enabled)
+                }
 
-            labeledRow("Job ID", job.id)
-            labeledRow("Created", job.createdAt)
-            labeledRow("Finished", job.finishedAt ?? "Not finished")
-            labeledRow("Attempts", String(job.attempts))
-            labeledRow("Working directory", job.cwd ?? "None")
-            labeledRow("Summarizer used", job.summarizerUsed ?? "None")
-            labeledRow("Skip reason", job.skipReason ?? "None")
+                labeledRow("Job ID", job.id)
+                labeledRow("Created", job.createdAt)
+                labeledRow("Finished", job.finishedAt ?? "Not finished")
+                labeledRow("Attempts", String(job.attempts))
+                labeledRow("Working directory", job.cwd ?? "None")
+                labeledRow("Summarizer used", job.summarizerUsed ?? "None")
+                labeledRow("Skip reason", job.skipReason ?? "None")
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Summary")
-                    .font(.subheadline.bold())
-                diagnosticTextBlock(job.summary ?? "No summary recorded")
-            }
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Summary")
+                        .font(.subheadline.bold())
+                    diagnosticTextBlock(job.summary ?? "No summary recorded")
+                }
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Last error")
-                    .font(.subheadline.bold())
-                diagnosticTextBlock(job.lastError ?? "No error recorded")
-            }
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Last error")
+                        .font(.subheadline.bold())
+                    diagnosticTextBlock(job.lastError ?? "No error recorded")
+                }
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Full raw job text")
-                    .font(.subheadline.bold())
-                diagnosticTextBlock(job.text.isEmpty ? "No raw job text recorded" : job.text)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Full raw job text")
+                        .font(.subheadline.bold())
+                    diagnosticTextBlock(job.text.isEmpty ? "No raw job text recorded" : job.text)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(14)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
+        .frame(height: 300)
         .background(jobStatusTint(job.status).opacity(0.08))
         .overlay {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
