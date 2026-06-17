@@ -28,17 +28,22 @@ final class KokoroSetupModelTests: XCTestCase {
         XCTAssertEqual(complete.ok, true)
     }
 
-    func testRejectsDriftedStepEvents() {
+    func testDecodesUnknownStepIdsAndStatusesForForwardCompatibility() throws {
         let decoder = JSONDecoder()
 
-        XCTAssertThrowsError(try decoder.decode(
+        let renamedStep = try decoder.decode(
             KokoroSetupEvent.self,
             from: Data(#"{"type":"step","id":"renamed-step","status":"running","title":"Renamed"}"#.utf8)
-        ))
-        XCTAssertThrowsError(try decoder.decode(
+        )
+        let unknownStatus = try decoder.decode(
             KokoroSetupEvent.self,
-            from: Data(#"{"type":"step","id":"prepare","status":"weird","title":"Preparing"}"#.utf8)
-        ))
+            from: Data(#"{"type":"step","id":"prepare","status":"warming","title":"Preparing"}"#.utf8)
+        )
+
+        XCTAssertEqual(renamedStep.id, "renamed-step")
+        XCTAssertEqual(renamedStep.status, "running")
+        XCTAssertEqual(unknownStatus.id, "prepare")
+        XCTAssertEqual(unknownStatus.status, "warming")
         XCTAssertThrowsError(try decoder.decode(
             KokoroSetupEvent.self,
             from: Data(#"{"type":"step","id":"prepare","status":"running"}"#.utf8)

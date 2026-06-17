@@ -466,6 +466,24 @@ final class AgentVoiceCLITests: XCTestCase {
         XCTAssertTrue(streamingRunner.wasCancelled())
     }
 
+    func testKokoroSetupDecodeFailureCancelsUnderlyingStream() async throws {
+        let streamingRunner = RecordingStreamingRunner(lines: ["not json"], finishAutomatically: false)
+        let cli = AgentVoiceCLI(
+            executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"),
+            runner: RecordingRunner(),
+            streamingRunner: streamingRunner
+        )
+
+        do {
+            for try await _ in cli.streamKokoroSetupEvents() {}
+            XCTFail("Expected malformed setup JSONL to fail")
+        } catch {
+            XCTAssertTrue(String(describing: error).contains("data"))
+        }
+
+        XCTAssertTrue(streamingRunner.wasCancelled())
+    }
+
     func testStreamingLineDecoderPreservesUTF8AcrossChunks() throws {
         var decoder = StreamingLineDecoder()
         var firstChunk = Data(#"{"type":"log","stream":"stdout","message":"caf"#.utf8)

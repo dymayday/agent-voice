@@ -538,6 +538,65 @@ describe("Kokoro setup module", () => {
 		}
 	});
 
+	test("kokoro setup refuses a managed models symlink before dependency commands", async () => {
+		const home = tempHome();
+		const runs: Array<Parameters<KokoroSetupDeps["run"]>[0]> = [];
+		try {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			mkdirSync(kokoroManagedHome(paths), { recursive: true });
+			symlinkSync(join(home, "outside-models"), join(kokoroManagedHome(paths), "models"));
+
+			const outcome = await runKokoroSetup(paths, {
+				deps: fakeDeps({
+					run: async (request) => {
+						runs.push(request);
+						return { ok: true, stdout: "ok", stderr: "" };
+					},
+				}),
+				emit: () => {},
+			});
+
+			const failure = expectKokoroSetupFailure(outcome);
+			expect(failure.error).toContain("Refusing to use unsafe managed path");
+			expect(runs).toEqual([]);
+			expect(
+				loadConfig(paths, { createIfMissing: false }).tts.kokoroScript,
+			).toBe(defaultConfig.tts.kokoroScript);
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	test("kokoro setup refuses a managed Hugging Face cache symlink before dependency commands", async () => {
+		const home = tempHome();
+		const runs: Array<Parameters<KokoroSetupDeps["run"]>[0]> = [];
+		try {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			const modelsHome = join(kokoroManagedHome(paths), "models");
+			mkdirSync(modelsHome, { recursive: true });
+			symlinkSync(join(home, "outside-hf-cache"), join(modelsHome, "huggingface"));
+
+			const outcome = await runKokoroSetup(paths, {
+				deps: fakeDeps({
+					run: async (request) => {
+						runs.push(request);
+						return { ok: true, stdout: "ok", stderr: "" };
+					},
+				}),
+				emit: () => {},
+			});
+
+			const failure = expectKokoroSetupFailure(outcome);
+			expect(failure.error).toContain("Refusing to use unsafe managed path");
+			expect(runs).toEqual([]);
+			expect(
+				loadConfig(paths, { createIfMissing: false }).tts.kokoroScript,
+			).toBe(defaultConfig.tts.kokoroScript);
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
 	test("kokoro status reports missing bundled resource script", () => {
 		const home = tempHome();
 		try {

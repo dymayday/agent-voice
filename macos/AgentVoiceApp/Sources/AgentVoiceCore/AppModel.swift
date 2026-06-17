@@ -479,19 +479,20 @@ public final class AppModel: ObservableObject {
 
     private func applyKokoroSetupStepEvent(_ event: KokoroSetupEvent) {
         let status = event.status ?? "running"
-        kokoroSetup.currentStepID = event.id
+        let knownStepID = KokoroSetupSteps.isKnownStepID(event.id) ? event.id : nil
+        kokoroSetup.currentStepID = knownStepID
         kokoroSetup.currentTitle = event.title
 
         switch status {
         case "done":
             kokoroSetup.phase = .running
-            appendUnique(event.id, to: &kokoroSetup.completedStepIDs)
+            appendUnique(knownStepID, to: &kokoroSetup.completedStepIDs)
         case "skipped":
             kokoroSetup.phase = .running
-            appendUnique(event.id, to: &kokoroSetup.skippedStepIDs)
+            appendUnique(knownStepID, to: &kokoroSetup.skippedStepIDs)
         case "failed":
             kokoroSetup.phase = .failed
-            kokoroSetup.failedStepID = event.id
+            kokoroSetup.failedStepID = knownStepID
             kokoroSetup.error = event.error ?? event.title ?? "Kokoro setup failed."
         default:
             kokoroSetup.phase = .running

@@ -185,6 +185,7 @@ public struct AgentVoiceCLI: Sendable {
                     }
                     continuation.finish()
                 } catch {
+                    processStream.cancel()
                     continuation.finish(throwing: error)
                 }
             }

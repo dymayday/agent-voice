@@ -18,15 +18,7 @@ public struct KokoroSetupEvent: Codable, Equatable, Sendable {
         case error
     }
 
-    private static let allowedStepStatuses: Set<String> = [
-        "pending",
-        "running",
-        "done",
-        "failed",
-        "skipped"
-    ]
     private static let allowedLogStreams: Set<String> = ["stdout", "stderr"]
-    private static let allowedStepIDs = Set(KokoroSetupSteps.all.map(\.id))
 
     public let type: EventType
     public let id: String?
@@ -95,18 +87,18 @@ public struct KokoroSetupEvent: Codable, Equatable, Sendable {
         title: String?,
         container: KeyedDecodingContainer<CodingKeys>
     ) throws {
-        guard let id, allowedStepIDs.contains(id) else {
+        guard let id, !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw DecodingError.dataCorruptedError(
                 forKey: .id,
                 in: container,
-                debugDescription: "Unknown Kokoro setup step id"
+                debugDescription: "Kokoro setup step id is required"
             )
         }
-        guard let status, allowedStepStatuses.contains(status) else {
+        guard let status, !status.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw DecodingError.dataCorruptedError(
                 forKey: .status,
                 in: container,
-                debugDescription: "Unknown Kokoro setup step status"
+                debugDescription: "Kokoro setup step status is required"
             )
         }
         guard let title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -182,6 +174,13 @@ public enum KokoroSetupSteps {
         .init(id: "smoke-test", title: "Verify Kokoro"),
         .init(id: "config", title: "Save Agent Voice config")
     ]
+
+    static let knownIDs = Set(all.map(\.id))
+
+    static func isKnownStepID(_ id: String?) -> Bool {
+        guard let id else { return false }
+        return knownIDs.contains(id)
+    }
 }
 
 public struct KokoroSetupSnapshot: Equatable, Sendable {
@@ -217,17 +216,15 @@ public struct KokoroSetupSnapshot: Equatable, Sendable {
         self.error = error
     }
 
-    private static let knownStepIDs = Set(KokoroSetupSteps.all.map(\.id))
-
     private static func validStepID(_ id: String?) -> String? {
-        guard let id, knownStepIDs.contains(id) else { return nil }
+        guard let id, KokoroSetupSteps.isKnownStepID(id) else { return nil }
         return id
     }
 
     private static func validUniqueStepIDs(_ ids: [String], excluding excludedIDs: Set<String> = []) -> [String] {
         var seen = Set<String>()
         return ids.filter { id in
-            knownStepIDs.contains(id) &&
+            KokoroSetupSteps.isKnownStepID(id) &&
                 !excludedIDs.contains(id) &&
                 seen.insert(id).inserted
         }
