@@ -90,10 +90,15 @@ final class DockMenuSourceTests: XCTestCase {
             to: "    func applicationShouldHandleReopen"
         )
         XCTAssertTrue(delegate.contains("await model.refresh()"))
-        XCTAssertTrue(delegate.contains("if model.shouldPromptForKokoroSetup"))
+        XCTAssertTrue(delegate.contains("promptForKokoroSetupIfNeeded(model: model)"))
         XCTAssertTrue(delegate.contains("model.requestSetupStep(.kokoro)"))
         XCTAssertTrue(delegate.contains("openSetupWindow?()"))
         XCTAssertTrue(delegate.contains("openDashboardWindow?()"))
+        XCTAssertLessThan(
+            try offset(of: "openDashboardWindow?()", in: delegate),
+            try offset(of: "promptForKokoroSetupIfNeeded(model: model)", in: delegate),
+            "Cold launch must always show the dashboard, then separately prompt for Kokoro setup when needed."
+        )
         XCTAssertFalse(
             bridge.contains("AgentVoiceDockMenuDelegate.openKokoroSetupWindow?()"),
             "Downloads must wait until the user clicks Install Kokoro."
@@ -132,7 +137,36 @@ final class DockMenuSourceTests: XCTestCase {
         )
         XCTAssertTrue(
             delegate.contains("openDashboardWindow?()"),
-            "The cold-launch fallback should reuse the same Dashboard-opening behavior as Dock/menu actions."
+            "Cold launch should always reuse the same Dashboard-opening behavior as Dock/menu actions."
+        )
+        let replacesDashboardWithSetup = """
+            if model.shouldPromptForKokoroSetup {
+                model.requestSetupStep(.kokoro)
+                openSetupWindow?()
+            } else {
+                openDashboardWindow?()
+            }
+            """
+        XCTAssertFalse(
+            delegate.contains(replacesDashboardWithSetup),
+            "Kokoro prompting must not replace the Dashboard launch window."
+        )
+    }
+
+    func testDockReopenAlsoPromptsForKokoroSetupAfterOpeningDashboard() throws {
+        let source = try appSource("DockMenuController.swift")
+        let reopen = try sourceSlice(
+            in: source,
+            from: "func applicationShouldHandleReopen",
+            to: "    func applicationDockMenu"
+        )
+
+        XCTAssertTrue(reopen.contains("Self.openDashboardWindow?()"))
+        let promptsForSetup = reopen.contains("Self.promptForKokoroSetupIfNeeded")
+            || reopen.contains("await Self.promptForKokoroSetupIfNeeded")
+        XCTAssertTrue(
+            promptsForSetup,
+            "Clicking the Dock icon should open Dashboard and still evaluate whether Setup should be shown for missing Kokoro."
         )
     }
 

@@ -50,32 +50,42 @@ final class AgentVoiceDockMenuDelegate: NSObject, NSApplicationDelegate {
             didUserOpenWindow = true
             openSetup()
         }
+        if let model {
+            routeInitialWindowIfNeeded(model: model)
+        }
     }
 
     static func routeInitialWindowIfNeeded(model: AppModel) {
         guard !didRouteInitialWindow, initialWindowRoutingTask == nil else { return }
+        guard openDashboardWindow != nil, openSetupWindow != nil else { return }
+        guard !didUserOpenWindow else {
+            didRouteInitialWindow = true
+            return
+        }
+
+        didRouteInitialWindow = true
+        openDashboardWindow?()
         initialWindowRoutingTask = Task { @MainActor in
             defer { initialWindowRoutingTask = nil }
             await model.refresh()
             guard !Task.isCancelled else { return }
-            guard !didRouteInitialWindow else { return }
-            guard !didUserOpenWindow else {
-                didRouteInitialWindow = true
-                return
-            }
-
-            didRouteInitialWindow = true
-            if model.shouldPromptForKokoroSetup {
-                model.requestSetupStep(.kokoro)
-                openSetupWindow?()
-            } else {
-                openDashboardWindow?()
-            }
+            promptForKokoroSetupIfNeeded(model: model)
         }
+    }
+
+    static func promptForKokoroSetupIfNeeded(model: AppModel) {
+        guard model.shouldPromptForKokoroSetup else { return }
+        model.requestSetupStep(.kokoro)
+        openSetupWindow?()
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows _: Bool) -> Bool {
         Self.openDashboardWindow?()
+        guard let model = Self.model else { return true }
+        Task { @MainActor in
+            await model.refresh()
+            Self.promptForKokoroSetupIfNeeded(model: model)
+        }
         return true
     }
 
