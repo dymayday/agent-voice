@@ -20,6 +20,18 @@ final class KokoroSetupProgressViewSourceTests: XCTestCase {
         )
     }
 
+    func testSetupAssistantCanOpenDirectlyToRequestedKokoroStepWithoutInstalling() throws {
+        let source = try appSource("SetupAssistantView.swift")
+
+        XCTAssertTrue(source.contains("applyPreferredSetupStepIfNeeded()"))
+        XCTAssertTrue(source.contains("model.preferredSetupStep"))
+        XCTAssertTrue(source.contains("model.clearPreferredSetupStep(step)"))
+        XCTAssertFalse(
+            source.contains("await model.installKokoro()"),
+            "Opening Setup to the Kokoro step must not start downloads until Install Kokoro is clicked."
+        )
+    }
+
     func testSetupAssistantDisclosesInstallRequirements() throws {
         let source = try appSource("SetupAssistantView.swift")
 

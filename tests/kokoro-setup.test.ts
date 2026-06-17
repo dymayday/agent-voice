@@ -1,6 +1,8 @@
+import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { describe, expect, test } from "bun:test";
 import {
+	chmodSync,
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
@@ -28,6 +30,12 @@ import {
 import { resolvePaths } from "../src/paths";
 
 const resourceRoot = join(import.meta.dir, "..", "resources", "kokoro");
+const fakeUvArchive = "fake uv archive";
+const fakeUvRelease = {
+	version: "test-uv-version",
+	target: "uv-test-target",
+	checksum: createHash("sha256").update(fakeUvArchive).digest("hex"),
+};
 
 function tempHome(): string {
 	return mkdtempSync(join(tmpdir(), "agent-voice-kokoro-setup-"));
@@ -90,14 +98,18 @@ def write(buffer, audio_data, sample_rate, format=None, subtype=None):
 }
 
 function runKokoroPythonService(input: string, pythonPath: string) {
-	return spawnSync(process.env.PYTHON ?? "python3", [join(resourceRoot, "kokoro_tts_service.py")], {
-		input,
-		encoding: "utf8",
-		env: {
-			...process.env,
-			PYTHONPATH: pythonPath,
+	return spawnSync(
+		process.env.PYTHON ?? "python3",
+		[join(resourceRoot, "kokoro_tts_service.py")],
+		{
+			input,
+			encoding: "utf8",
+			env: {
+				...process.env,
+				PYTHONPATH: pythonPath,
+			},
 		},
-	});
+	);
 }
 
 function parseJsonLines(output: string): Array<Record<string, unknown>> {
@@ -108,12 +120,38 @@ function parseJsonLines(output: string): Array<Record<string, unknown>> {
 		.map((line) => JSON.parse(line));
 }
 
-function expectKokoroSetupFailure(outcome: KokoroSetupRunResult): Extract<KokoroSetupRunResult, { ok: false }> {
+function expectKokoroSetupFailure(
+	outcome: KokoroSetupRunResult,
+): Extract<KokoroSetupRunResult, { ok: false }> {
 	expect(outcome.ok).toBe(false);
 	if (outcome.ok) {
 		throw new Error("Expected Kokoro setup to fail");
 	}
 	return outcome;
+}
+
+function createFakeUvArchive(
+	request: Parameters<KokoroSetupDeps["run"]>[0],
+): void {
+	const outputIndex = request.args.indexOf("-o");
+	const outputPath =
+		outputIndex === -1 ? undefined : request.args[outputIndex + 1];
+	if (!outputPath) throw new Error("Fake curl request missing -o path");
+	writeFileSync(outputPath, fakeUvArchive, "utf8");
+}
+
+function extractFakeUvArchive(
+	request: Parameters<KokoroSetupDeps["run"]>[0],
+): void {
+	const targetIndex = request.args.indexOf("-C");
+	const targetDir =
+		targetIndex === -1 ? undefined : request.args[targetIndex + 1];
+	if (!targetDir) throw new Error("Fake tar request missing -C path");
+	const extractedDir = join(targetDir, fakeUvRelease.target);
+	mkdirSync(extractedDir, { recursive: true });
+	const uvPath = join(extractedDir, "uv");
+	writeFileSync(uvPath, "#!/bin/sh\n", "utf8");
+	chmodSync(uvPath, 0o755);
 }
 
 function fakeDeps(overrides: Partial<KokoroSetupDeps> = {}): KokoroSetupDeps {
@@ -141,7 +179,7 @@ describe("Kokoro setup resources", () => {
 		expect(source).toContain("MAX_TEXT_CHARS");
 		expect(source).toContain("KOKORO_REPO_ID");
 		expect(source).toContain("HF_HOME");
-		expect(source).toContain("models\" / \"huggingface");
+		expect(source).toContain('models" / "huggingface');
 		expect(source).toContain('"status": "ready"');
 		expect(source).toContain('"audio"');
 	});
@@ -274,20 +312,257 @@ describe("Kokoro setup module", () => {
 		}
 	});
 
-	test("kokoro setup fails before config mutation when uv is missing", async () => {
+	test("kokoro setup installs managed uv when uv is missing from PATH", async () => {
+		const home = tempHome();
+		const runs: Array<Parameters<KokoroSetupDeps["run"]>[0]> = [];
+		try {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			const managedUv = join(kokoroManagedHome(paths), "bin", "uv");
+			const outcome = await runKokoroSetup(paths, {
+				uvRelease: fakeUvRelease,
+				deps: fakeDeps({
+					commandExists: async () => false,
+					run: async (request) => {
+						runs.push(request);
+						if (request.cmd === "curl") createFakeUvArchive(request);
+						if (request.cmd === "tar") extractFakeUvArchive(request);
+						if (
+							request.cmd === managedUv &&
+							request.args[0] === "venv" &&
+							request.cwd
+						) {
+							const binDir = join(request.cwd, ".venv", "bin");
+							mkdirSync(binDir, { recursive: true });
+							writeFileSync(join(binDir, "python"), "#!/bin/sh\n", "utf8");
+						}
+						return { ok: true, stdout: "ok", stderr: "" };
+					},
+				}),
+				emit: () => {},
+			});
+
+			expect(outcome.ok).toBe(true);
+			expect(runs[0]?.cmd).toBe("curl");
+			expect(runs[0]?.args).toEqual(
+				expect.arrayContaining(["--proto", "=https", "--tlsv1.2"]),
+			);
+			expect(runs[0]?.args.at(-1)).toBe(
+				"https://github.com/astral-sh/uv/releases/download/test-uv-version/uv-test-target.tar.gz",
+			);
+			expect(runs.map((run) => [run.cmd, ...run.args]).slice(1)).toEqual([
+				expect.arrayContaining(["tar", "-xzf"]),
+				[managedUv, "--version"],
+				[managedUv, "venv", ".venv"],
+				[
+					managedUv,
+					"pip",
+					"install",
+					"--python",
+					kokoroManagedPython(paths),
+					"-r",
+					join(resourceRoot, "requirements.txt"),
+				],
+				expect.arrayContaining([kokoroManagedPython(paths), "-c"]),
+			]);
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	test("kokoro setup fails before config mutation when managed uv install fails", async () => {
 		const home = tempHome();
 		try {
 			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
 			const before = loadConfig(paths);
 			const outcome = await runKokoroSetup(paths, {
-				deps: fakeDeps({ commandExists: async () => false }),
+				deps: fakeDeps({
+					commandExists: async () => false,
+					run: async (request) => {
+						if (request.cmd === "curl") {
+							return {
+								ok: false,
+								stdout: "",
+								stderr: "network down",
+								exitCode: 1,
+							};
+						}
+						return { ok: true, stdout: "ok", stderr: "" };
+					},
+				}),
 				emit: () => {},
 			});
 
 			const failure = expectKokoroSetupFailure(outcome);
-			expect(failure.error).toContain("uv is required");
+			expect(failure.error).toContain("network down");
 			const after = loadConfig(paths, { createIfMissing: false });
 			expect(after.tts).toEqual(before.tts);
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	test("kokoro setup rejects managed uv checksum mismatch before extraction", async () => {
+		const home = tempHome();
+		const runs: Array<Parameters<KokoroSetupDeps["run"]>[0]> = [];
+		const events: KokoroSetupEvent[] = [];
+		try {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			const before = loadConfig(paths);
+			const outcome = await runKokoroSetup(paths, {
+				uvRelease: { ...fakeUvRelease, checksum: "0".repeat(64) },
+				deps: fakeDeps({
+					commandExists: async () => false,
+					run: async (request) => {
+						runs.push(request);
+						if (request.cmd === "curl") createFakeUvArchive(request);
+						if (request.cmd === "tar") extractFakeUvArchive(request);
+						return { ok: true, stdout: "ok", stderr: "" };
+					},
+				}),
+				emit: (event) => events.push(event),
+			});
+
+			const failure = expectKokoroSetupFailure(outcome);
+			expect(failure.error).toContain("checksum mismatch");
+			expect(runs.map((run) => run.cmd)).toEqual(["curl"]);
+			expect(events.at(-1)).toMatchObject({ type: "complete", ok: false });
+			expect(loadConfig(paths, { createIfMissing: false }).tts).toEqual(
+				before.tts,
+			);
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	test("kokoro setup reports managed uv validation failure after install", async () => {
+		const home = tempHome();
+		const runs: Array<Parameters<KokoroSetupDeps["run"]>[0]> = [];
+		try {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			const managedUv = join(kokoroManagedHome(paths), "bin", "uv");
+			const outcome = await runKokoroSetup(paths, {
+				uvRelease: fakeUvRelease,
+				deps: fakeDeps({
+					commandExists: async () => false,
+					run: async (request) => {
+						runs.push(request);
+						if (request.cmd === "curl") createFakeUvArchive(request);
+						if (request.cmd === "tar") extractFakeUvArchive(request);
+						if (request.cmd === managedUv && request.args[0] === "--version") {
+							return { ok: false, stdout: "", stderr: "bad uv", exitCode: 1 };
+						}
+						return { ok: true, stdout: "ok", stderr: "" };
+					},
+				}),
+				emit: () => {},
+			});
+
+			const failure = expectKokoroSetupFailure(outcome);
+			expect(failure.error).toContain("bad uv");
+			expect(runs.map((run) => [run.cmd, ...run.args])).toEqual([
+				expect.arrayContaining(["curl"]),
+				expect.arrayContaining(["tar", "-xzf"]),
+				[managedUv, "--version"],
+			]);
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	test("kokoro setup preflights local inputs before managed uv download", async () => {
+		const home = tempHome();
+		const runs: Array<Parameters<KokoroSetupDeps["run"]>[0]> = [];
+		try {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			mkdirSync(kokoroManagedHome(paths), { recursive: true });
+			symlinkSync(
+				join(home, "outside-venv"),
+				join(kokoroManagedHome(paths), ".venv"),
+			);
+
+			const outcome = await runKokoroSetup(paths, {
+				deps: fakeDeps({
+					commandExists: async () => false,
+					run: async (request) => {
+						runs.push(request);
+						return { ok: true, stdout: "ok", stderr: "" };
+					},
+				}),
+				emit: () => {},
+			});
+
+			const failure = expectKokoroSetupFailure(outcome);
+			expect(failure.error).toContain("Refusing to use unsafe managed path");
+			expect(runs).toEqual([]);
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	test("kokoro setup rejects a non-executable managed uv before dependency commands", async () => {
+		const home = tempHome();
+		const runs: Array<Parameters<KokoroSetupDeps["run"]>[0]> = [];
+		try {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			const binDir = join(kokoroManagedHome(paths), "bin");
+			const managedUv = join(binDir, "uv");
+			mkdirSync(binDir, { recursive: true });
+			writeFileSync(managedUv, "not executable", "utf8");
+			chmodSync(managedUv, 0o644);
+
+			const outcome = await runKokoroSetup(paths, {
+				deps: fakeDeps({
+					commandExists: async () => false,
+					run: async (request) => {
+						runs.push(request);
+						return { ok: true, stdout: "ok", stderr: "" };
+					},
+				}),
+				emit: () => {},
+			});
+
+			const failure = expectKokoroSetupFailure(outcome);
+			expect(failure.error).toContain("Managed uv is not executable");
+			expect(runs).toEqual([]);
+			expect(loadConfig(paths, { createIfMissing: false }).tts).toEqual(
+				defaultConfig.tts,
+			);
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	test("kokoro setup revalidates managed uv before dependency commands", async () => {
+		const home = tempHome();
+		const runs: Array<Parameters<KokoroSetupDeps["run"]>[0]> = [];
+		try {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			const managedUv = join(kokoroManagedHome(paths), "bin", "uv");
+			const outcome = await runKokoroSetup(paths, {
+				uvRelease: fakeUvRelease,
+				deps: fakeDeps({
+					commandExists: async () => false,
+					run: async (request) => {
+						runs.push(request);
+						if (request.cmd === "curl") createFakeUvArchive(request);
+						if (request.cmd === "tar") extractFakeUvArchive(request);
+						if (request.cmd === managedUv && request.args[0] === "--version") {
+							rmSync(managedUv, { force: true });
+							symlinkSync(join(home, "outside-uv"), managedUv);
+						}
+						return { ok: true, stdout: "uv 0.9.0", stderr: "" };
+					},
+				}),
+				emit: () => {},
+			});
+
+			const failure = expectKokoroSetupFailure(outcome);
+			expect(failure.error).toContain("Refusing to use unsafe managed path");
+			expect(runs.map((run) => [run.cmd, ...run.args])).toEqual([
+				expect.arrayContaining(["curl"]),
+				expect.arrayContaining(["tar", "-xzf"]),
+				[managedUv, "--version"],
+			]);
 		} finally {
 			rmSync(home, { recursive: true, force: true });
 		}
@@ -516,12 +791,46 @@ describe("Kokoro setup module", () => {
 		}
 	});
 
+	test("kokoro setup refuses a managed uv symlink", async () => {
+		const home = tempHome();
+		const runs: Array<Parameters<KokoroSetupDeps["run"]>[0]> = [];
+		try {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			const binDir = join(kokoroManagedHome(paths), "bin");
+			mkdirSync(binDir, { recursive: true });
+			symlinkSync(join(home, "outside-uv"), join(binDir, "uv"));
+
+			const outcome = await runKokoroSetup(paths, {
+				deps: fakeDeps({
+					commandExists: async () => false,
+					run: async (request) => {
+						runs.push(request);
+						return { ok: true, stdout: "ok", stderr: "" };
+					},
+				}),
+				emit: () => {},
+			});
+
+			const failure = expectKokoroSetupFailure(outcome);
+			expect(failure.error).toContain("Refusing to use unsafe managed path");
+			expect(runs).toEqual([]);
+			expect(
+				loadConfig(paths, { createIfMissing: false }).tts.kokoroScript,
+			).toBe(defaultConfig.tts.kokoroScript);
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
 	test("kokoro setup refuses a managed virtualenv symlink", async () => {
 		const home = tempHome();
 		try {
 			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
 			mkdirSync(kokoroManagedHome(paths), { recursive: true });
-			symlinkSync(join(home, "outside-venv"), join(kokoroManagedHome(paths), ".venv"));
+			symlinkSync(
+				join(home, "outside-venv"),
+				join(kokoroManagedHome(paths), ".venv"),
+			);
 
 			const outcome = await runKokoroSetup(paths, {
 				deps: fakeDeps(),
@@ -544,7 +853,10 @@ describe("Kokoro setup module", () => {
 		try {
 			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
 			mkdirSync(kokoroManagedHome(paths), { recursive: true });
-			symlinkSync(join(home, "outside-models"), join(kokoroManagedHome(paths), "models"));
+			symlinkSync(
+				join(home, "outside-models"),
+				join(kokoroManagedHome(paths), "models"),
+			);
 
 			const outcome = await runKokoroSetup(paths, {
 				deps: fakeDeps({
@@ -574,7 +886,10 @@ describe("Kokoro setup module", () => {
 			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
 			const modelsHome = join(kokoroManagedHome(paths), "models");
 			mkdirSync(modelsHome, { recursive: true });
-			symlinkSync(join(home, "outside-hf-cache"), join(modelsHome, "huggingface"));
+			symlinkSync(
+				join(home, "outside-hf-cache"),
+				join(modelsHome, "huggingface"),
+			);
 
 			const outcome = await runKokoroSetup(paths, {
 				deps: fakeDeps({
@@ -643,10 +958,12 @@ describe("Kokoro setup module", () => {
 				"kokoro",
 			);
 
-			expect(
-				existsSync(join(bundledKokoroRoot, "kokoro_tts_service.py")),
-			).toBe(true);
-			expect(existsSync(join(bundledKokoroRoot, "requirements.txt"))).toBe(true);
+			expect(existsSync(join(bundledKokoroRoot, "kokoro_tts_service.py"))).toBe(
+				true,
+			);
+			expect(existsSync(join(bundledKokoroRoot, "requirements.txt"))).toBe(
+				true,
+			);
 		} finally {
 			rmSync(appDir, { recursive: true, force: true });
 		}
@@ -736,7 +1053,20 @@ describe("Kokoro setup CLI", () => {
 		try {
 			const result = await runCli(["kokoro", "setup", "--jsonl"], {
 				env: { AGENT_VOICE_HOME: home },
-				kokoroSetupDeps: fakeDeps({ commandExists: async () => false }),
+				kokoroSetupDeps: fakeDeps({
+					commandExists: async () => false,
+					run: async (request) => {
+						if (request.cmd === "curl") {
+							return {
+								ok: false,
+								stdout: "",
+								stderr: "network down",
+								exitCode: 1,
+							};
+						}
+						return { ok: true, stdout: "ok", stderr: "" };
+					},
+				}),
 			});
 			expect(result.exitCode).toBe(1);
 			const lines = result.stdout
@@ -747,7 +1077,7 @@ describe("Kokoro setup CLI", () => {
 				type: "complete",
 				ok: false,
 			});
-			expect(lines.at(-1).error).toContain("uv is required");
+			expect(lines.at(-1).error).toContain("network down");
 		} finally {
 			rmSync(home, { recursive: true, force: true });
 		}

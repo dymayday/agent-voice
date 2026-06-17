@@ -9,8 +9,10 @@ public final class AppModel: ObservableObject {
     @Published public private(set) var config: AgentVoiceFullConfig?
     @Published public private(set) var lastError: String?
     @Published public private(set) var kokoroSetup = KokoroSetupSnapshot()
+    @Published public private(set) var kokoroSetupDetectionError: String?
     @Published public private(set) var isLoadingHistoryPage = false
     @Published public private(set) var availableSummarizerModels: [String] = []
+    @Published public private(set) var preferredSetupStep: SetupStep?
     @Published public var draftVoice: String = ""
     @Published public var draftThinking: String = "off"
     @Published public var draftSummarizerModel: String = ""
@@ -59,9 +61,12 @@ public final class AppModel: ObservableObject {
         summarizerModelsTask?.cancel()
         kokoroSetupTask?.cancel()
     }
+}
 
+extension AppModel {
     public func refresh() async {
         var errors: [String] = []
+        var kokoroDetectionErrors: [String] = []
         var refreshedStatus: AgentVoiceStatusSnapshot?
 
         do {
@@ -86,7 +91,9 @@ public final class AppModel: ObservableObject {
         do {
             doctorReport = try await cli.doctor()
         } catch {
-            errors.append("doctor: \(String(describing: error))")
+            let message = "doctor: \(String(describing: error))"
+            errors.append(message)
+            kokoroDetectionErrors.append(message)
         }
 
         do {
@@ -104,9 +111,15 @@ public final class AppModel: ObservableObject {
                 draftSummarizerModel = currentSummarizerModel
             }
         } catch {
-            errors.append("config: \(String(describing: error))")
+            let message = "config: \(String(describing: error))"
+            errors.append(message)
+            kokoroDetectionErrors.append(message)
         }
 
+        kokoroSetupDetectionError = kokoroDetectionErrors.isEmpty ? nil : kokoroDetectionErrors.joined(separator: "\n")
+        if kokoroDetectionErrors.isEmpty {
+            resetStaleKokoroSetupSuccessIfNeeded()
+        }
         lastError = errors.isEmpty ? nil : errors.joined(separator: "\n")
     }
 
@@ -170,6 +183,19 @@ public final class AppModel: ObservableObject {
         await perform { try await cli.runVoiceTest(text) }
     }
 
+    public var shouldPromptForKokoroSetup: Bool {
+        kokoroSetup.phase != .running && (hasMissingKokoroDiagnostics || kokoroSetupDetectionError != nil)
+    }
+
+    public func requestSetupStep(_ step: SetupStep) {
+        preferredSetupStep = step
+    }
+
+    public func clearPreferredSetupStep(_ step: SetupStep) {
+        guard preferredSetupStep == step else { return }
+        preferredSetupStep = nil
+    }
+
     public func diagnosticSnapshotJSON() -> String {
         let snapshot = AgentVoiceDiagnosticSnapshot(
             status: status,
@@ -220,6 +246,9 @@ public final class AppModel: ObservableObject {
         }
     }
 
+}
+
+extension AppModel {
     public func setSummarizerMode(_ mode: String) async {
         await perform { try await cli.setSummarizerMode(mode) }
     }
@@ -348,6 +377,9 @@ public final class AppModel: ObservableObject {
         }
     }
 
+}
+
+extension AppModel {
     public func installKokoro() async {
         guard kokoroSetupTask == nil, kokoroSetup.phase != .running else { return }
 
@@ -443,7 +475,12 @@ public final class AppModel: ObservableObject {
                 kokoroSetup.error = nil
             } else {
                 kokoroSetup.phase = .failed
-                kokoroSetup.error = String(describing: error)
+                let existingSetupError = kokoroSetup.error?.trimmingCharacters(in: .whitespacesAndNewlines)
+                if let existingSetupError, !existingSetupError.isEmpty {
+                    kokoroSetup.error = existingSetupError
+                } else {
+                    kokoroSetup.error = String(describing: error)
+                }
                 lastError = kokoroSetup.error
             }
         }
@@ -504,6 +541,28 @@ public final class AppModel: ObservableObject {
         ids.append(id)
     }
 
+    private func resetStaleKokoroSetupSuccessIfNeeded() {
+        guard kokoroSetup.phase == .succeeded else { return }
+        guard hasMissingKokoroDiagnostics else { return }
+        kokoroSetup = KokoroSetupSnapshot()
+    }
+
+    private var hasMissingKokoroDiagnostics: Bool {
+        if config?.tts.kokoroScript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true {
+            return true
+        }
+        if config?.tts.python.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true {
+            return true
+        }
+
+        return doctorReport?.checks.contains {
+            ["tts.kokoroScript.exists", "tts.python.exists"].contains($0.id) && !$0.ok
+        } == true
+    }
+
+}
+
+extension AppModel {
     private func summarizerModelBinding() -> SummarizerModelBinding? {
         guard let summarizer = config?.summarizer else { return nil }
         return summarizerModelBinding(from: summarizer)

@@ -25,7 +25,7 @@ struct AgentVoiceApplication: App {
             MenuBarSentinelView(model: model)
         } label: {
             StatusBarIconLabel()
-                .background(DockMenuWindowBridge())
+                .background(DockMenuWindowBridge(model: model))
         }
         .menuBarExtraStyle(.window)
 

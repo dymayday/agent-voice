@@ -33,9 +33,8 @@ Then use the waveform menu-bar icon:
 
 - macOS 13+.
 - [Bun](https://bun.sh/) on your `PATH`.
-- [`uv`](https://docs.astral.sh/uv/) on your `PATH` for automatic Kokoro setup. Agent Voice does not install `uv` for you.
 - Swift/Xcode command-line tools to build the app.
-- Network access and local disk space during Kokoro setup for Python packages and Kokoro model files.
+- Network access and local disk space during Kokoro setup for managed `uv`, Python packages, and Kokoro model files.
 - Optional summarizer CLIs: `codex`, `pi`, or `opencode`. Missing CLIs fall back to heuristic summaries.
 
 ## Kokoro setup and manual overrides
@@ -48,7 +47,7 @@ Automatic setup is the recommended path:
 ./bin/agent-voice test 'hello'
 ```
 
-Managed Kokoro files live under `AGENT_VOICE_HOME/kokoro` (by default, `~/.agent-voice/kokoro`). This directory contains the managed Python environment, Agent Voice's Kokoro service script, cached model files, and install state. Setup may download Python packages and Kokoro model files from the network and can use significant disk space depending on cached model assets.
+Managed Kokoro files live under `AGENT_VOICE_HOME/kokoro` (by default, `~/.agent-voice/kokoro`). This directory contains the managed Python environment, Agent Voice's Kokoro service script, a private managed `uv` binary when no system `uv` is available, cached model files, and install state. Setup may download a pinned `uv` release archive and verifies its checksum before installing it; Python packages and Kokoro model files are also downloaded from the network and can use significant disk space depending on cached model assets.
 
 If you already have a compatible Kokoro JSONL service, keep using the manual override path:
 
@@ -119,7 +118,7 @@ run/daemon.pid    # daemon lock
 run/audio/        # temporary WAV files
 ```
 
-Set `AGENT_VOICE_HOME` to move the whole state directory. Automatic Kokoro setup keeps the managed virtual environment, service script, install state, and Hugging Face model cache under `AGENT_VOICE_HOME/kokoro`; package managers such as `uv` may still use their normal user-level caches unless you configure them separately.
+Set `AGENT_VOICE_HOME` to move the whole state directory. Automatic Kokoro setup keeps the managed virtual environment, service script, managed `uv` binary, install state, and Hugging Face model cache under `AGENT_VOICE_HOME/kokoro`; package managers may still use normal user-level caches unless configured separately.
 
 Queue data, config, generated WAV files, and Kokoro playback stay local. Default summarization may call configured `codex`, `pi`, or `opencode` providers; use `./bin/agent-voice summarizer mode heuristic` for local/no-network summaries. Summarizer privacy and no-network mode are separate from Kokoro setup: the explicit Kokoro setup step may still use the network to download TTS dependencies and model files.
 
@@ -134,8 +133,8 @@ AGENT_VOICE_EXECUTABLE=/path/to/agent-voice \
 ## Known limitations
 
 - The app is not signed or notarized.
-- Bun, `uv`, Python packages, and Kokoro model files are not bundled.
-- Automatic Kokoro setup needs an explicit setup run and may need network access; manual script overrides remain available.
+- Bun, Python packages, and Kokoro model files are not bundled.
+- Automatic Kokoro setup can install a private managed `uv` binary from a pinned, checksummed release archive under Agent Voice Home and may need network access; manual script overrides remain available.
 - Only Pi and Claude hook installers are available today.
 
 ## Development
@@ -151,7 +150,7 @@ bash scripts/build-macos-app.sh
 ## Troubleshooting
 
 - **No sound:** run **Voice Test** or `./bin/agent-voice test 'hello'`; verify macOS audio output, `afplay`, and `./bin/agent-voice doctor --json`.
-- **`uv` is missing:** install `uv`, make sure it is on `PATH`, then rerun `./bin/agent-voice kokoro setup`. Agent Voice does not install `uv` automatically.
+- **Managed `uv` install fails:** check network access, proxy settings, checksum/download errors, and available disk space under `AGENT_VOICE_HOME/kokoro`, then rerun `./bin/agent-voice kokoro setup`.
 - **Dependency install fails:** check network access, package index/proxy settings, and available disk space, then rerun `./bin/agent-voice kokoro setup`; the setup command is repair-oriented.
 - **Model download or verification fails:** check network access and disk space under `AGENT_VOICE_HOME/kokoro`; if verification fails, remove the incomplete managed model cache and retry setup instead of trusting the file.
 - **Smoke test never emits ready:** run `./bin/agent-voice doctor --json`, review setup logs, and confirm the configured `tts.python` can launch the configured `tts.kokoroScript`.

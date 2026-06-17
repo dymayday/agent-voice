@@ -23,6 +23,15 @@ struct SetupAssistantView: View {
         .task {
             await model.refresh()
         }
+        .task(id: model.preferredSetupStep) {
+            applyPreferredSetupStepIfNeeded()
+        }
+    }
+
+    private func applyPreferredSetupStepIfNeeded() {
+        guard let step = model.preferredSetupStep else { return }
+        selectedStep = step
+        model.clearPreferredSetupStep(step)
     }
 
     private var sidebar: some View {
@@ -81,8 +90,9 @@ struct SetupAssistantView: View {
                 labeledRow(title: "Kokoro script", detail: model.config?.tts.kokoroScript ?? "Unknown")
                 labeledRow(title: "Current voice", detail: model.config?.tts.voice ?? "Unknown")
                 Text(
-                    "Automatic setup installs pinned Python dependencies and Kokoro model files under " +
-                        "Agent Voice Home. It requires uv, uses local disk space, and may download files from the network."
+                    "Automatic setup installs managed uv when needed, pinned Python dependencies, " +
+                        "and Kokoro model files under Agent Voice Home. It uses local disk space " +
+                        "and may download files from the network."
                 )
                     .font(.caption)
                     .foregroundStyle(.secondary)

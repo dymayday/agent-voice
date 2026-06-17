@@ -166,7 +166,7 @@ public struct KokoroSetupStepDefinition: Equatable, Identifiable, Sendable {
 public enum KokoroSetupSteps {
     public static let all: [KokoroSetupStepDefinition] = [
         .init(id: "prepare", title: "Prepare install directory"),
-        .init(id: "uv-check", title: "Check uv"),
+        .init(id: "uv-check", title: "Prepare uv"),
         .init(id: "script", title: "Install service script"),
         .init(id: "venv", title: "Create Python environment"),
         .init(id: "deps", title: "Install Python dependencies"),

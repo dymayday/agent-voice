@@ -3,29 +3,25 @@ import AppKit
 import SwiftUI
 
 struct DockMenuWindowBridge: View {
+    @ObservedObject var model: AppModel
     @Environment(\.openWindow) private var openWindow
-    @State private var didOpenDashboardOnLaunch = false
 
     var body: some View {
         Color.clear
             .frame(width: 0, height: 0)
             .onAppear {
-                AgentVoiceDockMenuDelegate.openDashboardWindow = {
-                    NSApplication.shared.activate(ignoringOtherApps: true)
-                    openWindow(id: AgentVoiceWindowID.dashboard)
-                }
-                AgentVoiceDockMenuDelegate.openSetupWindow = {
-                    NSApplication.shared.activate(ignoringOtherApps: true)
-                    openWindow(id: AgentVoiceWindowID.setup)
-                }
-                openDashboardOnLaunch()
+                AgentVoiceDockMenuDelegate.configureWindowOpeners(
+                    openDashboard: {
+                        NSApplication.shared.activate(ignoringOtherApps: true)
+                        openWindow(id: AgentVoiceWindowID.dashboard)
+                    },
+                    openSetup: {
+                        NSApplication.shared.activate(ignoringOtherApps: true)
+                        openWindow(id: AgentVoiceWindowID.setup)
+                    }
+                )
+                AgentVoiceDockMenuDelegate.routeInitialWindowIfNeeded(model: model)
             }
-    }
-
-    private func openDashboardOnLaunch() {
-        guard !didOpenDashboardOnLaunch else { return }
-        didOpenDashboardOnLaunch = true
-        AgentVoiceDockMenuDelegate.openDashboardWindow?()
     }
 }
 
@@ -34,9 +30,48 @@ final class AgentVoiceDockMenuDelegate: NSObject, NSApplicationDelegate {
     static weak var model: AppModel?
     static var openDashboardWindow: (() -> Void)?
     static var openSetupWindow: (() -> Void)?
+    private static var didRouteInitialWindow = false
+    private static var didUserOpenWindow = false
+    private static var initialWindowRoutingTask: Task<Void, Never>?
 
     static func configure(model: AppModel) {
         self.model = model
+    }
+
+    static func configureWindowOpeners(
+        openDashboard: @escaping () -> Void,
+        openSetup: @escaping () -> Void
+    ) {
+        openDashboardWindow = {
+            didUserOpenWindow = true
+            openDashboard()
+        }
+        openSetupWindow = {
+            didUserOpenWindow = true
+            openSetup()
+        }
+    }
+
+    static func routeInitialWindowIfNeeded(model: AppModel) {
+        guard !didRouteInitialWindow, initialWindowRoutingTask == nil else { return }
+        initialWindowRoutingTask = Task { @MainActor in
+            defer { initialWindowRoutingTask = nil }
+            await model.refresh()
+            guard !Task.isCancelled else { return }
+            guard !didRouteInitialWindow else { return }
+            guard !didUserOpenWindow else {
+                didRouteInitialWindow = true
+                return
+            }
+
+            didRouteInitialWindow = true
+            if model.shouldPromptForKokoroSetup {
+                model.requestSetupStep(.kokoro)
+                openSetupWindow?()
+            } else {
+                openDashboardWindow?()
+            }
+        }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows _: Bool) -> Bool {

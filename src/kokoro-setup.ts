@@ -1,5 +1,9 @@
+import { createHash } from "node:crypto";
 import {
+	accessSync,
+	chmodSync,
 	closeSync,
+	constants,
 	copyFileSync,
 	existsSync,
 	lstatSync,
@@ -70,6 +74,7 @@ export interface KokoroSetupOptions {
 	deps?: KokoroSetupDeps;
 	emit?: (event: KokoroSetupEvent) => void;
 	resourceRoot?: string;
+	uvRelease?: UvReleaseAsset;
 }
 
 export interface KokoroStatusOptions {
@@ -100,7 +105,7 @@ export const KOKORO_SETUP_STEP_IDS: readonly KokoroSetupStepId[] = [
 
 const STEP_TITLES: Record<KokoroSetupStepId, string> = {
 	prepare: "Preparing install directory",
-	"uv-check": "Checking uv",
+	"uv-check": "Preparing uv",
 	script: "Installing Kokoro service script",
 	venv: "Creating Python environment",
 	deps: "Installing Python dependencies",
@@ -113,6 +118,40 @@ const DEFAULT_COMMAND_TIMEOUT_MS = 10 * 60 * 1000;
 const DEFAULT_SMOKE_TEST_TIMEOUT_MS = 60 * 1000;
 const KOKORO_REPO_ID = "hexgrad/Kokoro-82M";
 const SMOKE_TEST_TEXT = "Agent Voice Kokoro setup smoke test.";
+const MANAGED_UV_VERSION = "0.11.20";
+
+export interface UvReleaseAsset {
+	version: string;
+	target: string;
+	checksum: string;
+}
+
+const MANAGED_UV_RELEASES: Record<string, UvReleaseAsset> = {
+	"darwin-arm64": {
+		version: MANAGED_UV_VERSION,
+		target: "uv-aarch64-apple-darwin",
+		checksum:
+			"0a2b6a757d5693671a7ce0002554ae869604e1e69acb10313ac14d08374be01a",
+	},
+	"darwin-x64": {
+		version: MANAGED_UV_VERSION,
+		target: "uv-x86_64-apple-darwin",
+		checksum:
+			"bef01a86faab997f6022b45cfa29bfc5b090f2f72cd4a91d2ecefe641efdabe7",
+	},
+	"linux-arm64": {
+		version: MANAGED_UV_VERSION,
+		target: "uv-aarch64-unknown-linux-gnu",
+		checksum:
+			"c8b5b7f9c804b640da0bb66cddddf0a00ce971f64d8076622d70bd141bc80857",
+	},
+	"linux-x64": {
+		version: MANAGED_UV_VERSION,
+		target: "uv-x86_64-unknown-linux-gnu",
+		checksum:
+			"5de211d9278af365497d387e25316907b3b4a9f25b4476dd6dbf238d6f85cff3",
+	},
+};
 
 export function kokoroManagedHome(paths: AgentVoicePaths): string {
 	return join(paths.home, "kokoro");
@@ -124,6 +163,14 @@ export function kokoroManagedScript(paths: AgentVoicePaths): string {
 
 export function kokoroManagedPython(paths: AgentVoicePaths): string {
 	return join(kokoroManagedHome(paths), ".venv", "bin", "python");
+}
+
+export function kokoroManagedUv(paths: AgentVoicePaths): string {
+	return join(kokoroManagedHome(paths), "bin", "uv");
+}
+
+function kokoroManagedBin(paths: AgentVoicePaths): string {
+	return join(kokoroManagedHome(paths), "bin");
 }
 
 export function kokoroSetupLockPath(paths: AgentVoicePaths): string {
@@ -664,6 +711,176 @@ function kokoroChildEnv(paths: AgentVoicePaths): Record<string, string> {
 	};
 }
 
+function uvReleaseAsset(options: KokoroSetupOptions): UvReleaseAsset {
+	if (options.uvRelease) return options.uvRelease;
+	const key = `${process.platform}-${process.arch}`;
+	const release = MANAGED_UV_RELEASES[key];
+	if (!release) {
+		throw new Error(
+			`Automatic managed uv install is unsupported on ${process.platform}/${process.arch}. Install uv manually and rerun setup.`,
+		);
+	}
+	return release;
+}
+
+function uvArchiveName(release: UvReleaseAsset): string {
+	return `${release.target}.tar.gz`;
+}
+
+function uvArchiveUrl(release: UvReleaseAsset): string {
+	return `https://github.com/astral-sh/uv/releases/download/${release.version}/${uvArchiveName(release)}`;
+}
+
+function verifySha256(path: string, expected: string): void {
+	const actual = createHash("sha256").update(readFileSync(path)).digest("hex");
+	if (actual !== expected) {
+		throw new Error(
+			`Managed uv archive checksum mismatch: expected ${expected}, got ${actual}`,
+		);
+	}
+}
+
+function assertManagedUvExecutable(
+	paths: AgentVoicePaths,
+	target: string,
+): void {
+	assertManagedChild(paths, target);
+	const stat = lstatIfExists(target);
+	if (!stat || stat.isSymbolicLink() || !stat.isFile()) {
+		throw new Error(`Refusing to use unsafe managed path: ${target}`);
+	}
+	try {
+		accessSync(target, constants.X_OK);
+	} catch {
+		throw new Error(`Managed uv is not executable: ${target}`);
+	}
+}
+
+function preflightLocalSetupInputs(
+	paths: AgentVoicePaths,
+	resourceRoot: string,
+	managedHome: string,
+	scriptPath: string,
+): void {
+	const sourceScript = resourceScriptPath(resourceRoot);
+	const requirements = resourceRequirementsPath(resourceRoot);
+	if (!existsSync(sourceScript)) {
+		throw new Error(`Bundled Kokoro service script not found: ${sourceScript}`);
+	}
+	if (!existsSync(requirements)) {
+		throw new Error(`Bundled Kokoro requirements not found: ${requirements}`);
+	}
+	assertSafeOverwrite(paths, scriptPath);
+	assertSafeManagedDirectoryTarget(paths, join(managedHome, ".venv"));
+}
+
+function existingManagedUv(paths: AgentVoicePaths): string | undefined {
+	const managedUv = kokoroManagedUv(paths);
+	const stat = lstatIfExists(managedUv);
+	if (!stat) return undefined;
+	assertManagedUvExecutable(paths, managedUv);
+	return managedUv;
+}
+
+async function validateManagedUv(
+	paths: AgentVoicePaths,
+	deps: KokoroSetupDeps,
+	emit: (event: KokoroSetupEvent) => void,
+): Promise<string | undefined> {
+	const managedUv = existingManagedUv(paths);
+	if (!managedUv) return undefined;
+	await runChecked(deps, emit, {
+		cmd: managedUv,
+		args: ["--version"],
+		timeoutMs: DEFAULT_COMMAND_TIMEOUT_MS,
+	});
+	return existingManagedUv(paths);
+}
+
+async function runUvChecked(
+	paths: AgentVoicePaths,
+	deps: KokoroSetupDeps,
+	emit: (event: KokoroSetupEvent) => void,
+	uvCommand: string,
+	request: Omit<Parameters<KokoroSetupDeps["run"]>[0], "cmd">,
+): Promise<void> {
+	const cmd = uvCommand === "uv" ? uvCommand : existingManagedUv(paths);
+	if (!cmd) {
+		throw new Error(`Managed uv is missing: ${kokoroManagedUv(paths)}`);
+	}
+	await runChecked(deps, emit, { ...request, cmd });
+}
+
+async function installManagedUv(
+	paths: AgentVoicePaths,
+	deps: KokoroSetupDeps,
+	emit: (event: KokoroSetupEvent) => void,
+	release: UvReleaseAsset,
+): Promise<string> {
+	const installDir = kokoroManagedBin(paths);
+	ensureManagedDirectory(paths, installDir);
+	const existing = await validateManagedUv(paths, deps, emit);
+	if (existing) return existing;
+
+	const stagingDir = join(
+		installDir,
+		`.uv-download-${process.pid}-${Date.now()}`,
+	);
+	assertManagedChild(paths, stagingDir);
+	mkdirSync(stagingDir, { recursive: true });
+
+	try {
+		const archiveName = uvArchiveName(release);
+		const archivePath = join(stagingDir, archiveName);
+		await runChecked(deps, emit, {
+			cmd: "curl",
+			args: [
+				"-LfS",
+				"--proto",
+				"=https",
+				"--tlsv1.2",
+				"-o",
+				archivePath,
+				uvArchiveUrl(release),
+			],
+			timeoutMs: DEFAULT_COMMAND_TIMEOUT_MS,
+		});
+		verifySha256(archivePath, release.checksum);
+
+		await runChecked(deps, emit, {
+			cmd: "tar",
+			args: ["-xzf", archivePath, "-C", stagingDir],
+			timeoutMs: DEFAULT_COMMAND_TIMEOUT_MS,
+		});
+
+		const extractedUv = join(stagingDir, release.target, "uv");
+		assertManagedUvExecutable(paths, extractedUv);
+		assertSafeOverwrite(paths, kokoroManagedUv(paths));
+		copyFileSync(extractedUv, kokoroManagedUv(paths));
+		chmodSync(kokoroManagedUv(paths), 0o755);
+	} finally {
+		rmSync(stagingDir, { recursive: true, force: true });
+	}
+
+	const installed = await validateManagedUv(paths, deps, emit);
+	if (!installed) {
+		throw new Error(
+			`Managed uv install did not create ${kokoroManagedUv(paths)}`,
+		);
+	}
+	return installed;
+}
+
+async function resolveUvCommand(
+	paths: AgentVoicePaths,
+	deps: KokoroSetupDeps,
+	emit: (event: KokoroSetupEvent) => void,
+	release: UvReleaseAsset,
+): Promise<string> {
+	if (await deps.commandExists("uv")) return "uv";
+	return await installManagedUv(paths, deps, emit, release);
+}
+
 function preloadCode(): string {
 	return [
 		"import os",
@@ -704,6 +921,8 @@ export async function runKokoroSetup(
 	const sourceScript = resourceScriptPath(resourceRoot);
 	const requirements = resourceRequirementsPath(resourceRoot);
 	const childEnv = kokoroChildEnv(paths);
+	const uvRelease = uvReleaseAsset(options);
+	let uvCommand = "uv";
 	let releaseLock: (() => void) | undefined;
 
 	try {
@@ -713,30 +932,19 @@ export async function runKokoroSetup(
 			assertManagedRoot(paths);
 			ensureManagedDirectory(paths, kokoroModelsHome(paths));
 			ensureManagedDirectory(paths, kokoroHuggingFaceHome(paths));
+			preflightLocalSetupInputs(paths, resourceRoot, managedHome, scriptPath);
 		});
 
-		await runStep(emit, "uv-check", async () => {
-			if (!(await deps.commandExists("uv"))) {
-				throw new Error(
-					"uv is required for automatic Kokoro setup. Install uv, then rerun agent-voice kokoro setup.",
-				);
-			}
-		});
+		uvCommand = await runStep(emit, "uv-check", async () =>
+			resolveUvCommand(paths, deps, emit, uvRelease),
+		);
 
 		await runStep(emit, "script", () => {
-			if (!existsSync(sourceScript)) {
-				throw new Error(
-					`Bundled Kokoro service script not found: ${sourceScript}`,
-				);
-			}
-			assertSafeOverwrite(paths, scriptPath);
 			copyFileSync(sourceScript, scriptPath);
 		});
 
 		await runStep(emit, "venv", async () => {
-			assertSafeManagedDirectoryTarget(paths, join(managedHome, ".venv"));
-			await runChecked(deps, emit, {
-				cmd: "uv",
+			await runUvChecked(paths, deps, emit, uvCommand, {
 				args: ["venv", ".venv"],
 				cwd: managedHome,
 				timeoutMs: DEFAULT_COMMAND_TIMEOUT_MS,
@@ -744,13 +952,7 @@ export async function runKokoroSetup(
 		});
 
 		await runStep(emit, "deps", async () => {
-			if (!existsSync(requirements)) {
-				throw new Error(
-					`Bundled Kokoro requirements not found: ${requirements}`,
-				);
-			}
-			await runChecked(deps, emit, {
-				cmd: "uv",
+			await runUvChecked(paths, deps, emit, uvCommand, {
 				args: ["pip", "install", "--python", pythonPath, "-r", requirements],
 				cwd: managedHome,
 				timeoutMs: DEFAULT_COMMAND_TIMEOUT_MS,
