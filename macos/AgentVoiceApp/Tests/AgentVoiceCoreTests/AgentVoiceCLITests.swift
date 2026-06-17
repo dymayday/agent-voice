@@ -26,6 +26,63 @@ actor RecordingRunner: ProcessRunning {
     }
 }
 
+final class RecordingStreamingRunner: ProcessStreaming, @unchecked Sendable {
+    private let lock = NSLock()
+    private var requests: [ProcessRequest] = []
+    private var continuations: [AsyncThrowingStream<String, Error>.Continuation] = []
+    private let lines: [String]
+    private let finishAutomatically: Bool
+    private var didCancel = false
+
+    init(lines: [String], finishAutomatically: Bool = true) {
+        self.lines = lines
+        self.finishAutomatically = finishAutomatically
+    }
+
+    func stream(_ request: ProcessRequest) -> AsyncThrowingStream<String, Error> {
+        lock.withLock {
+            requests.append(request)
+        }
+
+        let lines = self.lines
+        let finishAutomatically = self.finishAutomatically
+        return AsyncThrowingStream { continuation in
+            lock.withLock {
+                continuations.append(continuation)
+            }
+            Task {
+                for line in lines {
+                    continuation.yield(line)
+                    await Task.yield()
+                }
+                if finishAutomatically {
+                    continuation.finish()
+                }
+            }
+        }
+    }
+
+    func cancelActiveStream() {
+        let activeContinuations = lock.withLock {
+            didCancel = true
+            let activeContinuations = continuations
+            continuations.removeAll()
+            return activeContinuations
+        }
+        for continuation in activeContinuations {
+            continuation.finish(throwing: CancellationError())
+        }
+    }
+
+    func capturedRequests() -> [ProcessRequest] {
+        lock.withLock { requests }
+    }
+
+    func wasCancelled() -> Bool {
+        lock.withLock { didCancel }
+    }
+}
+
 private actor ResultBox {
     private var value: ProcessResult?
     func set(_ result: ProcessResult) { value = result }
@@ -334,6 +391,81 @@ final class AgentVoiceCLITests: XCTestCase {
 
         let requests = await runner.capturedRequests()
         XCTAssertEqual(requests.first?.arguments, ["queue", "clear", "--failed"])
+    }
+
+    func testKokoroSetupCommandStreamsJsonl() async throws {
+        let streamingRunner = RecordingStreamingRunner(lines: [#"{"type":"complete","ok":true}"#])
+        let cli = AgentVoiceCLI(
+            executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"),
+            runner: RecordingRunner(),
+            streamingRunner: streamingRunner
+        )
+
+        var received: [KokoroSetupEvent] = []
+        for try await event in cli.streamKokoroSetupEvents() {
+            received.append(event)
+        }
+
+        XCTAssertEqual(received.last?.ok, true)
+        let requests = streamingRunner.capturedRequests()
+        XCTAssertEqual(requests.first?.arguments, ["kokoro", "setup", "--jsonl"])
+    }
+
+    func testKokoroSetupStreamingUsesSharedEnvironment() async throws {
+        let streamingRunner = RecordingStreamingRunner(lines: [#"{"type":"complete","ok":true}"#])
+        let cli = AgentVoiceCLI(
+            executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"),
+            agentVoiceHome: URL(fileURLWithPath: "/tmp/custom-agent-voice"),
+            baseEnvironment: ["PATH": "/usr/bin:/bin"],
+            runner: RecordingRunner(),
+            streamingRunner: streamingRunner
+        )
+
+        for try await _ in cli.streamKokoroSetupEvents() {}
+
+        let request = try XCTUnwrap(streamingRunner.capturedRequests().first)
+        XCTAssertEqual(request.environment["AGENT_VOICE_HOME"], "/tmp/custom-agent-voice")
+        XCTAssertEqual(request.environment["PATH"], "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin")
+    }
+
+    func testCancellingKokoroSetupStreamCancelsRunner() async throws {
+        let streamingRunner = RecordingStreamingRunner(
+            lines: [#"{"type":"step","id":"prepare","status":"running","title":"Preparing"}"#],
+            finishAutomatically: false
+        )
+        let cli = AgentVoiceCLI(
+            executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"),
+            runner: RecordingRunner(),
+            streamingRunner: streamingRunner
+        )
+
+        let task = Task {
+            for try await _ in cli.streamKokoroSetupEvents() {}
+        }
+        try await waitForStreamingRequestCount(1, runner: streamingRunner)
+        task.cancel()
+        _ = await task.result
+
+        XCTAssertTrue(streamingRunner.wasCancelled())
+    }
+
+    private func waitForStreamingRequestCount(
+        _ minimumRequestCount: Int,
+        runner: RecordingStreamingRunner,
+        timeoutNanoseconds: UInt64 = 1_000_000_000
+    ) async throws {
+        let startedAt = Date()
+        let timeoutSeconds = Double(timeoutNanoseconds) / 1_000_000_000
+
+        while Date().timeIntervalSince(startedAt) < timeoutSeconds {
+            if runner.capturedRequests().count >= minimumRequestCount {
+                return
+            }
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+
+        XCTFail("Timed out waiting for \(minimumRequestCount) streaming process requests")
+        throw XCTSkip("Cannot verify streaming cancellation without a recorded process request.")
     }
 
     func testDefaultExecutablePrefersEnvironmentOverride() throws {

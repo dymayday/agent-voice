@@ -1114,3 +1114,130 @@ extension AppModelTests {
         XCTAssertEqual(requests.map(\.arguments), [["models", "list"], ["models", "list"]])
     }
 }
+
+extension AppModelTests {
+    func testInstallKokoroUpdatesSetupStateAndRefreshes() async throws {
+        let streamingRunner = RecordingStreamingRunner(lines: [
+            #"{"type":"step","id":"prepare","status":"running","title":"Preparing install directory"}"#,
+            #"{"type":"step","id":"prepare","status":"done","title":"Preparing install directory"}"#,
+            #"{"type":"complete","ok":true}"#
+        ])
+        let runner = RecordingRunner(results: [
+            ProcessResult(exitCode: 0, stdout: statusJSON(), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyHistoryJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyDoctorJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: fullConfigJSON(), stderr: "")
+        ])
+        let cli = AgentVoiceCLI(
+            executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"),
+            runner: runner,
+            streamingRunner: streamingRunner
+        )
+        let model = AppModel(cli: cli)
+
+        await model.installKokoro()
+
+        XCTAssertEqual(model.kokoroSetup.phase, .succeeded)
+        XCTAssertEqual(model.status?.ui.state, .ready)
+        let requests = streamingRunner.capturedRequests()
+        XCTAssertEqual(requests.first?.arguments, ["kokoro", "setup", "--jsonl"])
+    }
+
+    func testInstallKokoroFailureKeepsDiagnostics() async throws {
+        let streamingRunner = RecordingStreamingRunner(lines: [
+            #"{"type":"step","id":"uv-check","status":"failed","title":"Checking uv","error":"uv is required"}"#,
+            #"{"type":"complete","ok":false,"error":"uv is required"}"#
+        ])
+        let cli = AgentVoiceCLI(
+            executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"),
+            runner: RecordingRunner(),
+            streamingRunner: streamingRunner
+        )
+        let model = AppModel(cli: cli)
+
+        await model.installKokoro()
+
+        XCTAssertEqual(model.kokoroSetup.phase, .failed)
+        XCTAssertTrue(model.kokoroSetup.error?.contains("uv") == true)
+        XCTAssertTrue(model.kokoroSetupDiagnostics().contains("uv is required"))
+    }
+
+    func testInstallKokoroIgnoresSecondStartWhileRunning() async throws {
+        let streamingRunner = RecordingStreamingRunner(
+            lines: [#"{"type":"step","id":"prepare","status":"running","title":"Preparing"}"#],
+            finishAutomatically: false
+        )
+        let cli = AgentVoiceCLI(
+            executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"),
+            runner: RecordingRunner(),
+            streamingRunner: streamingRunner
+        )
+        let model = AppModel(cli: cli)
+
+        let installTask = Task { await model.installKokoro() }
+        try await waitForAppModelStreamingRequestCount(1, runner: streamingRunner)
+
+        await model.installKokoro()
+
+        XCTAssertEqual(streamingRunner.capturedRequests().count, 1)
+        model.cancelKokoroSetup()
+        await installTask.value
+    }
+
+    func testInstallKokoroFailsIfStreamEndsWithoutCompleteEvent() async throws {
+        let streamingRunner = RecordingStreamingRunner(lines: [
+            #"{"type":"step","id":"prepare","status":"running","title":"Preparing"}"#
+        ])
+        let cli = AgentVoiceCLI(
+            executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"),
+            runner: RecordingRunner(),
+            streamingRunner: streamingRunner
+        )
+        let model = AppModel(cli: cli)
+
+        await model.installKokoro()
+
+        XCTAssertEqual(model.kokoroSetup.phase, .failed)
+        XCTAssertTrue(model.kokoroSetup.error?.contains("complete event") == true)
+    }
+
+    func testCancelKokoroSetupStopsStreamAndMarksCancelled() async throws {
+        let streamingRunner = RecordingStreamingRunner(
+            lines: [#"{"type":"step","id":"prepare","status":"running","title":"Preparing"}"#],
+            finishAutomatically: false
+        )
+        let cli = AgentVoiceCLI(
+            executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"),
+            runner: RecordingRunner(),
+            streamingRunner: streamingRunner
+        )
+        let model = AppModel(cli: cli)
+
+        let installTask = Task { await model.installKokoro() }
+        try await waitForAppModelStreamingRequestCount(1, runner: streamingRunner)
+        model.cancelKokoroSetup()
+        await installTask.value
+
+        XCTAssertEqual(model.kokoroSetup.phase, .cancelled)
+        XCTAssertTrue(streamingRunner.wasCancelled())
+    }
+
+    private func waitForAppModelStreamingRequestCount(
+        _ minimumRequestCount: Int,
+        runner: RecordingStreamingRunner,
+        timeoutNanoseconds: UInt64 = 1_000_000_000
+    ) async throws {
+        let startedAt = Date()
+        let timeoutSeconds = Double(timeoutNanoseconds) / 1_000_000_000
+
+        while Date().timeIntervalSince(startedAt) < timeoutSeconds {
+            if runner.capturedRequests().count >= minimumRequestCount {
+                return
+            }
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+
+        XCTFail("Timed out waiting for \(minimumRequestCount) streaming process requests")
+        throw XCTSkip("Cannot verify AppModel Kokoro setup without a recorded process request.")
+    }
+}

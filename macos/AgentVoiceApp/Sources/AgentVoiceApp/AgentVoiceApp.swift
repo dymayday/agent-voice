@@ -5,6 +5,7 @@ enum AgentVoiceWindowID {
     static let dashboard = "dashboard"
     static let setup = "setup"
     static let attention = "attention"
+    static let kokoroSetup = "kokoro-setup"
 }
 
 @main
@@ -37,6 +38,11 @@ struct AgentVoiceApplication: App {
             AttentionDetailView(model: model)
         }
         .defaultSize(width: 760, height: 620)
+
+        Window("Installing Kokoro", id: AgentVoiceWindowID.kokoroSetup) {
+            KokoroSetupProgressView(model: model)
+        }
+        .defaultSize(width: 620, height: 520)
 
         WindowGroup("Setup", id: AgentVoiceWindowID.setup) {
             SetupAssistantView(model: model)
