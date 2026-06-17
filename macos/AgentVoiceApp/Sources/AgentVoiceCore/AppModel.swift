@@ -47,17 +47,36 @@ public final class AppModel: ObservableObject {
     }
 
     public func refresh() async {
+        var errors: [String] = []
+
         do {
             status = try await cli.status()
-            history = try await cli.history(limit: 50)
-            doctorReport = try await cli.doctor()
-            config = try await cli.config()
-            draftVoice = config?.tts.voice ?? ""
-            draftThinking = config?.summarizer.thinking ?? "off"
-            lastError = nil
         } catch {
-            lastError = String(describing: error)
+            errors.append("status: \(String(describing: error))")
         }
+
+        do {
+            history = try await cli.history(limit: 50)
+        } catch {
+            errors.append("history: \(String(describing: error))")
+        }
+
+        do {
+            doctorReport = try await cli.doctor()
+        } catch {
+            errors.append("doctor: \(String(describing: error))")
+        }
+
+        do {
+            let refreshedConfig = try await cli.config()
+            config = refreshedConfig
+            draftVoice = refreshedConfig.tts.voice
+            draftThinking = refreshedConfig.summarizer.thinking
+        } catch {
+            errors.append("config: \(String(describing: error))")
+        }
+
+        lastError = errors.isEmpty ? nil : errors.joined(separator: "\n")
     }
 
     public func startAutoRefresh(
@@ -123,8 +142,12 @@ public final class AppModel: ObservableObject {
     public func diagnosticSnapshotJSON() -> String {
         let snapshot = AgentVoiceDiagnosticSnapshot(
             status: status,
-            doctorIssues: diagnosticDoctorIssues,
-            failedJobs: diagnosticFailedJobs
+            history: history,
+            doctorReport: doctorReport,
+            config: config,
+            executablePath: cli.executableURL.path,
+            agentVoiceHome: cli.agentVoiceHome?.path,
+            lastError: lastError
         )
 
         let encoder = JSONEncoder()
@@ -172,16 +195,6 @@ public final class AppModel: ObservableObject {
         await perform { try await cli.uninstallAgentHook(agent) }
     }
 
-    private var diagnosticDoctorIssues: [DoctorCheck] {
-        doctorReport?.checks.filter {
-            !$0.ok || $0.severity == .warning || $0.severity == .error
-        } ?? []
-    }
-
-    private var diagnosticFailedJobs: [AgentVoiceHistoryJob] {
-        history?.jobs.filter { $0.status == .failed } ?? []
-    }
-
     private func perform(_ operation: () async throws -> Void) async {
         do {
             try await operation()
@@ -197,14 +210,24 @@ private struct AgentVoiceDiagnosticSnapshot: Encodable {
     private let daemon: Daemon?
     private let queues: QueueCounts?
     private let attention: [String]
-    private let doctorIssues: [DoctorIssue]
-    private let failedJobs: [FailedJob]
+    private let doctorChecks: [DiagnosticDoctorCheck]
+    private let doctorIssues: [DiagnosticDoctorCheck]
+    private let recentJobs: [DiagnosticJob]
+    private let failedJobs: [DiagnosticJob]
     private let paths: Paths?
+    private let config: DiagnosticConfig?
+    private let executablePath: String
+    private let agentVoiceHome: String?
+    private let lastError: String?
 
     init(
         status: AgentVoiceStatusSnapshot?,
-        doctorIssues: [DoctorCheck],
-        failedJobs: [AgentVoiceHistoryJob]
+        history: AgentVoiceHistorySnapshot?,
+        doctorReport: DoctorReport?,
+        config: AgentVoiceFullConfig?,
+        executablePath: String,
+        agentVoiceHome: String?,
+        lastError: String?
     ) {
         statusState = status?.ui.state.rawValue
         daemon = status.map {
@@ -216,23 +239,17 @@ private struct AgentVoiceDiagnosticSnapshot: Encodable {
         }
         queues = status?.queues
         attention = status?.ui.attention ?? []
-        self.doctorIssues = doctorIssues.map {
-            DoctorIssue(
-                id: $0.id,
-                severity: $0.severity.rawValue,
-                message: $0.message,
-                action: $0.action
-            )
-        }
-        self.failedJobs = failedJobs.prefix(5).map {
-            FailedJob(
-                id: $0.id,
-                agent: $0.agent,
-                attempts: $0.attempts,
-                timestamp: $0.finishedAt ?? $0.createdAt,
-                lastError: $0.lastError
-            )
-        }
+
+        let checks = doctorReport?.checks ?? []
+        doctorChecks = checks.map(DiagnosticDoctorCheck.init)
+        doctorIssues = checks
+            .filter { !$0.ok || $0.severity == .warning || $0.severity == .error }
+            .map(DiagnosticDoctorCheck.init)
+
+        let jobs = history?.jobs ?? []
+        recentJobs = jobs.map(DiagnosticJob.init)
+        failedJobs = jobs.filter { $0.status == .failed }.map(DiagnosticJob.init)
+
         paths = status.map {
             Paths(
                 home: $0.paths.home,
@@ -240,6 +257,12 @@ private struct AgentVoiceDiagnosticSnapshot: Encodable {
                 queueDatabase: $0.paths.db
             )
         }
+        self.config = status == nil && config == nil
+            ? nil
+            : DiagnosticConfig(statusConfig: status?.config, fullConfig: config)
+        self.executablePath = executablePath
+        self.agentVoiceHome = agentVoiceHome
+        self.lastError = lastError
     }
 
     func encode(to encoder: Encoder) throws {
@@ -248,9 +271,15 @@ private struct AgentVoiceDiagnosticSnapshot: Encodable {
         try container.encode(daemon, forKey: .daemon)
         try container.encode(queues, forKey: .queues)
         try container.encode(attention, forKey: .attention)
+        try container.encode(doctorChecks, forKey: .doctorChecks)
         try container.encode(doctorIssues, forKey: .doctorIssues)
+        try container.encode(recentJobs, forKey: .recentJobs)
         try container.encode(failedJobs, forKey: .failedJobs)
         try container.encode(paths, forKey: .paths)
+        try container.encode(config, forKey: .config)
+        try container.encode(executablePath, forKey: .executablePath)
+        try container.encode(agentVoiceHome, forKey: .agentVoiceHome)
+        try container.encode(lastError, forKey: .lastError)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -258,30 +287,161 @@ private struct AgentVoiceDiagnosticSnapshot: Encodable {
         case daemon
         case queues
         case attention
+        case doctorChecks
         case doctorIssues
+        case recentJobs
         case failedJobs
         case paths
+        case config
+        case executablePath
+        case agentVoiceHome
+        case lastError
     }
 
     private struct Daemon: Encodable {
         let state: String
         let running: Bool
         let pid: Int?
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(state, forKey: .state)
+            try container.encode(running, forKey: .running)
+            try container.encode(pid, forKey: .pid)
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case state
+            case running
+            case pid
+        }
     }
 
-    private struct DoctorIssue: Encodable {
+    private struct DiagnosticDoctorCheck: Encodable {
         let id: String
+        let ok: Bool
         let severity: String
         let message: String
         let action: String?
+
+        init(_ check: DoctorCheck) {
+            id = check.id
+            ok = check.ok
+            severity = check.severity.rawValue
+            message = check.message
+            action = check.action
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(id, forKey: .id)
+            try container.encode(ok, forKey: .ok)
+            try container.encode(severity, forKey: .severity)
+            try container.encode(message, forKey: .message)
+            try container.encode(action, forKey: .action)
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case id
+            case ok
+            case severity
+            case message
+            case action
+        }
     }
 
-    private struct FailedJob: Encodable {
+    private struct DiagnosticJob: Encodable {
         let id: String
         let agent: String
+        let status: String
+        let text: String
+        let cwd: String?
+        let createdAt: String
+        let finishedAt: String?
+        let summary: String?
+        let summarizerUsed: String?
+        let skipReason: String?
+        let lastError: String?
         let attempts: Int
         let timestamp: String
-        let lastError: String?
+
+        init(_ job: AgentVoiceHistoryJob) {
+            id = job.id
+            agent = job.agent
+            status = job.status.rawValue
+            text = job.text
+            cwd = job.cwd
+            createdAt = job.createdAt
+            finishedAt = job.finishedAt
+            summary = job.summary
+            summarizerUsed = job.summarizerUsed
+            skipReason = job.skipReason
+            lastError = job.lastError
+            attempts = job.attempts
+            timestamp = job.finishedAt ?? job.createdAt
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(id, forKey: .id)
+            try container.encode(agent, forKey: .agent)
+            try container.encode(status, forKey: .status)
+            try container.encode(text, forKey: .text)
+            try container.encode(cwd, forKey: .cwd)
+            try container.encode(createdAt, forKey: .createdAt)
+            try container.encode(finishedAt, forKey: .finishedAt)
+            try container.encode(summary, forKey: .summary)
+            try container.encode(summarizerUsed, forKey: .summarizerUsed)
+            try container.encode(skipReason, forKey: .skipReason)
+            try container.encode(lastError, forKey: .lastError)
+            try container.encode(attempts, forKey: .attempts)
+            try container.encode(timestamp, forKey: .timestamp)
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case id
+            case agent
+            case status
+            case text
+            case cwd
+            case createdAt
+            case finishedAt
+            case summary
+            case summarizerUsed
+            case skipReason
+            case lastError
+            case attempts
+            case timestamp
+        }
+    }
+
+    private struct DiagnosticConfig: Encodable {
+        let enabled: Bool?
+        let agents: [String: AgentSummary]?
+        let tts: TTSConfig?
+        let summarizer: SummarizerConfig?
+
+        init(statusConfig: ConfigSummary?, fullConfig: AgentVoiceFullConfig?) {
+            enabled = statusConfig?.enabled
+            agents = statusConfig?.agents
+            tts = fullConfig?.tts
+            summarizer = fullConfig?.summarizer
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(enabled, forKey: .enabled)
+            try container.encode(agents, forKey: .agents)
+            try container.encode(tts, forKey: .tts)
+            try container.encode(summarizer, forKey: .summarizer)
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case enabled
+            case agents
+            case tts
+            case summarizer
+        }
     }
 
     private struct Paths: Encodable {
