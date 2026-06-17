@@ -856,32 +856,40 @@ extension AppModelTests {
         ])
     }
 
-    func testSummarizerModelInUseUsesPriority() async throws {
+    func testSummarizerModelDraftPreservedDuringRefresh() async throws {
         let runner = RecordingRunner(results: [
             ProcessResult(exitCode: 0, stdout: statusJSON(), stderr: ""),
             ProcessResult(exitCode: 0, stdout: emptyHistoryJSON, stderr: ""),
             ProcessResult(exitCode: 0, stdout: emptyDoctorJSON, stderr: ""),
-            ProcessResult(
-                exitCode: 0,
-                stdout: fullConfigJSON(
-                    piModel: "pi-model",
-                    codexModel: "codex-model",
-                    priority: ["codex-fast", "pi-fast", "heuristic"]
-                ),
-                stderr: ""
-            )
+            ProcessResult(exitCode: 0, stdout: fullConfigJSON(piModel: "pi-original"), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: statusJSON(), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyHistoryJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyDoctorJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: fullConfigJSON(piModel: "pi-updated"), stderr: ""),
         ])
         let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
         let model = AppModel(cli: cli)
 
         await model.refresh()
+        XCTAssertEqual(model.draftSummarizerModel, "pi-original")
 
-        XCTAssertEqual(model.summarizerModelInUseLabel, "Codex model")
-        XCTAssertEqual(model.summarizerModelInUseValue, "codex-model")
-        XCTAssertTrue(model.isSummarizerModelEditable)
+        model.draftSummarizerModel = "user-typed-model"
+        await model.refresh()
+
+        XCTAssertEqual(model.draftSummarizerModel, "user-typed-model")
+        let requests = await runner.capturedRequests()
+        XCTAssertEqual(requests.map(\.arguments), [
+            ["status", "--json"],
+            ["history", "--json", "--limit", "10"],
+            ["doctor", "--json"],
+            ["config", "get"],
+            ["status", "--json"],
+            ["doctor", "--json"],
+            ["config", "get"]
+        ])
     }
 
-    func testSummarizerModelInUseFallsBackToOpencodePriority() async throws {
+    func testSummarizerModelInUseUsesPriority() async throws {
         let runner = RecordingRunner(results: [
             ProcessResult(exitCode: 0, stdout: statusJSON(), stderr: ""),
             ProcessResult(exitCode: 0, stdout: emptyHistoryJSON, stderr: ""),

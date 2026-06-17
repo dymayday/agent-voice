@@ -89,7 +89,11 @@ public final class AppModel: ObservableObject {
             config = refreshedConfig
             draftVoice = refreshedConfig.tts.voice
             draftThinking = refreshedConfig.summarizer.thinking
-            draftSummarizerModel = summarizerModelBinding(from: refreshedConfig.summarizer)?.current ?? ""
+
+            let currentSummarizerModel = summarizerModelBinding(from: refreshedConfig.summarizer)?.current ?? ""
+            if draftSummarizerModel.isEmpty || draftSummarizerModel == currentSummarizerModel {
+                draftSummarizerModel = currentSummarizerModel
+            }
         } catch {
             errors.append("config: \(String(describing: error))")
         }
@@ -267,6 +271,7 @@ public final class AppModel: ObservableObject {
 
     public func saveSummarizerModel() async {
         let model = draftSummarizerModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        draftSummarizerModel = model
         guard !model.isEmpty else {
             lastError = "Summarizer model cannot be empty"
             return
@@ -281,6 +286,7 @@ public final class AppModel: ObservableObject {
 
     public func validateSummarizerModel() async {
         let model = draftSummarizerModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        draftSummarizerModel = model
         guard !model.isEmpty else {
             lastError = "Summarizer model cannot be empty"
             return
