@@ -32,12 +32,10 @@ export interface PlayWavOptions {
 
 const DEFAULT_PLAYBACK_TIMEOUT_MS = 30_000;
 
-interface KokoroMessage {
-	status?: string;
-	audio?: string;
-	duration?: number;
-	error?: string;
-}
+type KokoroMessage =
+	| { kind: "status"; status: string }
+	| { kind: "audio"; audio: string; duration?: number }
+	| { kind: "error"; error: string };
 
 class BunKokoroSession implements KokoroSession {
 	private readonly proc: ReturnType<typeof Bun.spawn>;
@@ -115,14 +113,27 @@ function parseKokoroLine(line: string): KokoroMessage {
 	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
 		throw new Error("Invalid Kokoro response");
 	}
-	return parsed as KokoroMessage;
+	const record = parsed as Record<string, unknown>;
+	if (typeof record.error === "string" && record.error.trim().length > 0) {
+		return { kind: "error", error: record.error };
+	}
+	if (typeof record.audio === "string" && record.audio.length > 0) {
+		return {
+			kind: "audio",
+			audio: record.audio,
+			...(typeof record.duration === "number" ? { duration: record.duration } : {}),
+		};
+	}
+	if (typeof record.status === "string" && record.status.trim().length > 0) {
+		return { kind: "status", status: record.status };
+	}
+	throw new Error("Invalid Kokoro response");
 }
 
 function messageToAudio(message: KokoroMessage): Buffer | null {
-	if (typeof message.audio !== "string" || message.audio.length === 0) {
-		return null;
-	}
-	return Buffer.from(message.audio, "base64");
+	if (message.kind !== "audio") return null;
+	const audio = Buffer.from(message.audio, "base64");
+	return audio.length > 0 ? audio : null;
 }
 
 async function readLineBeforeDeadline(
@@ -151,6 +162,19 @@ async function readLineBeforeDeadline(
 	}
 }
 
+async function readKokoroMessageBeforeDeadline(
+	session: KokoroSession,
+	deadline: number,
+	phase: "ready" | "audio",
+): Promise<KokoroMessage> {
+	while (true) {
+		const line = await readLineBeforeDeadline(session, deadline, phase);
+		if (line === null) throw new Error(await exitedBeforeMessage(session, phase));
+		if (line.trim().length === 0) continue;
+		return parseKokoroLine(line);
+	}
+}
+
 async function exitedBeforeMessage(
 	session: KokoroSession,
 	phase: "ready" | "audio",
@@ -174,6 +198,7 @@ export class KokoroClient {
 		private readonly createSession: KokoroSessionFactory = defaultSessionFactory(
 			config,
 		),
+		private readonly onRetry?: (message: string) => void,
 	) {}
 
 	async ensureReady(): Promise<void> {
@@ -182,14 +207,15 @@ export class KokoroClient {
 		const deadline = Date.now() + this.config.tts.timeoutSeconds * 1000;
 
 		while (true) {
-			const line = await readLineBeforeDeadline(session, deadline, "ready");
-			if (line === null)
-				throw new Error(await exitedBeforeMessage(session, "ready"));
-			if (line.trim().length === 0) continue;
-
-			const message = parseKokoroLine(line);
-			if (message.error) throw new Error(`Kokoro error: ${message.error}`);
-			if (message.status === "ready") {
+			const message = await readKokoroMessageBeforeDeadline(
+				session,
+				deadline,
+				"ready",
+			);
+			if (message.kind === "error") {
+				throw new Error(`Kokoro error: ${message.error}`);
+			}
+			if (message.kind === "status" && message.status === "ready") {
 				this.ready = true;
 				return;
 			}
@@ -199,9 +225,20 @@ export class KokoroClient {
 	async speak(text: string, voice: string): Promise<Buffer> {
 		try {
 			return await this.speakOnce(text, voice);
-		} catch {
+		} catch (error) {
+			const originalMessage = error instanceof Error ? error.message : String(error);
+			this.onRetry?.(`Kokoro TTS failed; restarting once: ${originalMessage}`);
 			this.restart();
-			return await this.speakOnce(text, voice);
+			try {
+				return await this.speakOnce(text, voice);
+			} catch (retryError) {
+				const retryMessage =
+					retryError instanceof Error ? retryError.message : String(retryError);
+				throw new Error(
+					`${retryMessage} (original failure: ${originalMessage})`,
+					{ cause: retryError },
+				);
+			}
 		}
 	}
 
@@ -228,13 +265,14 @@ export class KokoroClient {
 		const deadline = Date.now() + this.config.tts.timeoutSeconds * 1000;
 
 		while (true) {
-			const line = await readLineBeforeDeadline(session, deadline, "audio");
-			if (line === null)
-				throw new Error(await exitedBeforeMessage(session, "audio"));
-			if (line.trim().length === 0) continue;
-
-			const message = parseKokoroLine(line);
-			if (message.error) throw new Error(`Kokoro error: ${message.error}`);
+			const message = await readKokoroMessageBeforeDeadline(
+				session,
+				deadline,
+				"audio",
+			);
+			if (message.kind === "error") {
+				throw new Error(`Kokoro error: ${message.error}`);
+			}
 			const audio = messageToAudio(message);
 			if (audio) return audio;
 		}

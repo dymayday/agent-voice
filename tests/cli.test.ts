@@ -73,8 +73,11 @@ describe("agent-voice CLI", () => {
 		const result = await runCli(["--help"], { stdout: "", stderr: "" });
 
 		expect(result.exitCode).toBe(0);
-		expect(result.stdout).toContain("agent-voice install");
-		expect(result.stdout).toContain("agent-voice uninstall");
+		expect(result.stdout).toContain("agent-voice install --agents pi|claude");
+		expect(result.stdout).toContain("agent-voice uninstall --agents pi|claude");
+		expect(result.stdout).toContain("--keep-suspended-hooks");
+		expect(result.stdout).not.toContain("codex,opencode");
+		expect(result.stdout).not.toContain("--restore-suspended-hooks");
 		expect(result.stdout).toContain("agent-voice start");
 		expect(result.stdout).toContain("agent-voice stop");
 		expect(result.stdout).toContain("agent-voice status");

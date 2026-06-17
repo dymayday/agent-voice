@@ -38,6 +38,36 @@ public struct AgentVoiceHistoryPageInfo: Codable, Equatable, Sendable {
         self.hasMore = hasMore
         self.nextCursor = nextCursor
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case limit
+        case hasMore
+        case nextCursor
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let limit = try container.decode(Int.self, forKey: .limit)
+        let hasMore = try container.decode(Bool.self, forKey: .hasMore)
+        let nextCursor = try container.decodeIfPresent(String.self, forKey: .nextCursor)
+
+        guard limit > 0 else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .limit,
+                in: container,
+                debugDescription: "History page limit must be positive"
+            )
+        }
+        if hasMore && (nextCursor?.isEmpty ?? true) {
+            throw DecodingError.dataCorruptedError(
+                forKey: .nextCursor,
+                in: container,
+                debugDescription: "History page with hasMore=true requires nextCursor"
+            )
+        }
+
+        self.init(limit: limit, hasMore: hasMore, nextCursor: nextCursor)
+    }
 }
 
 public struct AgentVoiceHistoryJob: Codable, Equatable, Identifiable, Sendable {

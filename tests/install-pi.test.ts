@@ -235,7 +235,7 @@ describe("agent-voice Pi installer", () => {
 		});
 	});
 
-	test("generated Pi extension ignores a missing agent-voice executable", async () => {
+	test("generated Pi extension reports a missing agent-voice executable without blocking", async () => {
 		await withTempHome(async (home) => {
 			const source = buildPiExtensionSource({
 				HOME: home,
@@ -246,7 +246,30 @@ describe("agent-voice Pi installer", () => {
 
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("extension callback returned");
-			expect(result.stderr).toBe("");
+			expect(result.stderr).toContain("agent-voice executable not found");
+		});
+	});
+
+	test("generated Pi extension reports enqueue command failures without blocking", async () => {
+		await withTempHome(async (home) => {
+			const executablePath = join(home, "failing-agent-voice");
+			writeFileSync(
+				executablePath,
+				`#!/bin/sh\necho 'database unavailable' >&2\nexit 1\n`,
+				"utf8",
+			);
+			chmodSync(executablePath, 0o755);
+			const source = buildPiExtensionSource({
+				HOME: home,
+				AGENT_VOICE_EXECUTABLE: executablePath,
+			});
+
+			const result = await runGeneratedExtension(source, home);
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("extension callback returned");
+			expect(result.stderr).toContain("agent-voice enqueue failed");
+			expect(result.stderr).toContain("database unavailable");
 		});
 	});
 

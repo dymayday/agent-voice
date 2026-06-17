@@ -23,6 +23,10 @@ public struct DoctorCheck: Codable, Equatable, Identifiable, Sendable {
         self.action = action
     }
 
+    public var needsReview: Bool {
+        !ok || severity == .warning || severity == .error
+    }
+
     public enum Severity: String, Codable, Equatable, Sendable {
         case info
         case warning

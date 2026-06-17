@@ -354,16 +354,82 @@ describe("agent-voice enqueue CLI", () => {
 			);
 			expect(notAQuestion.exitCode).toBe(0);
 			expect(pendingCount(home)).toBe(0);
+		});
+	});
 
-			const malformed = await runCli(
-				["enqueue", "--format", "claude-pretooluse-hook", "--agent", "claude"],
-				{
-					env: { AGENT_VOICE_HOME: home },
-					stdin: "not json",
-				},
-			);
-			expect(malformed.exitCode).toBe(0);
+	test("malformed Claude hook JSON reports a diagnostic and does not enqueue generic speech", async () => {
+		await withTempHome(async (home) => {
+			for (const format of ["claude-stop-hook", "claude-pretooluse-hook"]) {
+				const malformed = await runCli(
+					["enqueue", "--format", format, "--agent", "claude"],
+					{
+						env: { AGENT_VOICE_HOME: home },
+						stdin: "not json",
+					},
+				);
+				expect(malformed.exitCode, format).toBe(2);
+				expect(malformed.stderr).toContain(`Malformed ${format} JSON`);
+			}
 			expect(pendingCount(home)).toBe(0);
+		});
+	});
+
+	test("enqueue truncates all supported input formats at summarizer.maxInputChars", async () => {
+		await withTempHome(async (home) => {
+			const env = { AGENT_VOICE_HOME: home };
+			expect(
+				(
+					await runCli(["config", "set", "summarizer.maxInputChars", "12"], {
+						env,
+					})
+				).exitCode,
+			).toBe(0);
+			const longText = "abcdefghijklmnopqrstuvwxyz";
+			const event = createEvent({ agent: "pi", text: longText });
+			const pretoolPayload = {
+				hook_event_name: "PreToolUse",
+				tool_name: "AskUserQuestion",
+				tool_input: { questions: [{ question: longText }] },
+			};
+
+			const cases: Array<{ args: string[]; stdin: string }> = [
+				{
+					args: ["enqueue", "--format", "text", "--agent", "claude"],
+					stdin: longText,
+				},
+				{
+					args: ["enqueue", "--format", "event-json"],
+					stdin: JSON.stringify(event),
+				},
+				{
+					args: ["enqueue", "--format", "claude-stop-hook", "--agent", "claude"],
+					stdin: JSON.stringify({ assistant_response: longText }),
+				},
+				{
+					args: [
+						"enqueue",
+						"--format",
+						"claude-pretooluse-hook",
+						"--agent",
+						"claude",
+					],
+					stdin: JSON.stringify(pretoolPayload),
+				},
+			];
+
+			for (const item of cases) {
+				const result = await runCli(item.args, { env, stdin: item.stdin });
+				expect(result.exitCode, item.args.join(" ")).toBe(0);
+			}
+
+			const texts = pendingJobs(home).map((job) => job.text as string);
+			expect(texts).toHaveLength(4);
+			expect(texts.every((text) => text.length <= 12)).toBe(true);
+			expect(texts.slice(0, 3)).toEqual([
+				"abcdefghijkl",
+				"abcdefghijkl",
+				"abcdefghijkl",
+			]);
 		});
 	});
 
@@ -519,7 +585,7 @@ describe("agent-voice enqueue CLI", () => {
 		expect(cliSource).not.toContain("trim" + "End");
 	});
 
-	test("best-effort enqueue failure exits zero without starting daemon side effects", async () => {
+	test("enqueue storage failure exits nonzero without starting daemon side effects", async () => {
 		const homeFile = join(
 			tmpdir(),
 			`agent-voice-home-file-${crypto.randomUUID()}`,
@@ -534,7 +600,7 @@ describe("agent-voice enqueue CLI", () => {
 				},
 			);
 
-			expect(result.exitCode).toBe(0);
+			expect(result.exitCode).toBe(1);
 			expect(result.stderr).toContain("enqueue failed");
 			expect(readFileSync(homeFile, "utf8")).toBe("not a directory");
 		} finally {

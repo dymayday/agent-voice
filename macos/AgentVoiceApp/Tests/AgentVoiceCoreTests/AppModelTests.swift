@@ -702,6 +702,32 @@ extension AppModelTests {
         ])
     }
 
+    func testClearFailedJobsDropsDeletedFailedRowsFromCachedHistory() async throws {
+        let failedHistory = historyPageJSON(jobs: [historyJobJSON(id: "failed-1", status: "failed")])
+        let runner = RecordingRunner(results: [
+            ProcessResult(exitCode: 0, stdout: statusJSON(done: 0, failed: 1), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: failedHistory, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyDoctorJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: fullConfigJSON(), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: "Cleared 1 failed job.\n", stderr: ""),
+            ProcessResult(exitCode: 0, stdout: statusJSON(done: 0, failed: 0), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyHistoryJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyDoctorJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: fullConfigJSON(), stderr: "")
+        ])
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+        let model = AppModel(cli: cli)
+
+        await model.refresh()
+        XCTAssertEqual(model.history?.jobs.map(\.id), ["failed-1"])
+
+        await model.clearFailedJobs()
+
+        XCTAssertEqual(model.status?.queues.failed, 0)
+        XCTAssertEqual(model.history?.jobs, [])
+        XCTAssertNil(model.lastError)
+    }
+
     func testStopDaemonBeforeQuitStopsAndRefreshesOnSuccess() async throws {
         let runner = RecordingRunner(results: [
             ProcessResult(exitCode: 0, stdout: "stopped pid=123\n", stderr: ""),
@@ -975,6 +1001,70 @@ extension AppModelTests {
         ])
     }
 
+    func testValidateSummarizerModelRestoresOriginalAfterValidationFailure() async throws {
+        let runner = RecordingRunner(results: [
+            ProcessResult(exitCode: 0, stdout: statusJSON(), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyHistoryJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyDoctorJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: fullConfigJSON(piModel: "pi-original"), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: "", stderr: ""),
+            ProcessResult(exitCode: 7, stdout: "", stderr: "model rejected\n"),
+            ProcessResult(exitCode: 0, stdout: "", stderr: "")
+        ])
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+        let model = AppModel(cli: cli)
+
+        await model.refresh()
+        model.draftSummarizerModel = "pi-bad-model"
+
+        await model.validateSummarizerModel()
+
+        XCTAssertEqual(model.lastError, "AgentVoiceCLIError(exitCode: 7, stderr: \"model rejected\\n\")")
+        let requests = await runner.capturedRequests()
+        XCTAssertEqual(requests.map(\.arguments), [
+            ["status", "--json"],
+            ["history", "--json", "--limit", "10"],
+            ["doctor", "--json"],
+            ["config", "get"],
+            ["config", "set", "summarizer.piModel", "pi-bad-model"],
+            ["test", "Agent voice model validation check."],
+            ["config", "set", "summarizer.piModel", "pi-original"]
+        ])
+    }
+
+    func testValidateSummarizerModelReportsRestoreFailureAfterSuccessfulValidation() async throws {
+        let runner = RecordingRunner(results: [
+            ProcessResult(exitCode: 0, stdout: statusJSON(), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyHistoryJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyDoctorJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: fullConfigJSON(piModel: "pi-original"), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: "", stderr: ""),
+            ProcessResult(exitCode: 0, stdout: "validation ok\n", stderr: ""),
+            ProcessResult(exitCode: 3, stdout: "", stderr: "restore denied\n")
+        ])
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+        let model = AppModel(cli: cli)
+
+        await model.refresh()
+        model.draftSummarizerModel = "pi-temporary-model"
+
+        await model.validateSummarizerModel()
+
+        let lastError = try XCTUnwrap(model.lastError)
+        XCTAssertTrue(lastError.contains("Restore failed after validation"))
+        XCTAssertTrue(lastError.contains("restore denied"))
+        let requests = await runner.capturedRequests()
+        XCTAssertEqual(requests.map(\.arguments), [
+            ["status", "--json"],
+            ["history", "--json", "--limit", "10"],
+            ["doctor", "--json"],
+            ["config", "get"],
+            ["config", "set", "summarizer.piModel", "pi-temporary-model"],
+            ["test", "Agent voice model validation check."],
+            ["config", "set", "summarizer.piModel", "pi-original"]
+        ])
+    }
+
     func testSummarizerModelsLoadOnceAtStartup() async throws {
         let modelsPayload = """
         {
@@ -997,5 +1087,30 @@ extension AppModelTests {
         await model.refreshSummarizerModels()
         let requests = await runner.capturedRequests()
         XCTAssertEqual(requests.map(\.arguments), [["models", "list"]])
+    }
+
+    func testSummarizerModelsFailureIsReportedAndCanRetry() async throws {
+        let modelsPayload = """
+        {
+          "providers": { "pi-fast": ["openai-codex/gpt-5.5"] },
+          "models": ["openai-codex/gpt-5.5"]
+        }
+        """
+        let runner = RecordingRunner(results: [
+            ProcessResult(exitCode: 9, stdout: "", stderr: "models unavailable\n"),
+            ProcessResult(exitCode: 0, stdout: modelsPayload, stderr: "")
+        ])
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+        let model = AppModel(cli: cli)
+
+        await model.refreshSummarizerModels()
+        XCTAssertEqual(model.availableSummarizerModels, [])
+        XCTAssertEqual(model.lastError, "models: AgentVoiceCLIError(exitCode: 9, stderr: \"models unavailable\\n\")")
+
+        await model.refreshSummarizerModels()
+        XCTAssertEqual(model.availableSummarizerModels, ["openai-codex/gpt-5.5"])
+        XCTAssertNil(model.lastError)
+        let requests = await runner.capturedRequests()
+        XCTAssertEqual(requests.map(\.arguments), [["models", "list"], ["models", "list"]])
     }
 }

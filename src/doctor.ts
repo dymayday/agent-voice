@@ -53,7 +53,12 @@ export function buildDoctorReport(
 			message: exists
 				? "Kokoro script exists"
 				: `Kokoro script not found: ${config.tts.kokoroScript}`,
-			...(exists ? {} : { action: "Choose the Kokoro Python service script" }),
+			...(exists
+				? {}
+				: {
+						action:
+							"Run: agent-voice config set tts.kokoroScript /absolute/path/to/kokoro_tts_service.py",
+					}),
 		});
 	}
 

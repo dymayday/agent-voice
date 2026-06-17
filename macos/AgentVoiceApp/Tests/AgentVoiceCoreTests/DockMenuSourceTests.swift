@@ -58,24 +58,4 @@ final class DockMenuSourceTests: XCTestCase {
         XCTAssertTrue(bridge.contains("NSApplication.shared.activate(ignoringOtherApps: true)"))
     }
 
-    private func sourceSlice(in source: String, from startMarker: String, to endMarker: String) throws -> String {
-        guard
-            let start = source.range(of: startMarker),
-            let end = source.range(of: endMarker, range: start.upperBound..<source.endIndex)
-        else {
-            XCTFail("Could not isolate source slice from \(startMarker) to \(endMarker)")
-            throw XCTSkip("Cannot verify source action binding without expected markers.")
-        }
-        return String(source[start.lowerBound..<end.lowerBound])
-    }
-
-    private func appSource(_ fileName: String) throws -> String {
-        let testFile = URL(fileURLWithPath: #filePath)
-        let packageRoot = testFile
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let sourceFile = packageRoot.appendingPathComponent("Sources/AgentVoiceApp/\(fileName)")
-        return try String(contentsOf: sourceFile, encoding: .utf8)
-    }
 }

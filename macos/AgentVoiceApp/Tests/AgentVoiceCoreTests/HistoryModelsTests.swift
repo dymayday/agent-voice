@@ -38,6 +38,18 @@ final class HistoryModelsTests: XCTestCase {
         XCTAssertEqual(snapshot.pageInfo.nextCursor, "cursor-123")
     }
 
+    func testRejectsHasMoreWithoutCursor() throws {
+        let data = Data("""
+        {
+          "version": 1,
+          "jobs": [],
+          "pageInfo": { "limit": 10, "hasMore": true, "nextCursor": null }
+        }
+        """.utf8)
+
+        XCTAssertThrowsError(try JSONDecoder().decode(AgentVoiceHistorySnapshot.self, from: data))
+    }
+
     func testDecodesHistorySnapshot() throws {
         let data = Data("""
         {

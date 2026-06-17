@@ -40,9 +40,7 @@ private extension AttentionDetailView {
     }
 
     var doctorIssues: [DoctorCheck] {
-        allDoctorChecks.filter {
-            !$0.ok || $0.severity == .warning || $0.severity == .error
-        }
+        allDoctorChecks.filter(\.needsReview)
     }
 
     var recentJobs: [AgentVoiceHistoryJob] {
@@ -365,7 +363,7 @@ private extension AttentionDetailView {
     }
 
     func doctorCheckCard(_ check: DoctorCheck) -> some View {
-        let needsReview = !check.ok || check.severity == .warning || check.severity == .error
+        let needsReview = check.needsReview
         let tint = needsReview ? severityTint(check.severity) : .green
 
         return VStack(alignment: .leading, spacing: 8) {

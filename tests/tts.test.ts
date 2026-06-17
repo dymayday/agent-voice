@@ -260,6 +260,25 @@ describe("agent-voice Kokoro TTS bridge", () => {
 		]);
 	});
 
+	test("Kokoro retry failure includes the original failure context", async () => {
+		const sessions: FakeKokoroSession[] = [];
+		const lineSets = [
+			[JSON.stringify({ status: "ready" }), JSON.stringify({ error: "first boom" })],
+			[JSON.stringify({ status: "ready" }), JSON.stringify({ error: "second boom" })],
+		];
+		const client = new KokoroClient(defaultConfig, () => {
+			const session = new FakeKokoroSession(lineSets[sessions.length]);
+			sessions.push(session);
+			return session;
+		});
+
+		await expect(client.speak("Retry and fail", "af_heart")).rejects.toThrow(
+			"original failure: Kokoro error: first boom",
+		);
+		expect(sessions).toHaveLength(2);
+		expect(sessions[0].disposed).toBe(true);
+	});
+
 	test("Kokoro restarts once after an error response", async () => {
 		const sessions: FakeKokoroSession[] = [];
 		const lineSets = [

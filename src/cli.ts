@@ -59,8 +59,8 @@ export interface CliResult {
 const HELP = `agent-voice - speak one-line summaries of coding-agent turns
 
 Usage:
-  agent-voice install [--agents claude,pi,codex,opencode] [--suspend-existing-stop-hooks]
-  agent-voice uninstall [--agents claude,pi,codex,opencode] [--restore-suspended-hooks]
+  agent-voice install --agents pi|claude [--suspend-existing-stop-hooks]
+  agent-voice uninstall --agents pi|claude [--keep-suspended-hooks]
   agent-voice start
   agent-voice stop
   agent-voice status [--json]
@@ -136,6 +136,70 @@ function parseJson(input: string): unknown {
 	return JSON.parse(input || "{}");
 }
 
+interface ClaudeHookPayloadContext {
+	payload: unknown;
+	payloadCwd?: string;
+	sessionId?: string;
+}
+
+function parseClaudeHookPayload(
+	input: string,
+	format: string,
+): ClaudeHookPayloadContext | CliResult {
+	let payload: unknown;
+	try {
+		payload = parseJson(input);
+	} catch (error) {
+		return result(
+			2,
+			"",
+			`Malformed ${format} JSON: ${error instanceof Error ? error.message : String(error)}\n`,
+		);
+	}
+	const payloadRecord =
+		payload && typeof payload === "object" && !Array.isArray(payload)
+			? (payload as Record<string, unknown>)
+			: {};
+	return {
+		payload,
+		payloadCwd:
+			typeof payloadRecord.cwd === "string" ? payloadRecord.cwd : undefined,
+		sessionId:
+			typeof payloadRecord.session_id === "string"
+				? payloadRecord.session_id
+				: undefined,
+	};
+}
+
+function isCliResult(value: unknown): value is CliResult {
+	return (
+		value !== null &&
+		typeof value === "object" &&
+		"exitCode" in value &&
+		"stdout" in value &&
+		"stderr" in value
+	);
+}
+
+function createClaudeHookEvent(options: {
+	text: string;
+	cwd?: string;
+	payloadCwd?: string;
+	sessionId?: string;
+	metadata: Record<string, unknown>;
+	maxInputChars: number;
+}): AgentVoiceEvent {
+	return createEvent({
+		agent: "claude",
+		text: truncateInput(options.text, options.maxInputChars),
+		...(options.cwd || options.payloadCwd
+			? { cwd: options.cwd ?? options.payloadCwd }
+			: {}),
+		...(options.sessionId ? { sessionId: options.sessionId } : {}),
+		metadata: options.metadata,
+	});
+}
+
 function parseAgentsOption(args: string[]): string[] {
 	const value = getOption(args, "--agents") ?? "";
 	return value
@@ -160,7 +224,9 @@ function defaultProcessorDeps(
 	config: ReturnType<typeof loadConfig>,
 	paths: ReturnType<typeof resolvePaths>,
 ): ProcessorDeps {
-	const kokoro = new KokoroClient(config);
+	const kokoro = new KokoroClient(config, undefined, (message) => {
+		console.error(`[agent-voice] ${message}`);
+	});
 	return {
 		summarize: (event, summarizeConfig) =>
 			summarizeWithSource(event, summarizeConfig, undefined, {
@@ -178,6 +244,21 @@ function defaultProcessorDeps(
 		prewarm: async () => {
 			await kokoro.ensureReady();
 		},
+	};
+}
+
+function defaultProcessorDepsFactory(
+	paths: ReturnType<typeof resolvePaths>,
+): (config: ReturnType<typeof loadConfig>) => ProcessorDeps {
+	let cachedKey: string | null = null;
+	let cachedDeps: ProcessorDeps | null = null;
+	return (config) => {
+		const key = JSON.stringify(config.tts);
+		if (!cachedDeps || cachedKey !== key) {
+			cachedKey = key;
+			cachedDeps = defaultProcessorDeps(config, paths);
+		}
+		return cachedDeps;
 	};
 }
 
@@ -427,30 +508,17 @@ export async function runCli(
 						"--format claude-stop-hook requires --agent claude\n",
 					);
 				}
-				let payload: unknown;
-				try {
-					payload = parseJson(stdin);
-				} catch {
-					payload = {};
-				}
-				const extracted = extractClaudeStopHook(payload);
-				const payloadRecord =
-					payload && typeof payload === "object" && !Array.isArray(payload)
-						? (payload as Record<string, unknown>)
-						: {};
-				const payloadCwd =
-					typeof payloadRecord.cwd === "string" ? payloadRecord.cwd : undefined;
-				const sessionId =
-					typeof payloadRecord.session_id === "string"
-						? payloadRecord.session_id
-						: undefined;
+				const hookPayload = parseClaudeHookPayload(stdin, format);
+				if (isCliResult(hookPayload)) return hookPayload;
+				const extracted = extractClaudeStopHook(hookPayload.payload);
 				const config = loadConfigForEnqueue(paths);
-				event = createEvent({
-					agent: "claude",
-					text: truncateInput(extracted.text, config.summarizer.maxInputChars),
-					...(cwd || payloadCwd ? { cwd: cwd ?? payloadCwd } : {}),
-					...(sessionId ? { sessionId } : {}),
+				event = createClaudeHookEvent({
+					text: extracted.text,
+					cwd,
+					payloadCwd: hookPayload.payloadCwd,
+					sessionId: hookPayload.sessionId,
 					metadata: { format: "claude-stop-hook", generic: extracted.generic },
+					maxInputChars: config.summarizer.maxInputChars,
 				});
 			} else if (format === "claude-pretooluse-hook") {
 				if (agentOption !== "claude") {
@@ -460,33 +528,20 @@ export async function runCli(
 						"--format claude-pretooluse-hook requires --agent claude\n",
 					);
 				}
-				let payload: unknown;
-				try {
-					payload = parseJson(stdin);
-				} catch {
-					payload = {};
-				}
-				const question = extractClaudeQuestion(payload);
+				const hookPayload = parseClaudeHookPayload(stdin, format);
+				if (isCliResult(hookPayload)) return hookPayload;
+				const question = extractClaudeQuestion(hookPayload.payload);
 				// Only AskUserQuestion tool calls carry a question worth speaking.
-				// Any other PreToolUse payload (or a malformed one) stays silent.
+				// Any other PreToolUse payload stays silent.
 				if (!question) return result(0, "");
-				const payloadRecord =
-					payload && typeof payload === "object" && !Array.isArray(payload)
-						? (payload as Record<string, unknown>)
-						: {};
-				const payloadCwd =
-					typeof payloadRecord.cwd === "string" ? payloadRecord.cwd : undefined;
-				const sessionId =
-					typeof payloadRecord.session_id === "string"
-						? payloadRecord.session_id
-						: undefined;
 				const config = loadConfigForEnqueue(paths);
-				event = createEvent({
-					agent: "claude",
-					text: truncateInput(question.text, config.summarizer.maxInputChars),
-					...(cwd || payloadCwd ? { cwd: cwd ?? payloadCwd } : {}),
-					...(sessionId ? { sessionId } : {}),
+				event = createClaudeHookEvent({
+					text: question.text,
+					cwd,
+					payloadCwd: hookPayload.payloadCwd,
+					sessionId: hookPayload.sessionId,
 					metadata: { format: "claude-pretooluse-hook", kind: "question" },
+					maxInputChars: config.summarizer.maxInputChars,
 				});
 			} else {
 				return result(2, "", `Unsupported enqueue format: ${format}\n`);
@@ -511,7 +566,7 @@ export async function runCli(
 			return result(0, "");
 		} catch (error) {
 			return result(
-				0,
+				1,
 				"",
 				`enqueue failed: ${error instanceof Error ? error.message : String(error)}\n`,
 			);
@@ -563,9 +618,14 @@ export async function runCli(
 			return result(2, "", "daemon requires --foreground\n");
 		}
 		const config = loadConfig(paths);
+		const defaultDepsForConfig = defaultProcessorDepsFactory(paths);
 		const deps = {
 			...(io.daemonDeps ?? {}),
 			processorDeps: processorDepsFor(config, paths, io.daemonDeps),
+			processorDepsForConfig:
+				io.daemonDeps?.processorDepsForConfig ??
+				((nextConfig: ReturnType<typeof loadConfig>) =>
+					io.daemonDeps?.processorDeps ?? defaultDepsForConfig(nextConfig)),
 		};
 		try {
 			const started = enterForegroundDaemon(paths, deps);

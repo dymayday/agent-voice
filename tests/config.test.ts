@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+	existsSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defaultConfig, loadConfig, setConfigValue } from "../src/config";
@@ -29,7 +35,7 @@ describe("agent-voice config and paths", () => {
 		});
 	});
 
-	test("default config is pi-first through the codex subscription with an absolute Kokoro path", () => {
+	test("default config is pi-first through the codex subscription and requires Kokoro setup", () => {
 		expect(defaultConfig.summarizer.priority).toEqual([
 			"pi-fast",
 			"codex-fast",
@@ -39,8 +45,7 @@ describe("agent-voice config and paths", () => {
 		expect(defaultConfig.summarizer.codexModel).toBe("gpt-5.3-codex");
 		expect(defaultConfig.summarizer.piModel).toBe("openai-codex/gpt-5.5");
 		expect(defaultConfig.summarizer.thinking).toBe("off");
-		expect(defaultConfig.tts.kokoroScript).toContain("kokoro_tts_service.py");
-		expect(defaultConfig.tts.kokoroScript.startsWith("/")).toBe(true);
+		expect(defaultConfig.tts.kokoroScript).toBe("");
 	});
 
 	test("setConfigValue updates known dotted leaf paths and rejects unsafe paths", () => {
@@ -100,6 +105,37 @@ describe("agent-voice config and paths", () => {
 		});
 	});
 
+	test("loadConfig merges older partial config files with current defaults", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			writeFileSync(
+				paths.config,
+				JSON.stringify({
+					enabled: false,
+					agents: { pi: { enabled: false, mode: "native" } },
+					summarizer: { timeoutSeconds: 9 },
+					tts: { voice: "af_sky" },
+					spool: { maxAttempts: 2 },
+				}),
+			);
+
+			const config = loadConfig(paths);
+
+			expect(config.enabled).toBe(false);
+			expect(config.agents.pi.enabled).toBe(false);
+			expect(config.agents.claude.enabled).toBe(true);
+			expect(config.ignoreCwdPatterns).toEqual([]);
+			expect(config.summarizer.timeoutSeconds).toBe(9);
+			expect(config.summarizer.maxInputChars).toBe(
+				defaultConfig.summarizer.maxInputChars,
+			);
+			expect(config.tts.voice).toBe("af_sky");
+			expect(config.tts.python).toBe("python3");
+			expect(config.spool.maxAttempts).toBe(2);
+			expect(config.spool.retentionDays).toBe(defaultConfig.spool.retentionDays);
+		});
+	});
+
 	test("config set writes dotted values", async () => {
 		await withTempHome(async (home) => {
 			const result = await runCli(
@@ -114,6 +150,32 @@ describe("agent-voice config and paths", () => {
 				loadConfig(resolvePaths({ AGENT_VOICE_HOME: home })).summarizer
 					.timeoutSeconds,
 			).toBe(8);
+		});
+	});
+
+	test("config set rejects invalid scalar values without persisting", async () => {
+		await withTempHome(async (home) => {
+			const env = { AGENT_VOICE_HOME: home };
+			expect(
+				(await runCli(["config", "set", "summarizer.timeoutSeconds", "8"], { env }))
+					.exitCode,
+			).toBe(0);
+
+			const invalidNumber = await runCli(
+				["config", "set", "summarizer.timeoutSeconds", "0"],
+				{ env },
+			);
+			expect(invalidNumber.exitCode).toBe(2);
+			expect(invalidNumber.stderr).toContain("summarizer.timeoutSeconds");
+			expect(loadConfig(resolvePaths(env)).summarizer.timeoutSeconds).toBe(8);
+
+			const invalidUnion = await runCli(
+				["config", "set", "summarizer.thinking", "maximum"],
+				{ env },
+			);
+			expect(invalidUnion.exitCode).toBe(2);
+			expect(invalidUnion.stderr).toContain("summarizer.thinking");
+			expect(loadConfig(resolvePaths(env)).summarizer.thinking).toBe("off");
 		});
 	});
 
