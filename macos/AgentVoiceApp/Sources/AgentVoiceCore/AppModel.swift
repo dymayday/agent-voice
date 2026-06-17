@@ -87,7 +87,11 @@ public final class AppModel: ObservableObject {
         do {
             let refreshedConfig = try await cli.config()
             config = refreshedConfig
-            draftVoice = refreshedConfig.tts.voice
+            let currentVoice = refreshedConfig.tts.voice
+            if draftVoice.isEmpty || draftVoice == currentVoice {
+                draftVoice = currentVoice
+            }
+
             draftThinking = refreshedConfig.summarizer.thinking
 
             let currentSummarizerModel = summarizerModelBinding(from: refreshedConfig.summarizer)?.current ?? ""
@@ -241,6 +245,7 @@ public final class AppModel: ObservableObject {
 
     public func saveVoice() async {
         let voice = draftVoice.trimmingCharacters(in: .whitespacesAndNewlines)
+        draftVoice = voice
         guard !voice.isEmpty else {
             lastError = "Voice cannot be empty"
             return
