@@ -459,7 +459,8 @@ Run this pi tool invocation:
 lens_diagnostics({ "mode": "all", "severity": "all" })
 ```
 
-Expected: no blocking errors in edited files. Include the diagnostic result in the final evidence summary.
+Expected: no blocking errors in edited files. Include the diagnostic result in the
+final evidence summary.
 
 - [ ] **Step 3: Summarize evidence**
 
@@ -468,4 +469,5 @@ Record:
 - Files changed
 - Tests run and results
 - Any pre-existing unrelated dirty files
-- Any residual risks, especially if Swift UI visual behavior was not manually inspected in the running app
+- Any residual risks, especially if Swift UI visual behavior was not manually
+  inspected in the running app
