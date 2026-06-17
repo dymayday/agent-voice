@@ -37,6 +37,11 @@ struct DashboardView: View {
 }
 
 private extension DashboardView {
+    func openSetup() {
+        openWindow(id: AgentVoiceWindowID.setup)
+        NSApplication.shared.activate(ignoringOtherApps: true)
+    }
+
     func openAttentionDetails() {
         openWindow(id: AgentVoiceWindowID.attention)
         NSApplication.shared.activate(ignoringOtherApps: true)
@@ -255,8 +260,13 @@ private extension DashboardView {
                 labeledRow("Agent Voice home", model.status?.paths.home ?? "Unknown")
                 labeledRow("Config", model.status?.paths.config ?? "Unknown")
                 labeledRow("Queue database", model.status?.paths.db ?? "Unknown")
-                Button("Run Voice Test") {
-                    Task { await model.testVoice() }
+                HStack {
+                    Button("Open Setup") {
+                        openSetup()
+                    }
+                    Button("Run Voice Test") {
+                        Task { await model.testVoice() }
+                    }
                 }
             }
         }
@@ -386,7 +396,10 @@ private extension DashboardView {
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Open diagnostic details")
-                        .accessibilityValue("\(doctorIssues.count) diagnostic \(doctorIssues.count == 1 ? "check" : "checks") need review")
+                        .accessibilityValue(
+                            "\(doctorIssues.count) diagnostic " +
+                                "\(doctorIssues.count == 1 ? "check" : "checks") need review"
+                        )
                     }
                 } else {
                     Text("Diagnostics unavailable")

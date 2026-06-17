@@ -161,6 +161,17 @@ final class DashboardViewSourceTests: XCTestCase {
         XCTAssertTrue(summarizerModelControls.contains("Choose from models discovered at startup"))
     }
 
+    func testDashboardLocalConfigCardCanOpenSetupWindow() throws {
+        let source = try dashboardViewSource()
+        let kokoroCard = try propertyBody(named: "kokoroCard", in: source)
+        let openSetup = try functionBody(named: "openSetup", in: source)
+
+        XCTAssertTrue(kokoroCard.contains("Button(\"Open Setup\")"))
+        XCTAssertTrue(kokoroCard.contains("openSetup()"))
+        XCTAssertTrue(openSetup.contains("openWindow(id: AgentVoiceWindowID.setup)"))
+        XCTAssertTrue(openSetup.contains("NSApplication.shared.activate(ignoringOtherApps: true)"))
+    }
+
     func testDashboardAttentionSurfacesOpenAttentionWindow() throws {
         let source = try dashboardViewSource()
         let health = try propertyBody(named: "healthCard", in: source)
