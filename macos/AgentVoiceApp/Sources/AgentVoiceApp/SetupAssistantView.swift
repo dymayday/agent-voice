@@ -10,6 +10,7 @@ private struct AgentSetupSummary: Identifiable {
 
 struct SetupAssistantView: View {
     @ObservedObject var model: AppModel
+    @Environment(\.openWindow) private var openWindow
     @State private var selectedStep: SetupStep = .welcome
 
     var body: some View {
@@ -79,6 +80,16 @@ struct SetupAssistantView: View {
             VStack(alignment: .leading, spacing: 12) {
                 labeledRow(title: "Kokoro script", detail: model.config?.tts.kokoroScript ?? "Unknown")
                 labeledRow(title: "Current voice", detail: model.config?.tts.voice ?? "Unknown")
+                Text(
+                    "Automatic setup installs pinned Python dependencies and Kokoro model files under " +
+                        "Agent Voice Home. It requires uv, uses local disk space, and may download files from the network."
+                )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button("Install Kokoro") {
+                    openWindow(id: AgentVoiceWindowID.kokoroSetup)
+                }
                 voiceControls
                 Button("Run Voice Test") {
                     Task { await model.testVoice() }

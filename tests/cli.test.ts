@@ -88,6 +88,8 @@ describe("agent-voice CLI", () => {
 		expect(result.stdout).toContain("agent-voice config get");
 		expect(result.stdout).toContain("agent-voice queue clear");
 		expect(result.stdout).toContain("agent-voice models list");
+		expect(result.stdout).toContain("agent-voice kokoro setup");
+		expect(result.stdout).toContain("agent-voice kokoro status --json");
 		expect(result.stdout).toContain("agent-voice daemon --foreground");
 	});
 

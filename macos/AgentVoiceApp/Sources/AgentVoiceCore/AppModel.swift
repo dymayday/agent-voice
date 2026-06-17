@@ -8,6 +8,7 @@ public final class AppModel: ObservableObject {
     @Published public private(set) var doctorReport: DoctorReport?
     @Published public private(set) var config: AgentVoiceFullConfig?
     @Published public private(set) var lastError: String?
+    @Published public private(set) var kokoroSetup = KokoroSetupSnapshot()
     @Published public private(set) var isLoadingHistoryPage = false
     @Published public private(set) var availableSummarizerModels: [String] = []
     @Published public var draftVoice: String = ""
@@ -22,6 +23,8 @@ public final class AppModel: ObservableObject {
 
     private var autoRefreshTask: Task<Void, Never>?
     private var summarizerModelsTask: Task<Void, Never>?
+    private var kokoroSetupTask: Task<Void, Never>?
+    private var isCancellingKokoroSetup = false
     private var didLoadSummarizerModels = false
     private var lastHistoryTerminalCounts: TerminalQueueCounts?
     private var loadedHistoryPageCount = 0
@@ -54,6 +57,7 @@ public final class AppModel: ObservableObject {
     deinit {
         autoRefreshTask?.cancel()
         summarizerModelsTask?.cancel()
+        kokoroSetupTask?.cancel()
     }
 
     public func refresh() async {
@@ -344,12 +348,160 @@ public final class AppModel: ObservableObject {
         }
     }
 
+    public func installKokoro() async {
+        guard kokoroSetupTask == nil, kokoroSetup.phase != .running else { return }
+
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.runKokoroSetup()
+        }
+        kokoroSetupTask = task
+        await task.value
+    }
+
+    public func cancelKokoroSetup() {
+        guard kokoroSetup.phase == .running || kokoroSetupTask != nil else { return }
+        isCancellingKokoroSetup = true
+        kokoroSetupTask?.cancel()
+        kokoroSetup.phase = .cancelled
+        kokoroSetup.currentTitle = "Kokoro setup cancelled"
+        kokoroSetup.error = nil
+    }
+
+    public func retryKokoroSetup() async {
+        guard kokoroSetup.phase != .running else { return }
+        await installKokoro()
+    }
+
+    public func kokoroSetupDiagnostics() -> String {
+        var lines: [String] = ["Kokoro setup phase: \(kokoroSetup.phase.rawValue)"]
+        if let currentTitle = kokoroSetup.currentTitle {
+            lines.append("Current step: \(currentTitle)")
+        }
+        if let error = kokoroSetup.error {
+            lines.append("Error: \(error)")
+        }
+        lines.append(contentsOf: kokoroSetup.logs)
+        return lines.joined(separator: "\n")
+    }
+
     public func installAgentHook(_ agent: String) async {
         await perform { try await cli.installAgentHook(agent) }
     }
 
     public func uninstallAgentHook(_ agent: String) async {
         await perform { try await cli.uninstallAgentHook(agent) }
+    }
+
+    private func runKokoroSetup() async {
+        isCancellingKokoroSetup = false
+        kokoroSetup = KokoroSetupSnapshot(phase: .running, currentTitle: "Starting Kokoro setup")
+        lastError = nil
+
+        var sawComplete = false
+        defer {
+            kokoroSetupTask = nil
+            isCancellingKokoroSetup = false
+        }
+
+        do {
+            try Task.checkCancellation()
+            for try await event in cli.streamKokoroSetupEvents() {
+                try Task.checkCancellation()
+                if event.type == .complete {
+                    sawComplete = true
+                }
+                applyKokoroSetupEvent(event)
+            }
+
+            if isCancellingKokoroSetup || Task.isCancelled {
+                kokoroSetup.phase = .cancelled
+                kokoroSetup.currentTitle = "Kokoro setup cancelled"
+                kokoroSetup.error = nil
+                return
+            }
+
+            if !sawComplete {
+                kokoroSetup.phase = .failed
+                kokoroSetup.error = kokoroSetup.error ?? "Kokoro setup ended before a complete event."
+                lastError = kokoroSetup.error
+                return
+            }
+
+            if kokoroSetup.phase == .succeeded {
+                await refresh()
+            }
+            lastError = kokoroSetup.phase == .failed ? kokoroSetup.error : nil
+        } catch is CancellationError {
+            kokoroSetup.phase = .cancelled
+            kokoroSetup.currentTitle = "Kokoro setup cancelled"
+            kokoroSetup.error = nil
+        } catch {
+            if isCancellingKokoroSetup {
+                kokoroSetup.phase = .cancelled
+                kokoroSetup.currentTitle = "Kokoro setup cancelled"
+                kokoroSetup.error = nil
+            } else {
+                kokoroSetup.phase = .failed
+                kokoroSetup.error = String(describing: error)
+                lastError = kokoroSetup.error
+            }
+        }
+    }
+
+    private func applyKokoroSetupEvent(_ event: KokoroSetupEvent) {
+        switch event.type {
+        case .step:
+            applyKokoroSetupStepEvent(event)
+        case .log:
+            if let message = event.message, !message.isEmpty {
+                if let stream = event.stream, !stream.isEmpty {
+                    kokoroSetup.logs.append("[\(stream)] \(message)")
+                } else {
+                    kokoroSetup.logs.append(message)
+                }
+            }
+        case .complete:
+            if event.ok == true {
+                kokoroSetup.phase = .succeeded
+                kokoroSetup.currentStepID = nil
+                kokoroSetup.currentTitle = "Kokoro is ready"
+                for step in KokoroSetupSteps.all where !kokoroSetup.completedStepIDs.contains(step.id) {
+                    kokoroSetup.completedStepIDs.append(step.id)
+                }
+            } else {
+                kokoroSetup.phase = .failed
+                kokoroSetup.error = event.error ?? kokoroSetup.error ?? "Kokoro setup failed."
+                kokoroSetup.currentTitle = "Kokoro setup failed"
+            }
+        }
+    }
+
+    private func applyKokoroSetupStepEvent(_ event: KokoroSetupEvent) {
+        let status = event.status ?? "running"
+        let knownStepID = KokoroSetupSteps.isKnownStepID(event.id) ? event.id : nil
+        kokoroSetup.currentStepID = knownStepID
+        kokoroSetup.currentTitle = event.title
+
+        switch status {
+        case "done":
+            kokoroSetup.phase = .running
+            appendUnique(knownStepID, to: &kokoroSetup.completedStepIDs)
+        case "skipped":
+            kokoroSetup.phase = .running
+            appendUnique(knownStepID, to: &kokoroSetup.skippedStepIDs)
+        case "failed":
+            kokoroSetup.phase = .failed
+            kokoroSetup.failedStepID = knownStepID
+            kokoroSetup.error = event.error ?? event.title ?? "Kokoro setup failed."
+        default:
+            kokoroSetup.phase = .running
+        }
+    }
+
+    private func appendUnique(_ id: String?, to ids: inout [String]) {
+        guard let id, !ids.contains(id) else { return }
+        ids.append(id)
     }
 
     private func summarizerModelBinding() -> SummarizerModelBinding? {

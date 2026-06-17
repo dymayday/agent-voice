@@ -3,13 +3,13 @@ set -euo pipefail
 
 SOURCE="${BASH_SOURCE[0]}"
 while [[ -L "$SOURCE" ]]; do
-  SCRIPT_DIR="$(CDPATH= cd -P -- "$(dirname -- "$SOURCE")" && pwd)"
-  TARGET="$(readlink "$SOURCE")"
-  if [[ "$TARGET" == /* ]]; then
-    SOURCE="$TARGET"
-  else
-    SOURCE="$SCRIPT_DIR/$TARGET"
-  fi
+	SCRIPT_DIR="$(CDPATH= cd -P -- "$(dirname -- "$SOURCE")" && pwd)"
+	TARGET="$(readlink "$SOURCE")"
+	if [[ "$TARGET" == /* ]]; then
+		SOURCE="$TARGET"
+	else
+		SOURCE="$SCRIPT_DIR/$TARGET"
+	fi
 done
 SCRIPT_DIR="$(CDPATH= cd -P -- "$(dirname -- "$SOURCE")" && pwd)"
 ROOT_DIR="$(dirname -- "$SCRIPT_DIR")"
@@ -33,9 +33,11 @@ cp "$PACKAGE_DIR/Resources/AppIcon.icns" "$RESOURCES_DIR/AppIcon.icns"
 install -m 755 "$ROOT_DIR/bin/agent-voice" "$CLI_DIR/bin/agent-voice"
 cp -R "$ROOT_DIR/bin/lib/." "$CLI_DIR/bin/lib/"
 cp -R "$ROOT_DIR/src" "$CLI_DIR/src"
+mkdir -p "$CLI_DIR/resources"
+cp -R "$ROOT_DIR/resources/kokoro" "$CLI_DIR/resources/kokoro"
 cp "$ROOT_DIR/package.json" "$CLI_DIR/package.json"
 if [[ -f "$ROOT_DIR/bun.lock" ]]; then
-  cp "$ROOT_DIR/bun.lock" "$CLI_DIR/bun.lock"
+	cp "$ROOT_DIR/bun.lock" "$CLI_DIR/bun.lock"
 fi
 
 echo "$APP_DIR"

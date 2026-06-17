@@ -28,6 +28,24 @@ public protocol ProcessRunning: Sendable {
     func run(_ request: ProcessRequest) async throws -> ProcessResult
 }
 
+public struct ProcessStream: Sendable {
+    public let lines: AsyncThrowingStream<String, Error>
+    private let cancelHandler: @Sendable () -> Void
+
+    public init(lines: AsyncThrowingStream<String, Error>, cancel: @escaping @Sendable () -> Void = {}) {
+        self.lines = lines
+        self.cancelHandler = cancel
+    }
+
+    public func cancel() {
+        cancelHandler()
+    }
+}
+
+public protocol ProcessStreaming: Sendable {
+    func stream(_ request: ProcessRequest) -> ProcessStream
+}
+
 public struct AgentVoiceCLIError: Error, Equatable {
     public let exitCode: Int32
     public let stderr: String
@@ -48,17 +66,20 @@ public struct AgentVoiceCLI: Sendable {
     public let agentVoiceHome: URL?
     public let baseEnvironment: [String: String]
     public let runner: any ProcessRunning
+    public let streamingRunner: any ProcessStreaming
 
     public init(
         executableURL: URL,
         agentVoiceHome: URL? = nil,
         baseEnvironment: [String: String] = ProcessInfo.processInfo.environment,
-        runner: any ProcessRunning = FoundationProcessRunner()
+        runner: any ProcessRunning = FoundationProcessRunner(),
+        streamingRunner: any ProcessStreaming = FoundationStreamingProcessRunner()
     ) {
         self.executableURL = executableURL
         self.agentVoiceHome = agentVoiceHome
         self.baseEnvironment = baseEnvironment
         self.runner = runner
+        self.streamingRunner = streamingRunner
     }
 
     public func status() async throws -> AgentVoiceStatusSnapshot {
@@ -146,20 +167,54 @@ public struct AgentVoiceCLI: Sendable {
         _ = try await run(["uninstall", "--agents", agent])
     }
 
+    public func streamKokoroSetupEvents() -> AsyncThrowingStream<KokoroSetupEvent, Error> {
+        let request = makeRequest(["kokoro", "setup", "--jsonl"])
+        let streamingRunner = self.streamingRunner
+
+        return AsyncThrowingStream { continuation in
+            let processStream = streamingRunner.stream(request)
+            let task = Task {
+                do {
+                    let decoder = JSONDecoder()
+                    for try await line in processStream.lines {
+                        guard !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                            continue
+                        }
+                        let event = try decoder.decode(KokoroSetupEvent.self, from: Data(line.utf8))
+                        continuation.yield(event)
+                    }
+                    continuation.finish()
+                } catch {
+                    processStream.cancel()
+                    continuation.finish(throwing: error)
+                }
+            }
+
+            continuation.onTermination = { @Sendable termination in
+                task.cancel()
+                if case .cancelled = termination {
+                    processStream.cancel()
+                }
+            }
+        }
+    }
+
     @discardableResult
     public func run(_ arguments: [String]) async throws -> ProcessResult {
+        let result = try await runner.run(makeRequest(arguments))
+        guard result.exitCode == 0 else {
+            throw AgentVoiceCLIError(exitCode: result.exitCode, stderr: result.stderr)
+        }
+        return result
+    }
+
+    private func makeRequest(_ arguments: [String]) -> ProcessRequest {
         var environment = baseEnvironment
         environment["PATH"] = cliLookupPath(from: environment["PATH"])
         if let agentVoiceHome {
             environment["AGENT_VOICE_HOME"] = agentVoiceHome.path
         }
-        let result = try await runner.run(
-            ProcessRequest(executableURL: executableURL, arguments: arguments, environment: environment)
-        )
-        guard result.exitCode == 0 else {
-            throw AgentVoiceCLIError(exitCode: result.exitCode, stderr: result.stderr)
-        }
-        return result
+        return ProcessRequest(executableURL: executableURL, arguments: arguments, environment: environment)
     }
 
     private func cliLookupPath(from existingPath: String?) -> String {
@@ -223,4 +278,170 @@ public struct FoundationProcessRunner: ProcessRunning {
             )
         }.value
     }
+}
+
+
+public final class FoundationStreamingProcessRunner: ProcessStreaming, @unchecked Sendable {
+    public init() {}
+
+    public func stream(_ request: ProcessRequest) -> ProcessStream {
+        let state = StreamingProcessState()
+        let stream = AsyncThrowingStream<String, Error> { continuation in
+            let task = Task.detached {
+                let process = Process()
+                process.executableURL = request.executableURL
+                process.arguments = request.arguments
+                process.environment = request.environment
+
+                let stdout = Pipe()
+                let stderr = Pipe()
+                process.standardOutput = stdout
+                process.standardError = stderr
+                process.standardInput = FileHandle.nullDevice
+
+                state.set(process)
+                defer { state.clear(process) }
+
+                do {
+                    try Task.checkCancellation()
+                    try process.run()
+                    let stderrReader = PipeReader(handle: stderr.fileHandleForReading)
+                    async let stderrData = stderrReader.readToEnd()
+
+                    try self.emitStdoutLines(from: stdout.fileHandleForReading, to: continuation)
+                    process.waitUntilExit()
+
+                    let stderrText = String(data: await stderrData, encoding: .utf8) ?? ""
+                    if Task.isCancelled {
+                        throw CancellationError()
+                    }
+                    guard process.terminationStatus == 0 else {
+                        throw AgentVoiceCLIError(exitCode: process.terminationStatus, stderr: stderrText)
+                    }
+                    continuation.finish()
+                } catch {
+                    if process.isRunning {
+                        process.terminate()
+                    }
+                    continuation.finish(throwing: error)
+                }
+            }
+
+            state.setTask(task)
+
+            continuation.onTermination = { @Sendable termination in
+                task.cancel()
+                if case .cancelled = termination {
+                    state.cancel()
+                }
+            }
+        }
+
+        return ProcessStream(lines: stream) {
+            state.cancel()
+        }
+    }
+
+    private func emitStdoutLines(
+        from handle: FileHandle,
+        to continuation: AsyncThrowingStream<String, Error>.Continuation
+    ) throws {
+        var decoder = StreamingLineDecoder()
+
+        while true {
+            if Task.isCancelled {
+                throw CancellationError()
+            }
+
+            let data = handle.availableData
+            if data.isEmpty {
+                break
+            }
+
+            for line in try decoder.append(data) {
+                continuation.yield(line)
+            }
+        }
+
+        if let line = try decoder.finish() {
+            continuation.yield(line)
+        }
+    }
+}
+
+private final class StreamingProcessState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var process: Process?
+    private var task: Task<Void, Never>?
+
+    func set(_ process: Process) {
+        lock.lock()
+        self.process = process
+        lock.unlock()
+    }
+
+    func setTask(_ task: Task<Void, Never>) {
+        lock.lock()
+        self.task = task
+        lock.unlock()
+    }
+
+    func clear(_ process: Process) {
+        lock.lock()
+        if self.process === process {
+            self.process = nil
+        }
+        lock.unlock()
+    }
+
+    func cancel() {
+        lock.lock()
+        let process = self.process
+        let task = self.task
+        lock.unlock()
+
+        task?.cancel()
+        if process?.isRunning == true {
+            process?.terminate()
+        }
+    }
+}
+
+struct StreamingLineDecoder {
+    private var pending = Data()
+
+    mutating func append(_ data: Data) throws -> [String] {
+        pending.append(data)
+        var lines: [String] = []
+
+        while let newlineIndex = pending.firstIndex(of: 0x0A) {
+            let lineData = trimmedCarriageReturn(Data(pending[..<newlineIndex]))
+            guard let line = String(data: lineData, encoding: .utf8) else {
+                throw StreamingOutputError.invalidUTF8
+            }
+            lines.append(line)
+            pending.removeSubrange(pending.startIndex...newlineIndex)
+        }
+
+        return lines
+    }
+
+    mutating func finish() throws -> String? {
+        guard !pending.isEmpty else { return nil }
+        let lineData = trimmedCarriageReturn(pending)
+        pending.removeAll()
+        guard let line = String(data: lineData, encoding: .utf8) else {
+            throw StreamingOutputError.invalidUTF8
+        }
+        return line
+    }
+
+    private func trimmedCarriageReturn(_ data: Data) -> Data {
+        guard data.last == 0x0D else { return data }
+        return data.dropLast()
+    }
+}
+
+enum StreamingOutputError: Error, Equatable {
+    case invalidUTF8
 }

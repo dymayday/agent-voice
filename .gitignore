@@ -5,3 +5,6 @@ dist/
 .worktrees/
 .superpowers/
 .ralph/
+
+__pycache__/
+*.pyc

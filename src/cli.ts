@@ -21,6 +21,12 @@ import {
 	setConfigValue,
 } from "./config";
 import { buildDoctorReport } from "./doctor";
+import {
+	buildKokoroStatus,
+	runKokoroSetup,
+	type KokoroSetupDeps,
+	type KokoroSetupEvent,
+} from "./kokoro-setup";
 import { createEvent, type AgentVoiceEvent, validateEvent } from "./events";
 import {
 	buildHistorySnapshot,
@@ -48,6 +54,8 @@ export interface CliIo {
 	stdin?: string;
 	env?: Record<string, string | undefined>;
 	daemonDeps?: DaemonCliDeps;
+	kokoroSetupDeps?: KokoroSetupDeps;
+	writeStdout?: (chunk: string) => void | Promise<void>;
 }
 
 export interface CliResult {
@@ -80,6 +88,8 @@ Usage:
   agent-voice config set summarizer.timeoutSeconds 8
   agent-voice models list
   agent-voice summarizer mode heuristic|default
+  agent-voice kokoro setup [--jsonl]
+  agent-voice kokoro status --json
   agent-voice doctor --json
   agent-voice daemon --foreground
 `;
@@ -395,6 +405,62 @@ export async function runCli(
 		const config = loadConfig(paths);
 		const payload = availableSummarizerModels(config);
 		return result(0, `${JSON.stringify(payload, null, 2)}\n`);
+	}
+
+	if (command === "kokoro") {
+		const [, subcommand] = args;
+
+		if (subcommand === "status") {
+			if (!args.includes("--json")) {
+				return result(2, "", "Usage: agent-voice kokoro status --json\n");
+			}
+			return result(
+				0,
+				`${JSON.stringify(buildKokoroStatus(paths), null, 2)}\n`,
+			);
+		}
+
+		if (subcommand === "setup") {
+			const jsonl = args.includes("--jsonl");
+			const events: KokoroSetupEvent[] = [];
+			let streamWriteChain = Promise.resolve();
+			const emit = jsonl
+				? (event: KokoroSetupEvent) => {
+						const line = `${JSON.stringify(event)}\n`;
+						if (io.writeStdout) {
+							streamWriteChain = streamWriteChain.then(() =>
+								io.writeStdout?.(line),
+							);
+						} else {
+							events.push(event);
+						}
+					}
+				: undefined;
+			const outcome = await runKokoroSetup(paths, {
+				deps: io.kokoroSetupDeps,
+				...(emit ? { emit } : {}),
+			});
+			await streamWriteChain;
+
+			if (jsonl) {
+				return result(
+					outcome.ok ? 0 : 1,
+					io.writeStdout
+						? ""
+						: `${events.map((event) => JSON.stringify(event)).join("\n")}\n`,
+				);
+			}
+
+			return outcome.ok
+				? result(0, `Kokoro installed: ${outcome.scriptPath}\n`)
+				: result(1, "", `${outcome.error ?? "Kokoro setup failed"}\n`);
+		}
+
+		return result(
+			2,
+			"",
+			"Usage: agent-voice kokoro setup [--jsonl] | kokoro status --json\n",
+		);
 	}
 
 	if (command === "doctor") {

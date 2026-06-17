@@ -1,0 +1,5 @@
+kokoro==0.9.4
+soundfile==0.14.0
+numpy==2.4.6
+huggingface-hub==1.19.0
+tqdm==4.68.2

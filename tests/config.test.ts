@@ -45,6 +45,7 @@ describe("agent-voice config and paths", () => {
 		expect(defaultConfig.summarizer.codexModel).toBe("gpt-5.3-codex");
 		expect(defaultConfig.summarizer.piModel).toBe("openai-codex/gpt-5.5");
 		expect(defaultConfig.summarizer.thinking).toBe("off");
+		expect(defaultConfig.tts.kokoroScript).not.toContain("/Users/");
 		expect(defaultConfig.tts.kokoroScript).toBe("");
 	});
 
