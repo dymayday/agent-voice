@@ -5,7 +5,7 @@ import SwiftUI
 struct KokoroSetupProgressView: View {
     @ObservedObject var model: AppModel
     @State private var showDetails = false
-    @State private var copiedDiagnostics = false
+    @State private var diagnosticsCopyFeedback: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -46,6 +46,14 @@ struct KokoroSetupProgressView: View {
                     .foregroundStyle(.red)
                     .textSelection(.enabled)
                     .accessibilityLabel("Setup failed: \(error)")
+            } else if let setupDetectionError = model.kokoroSetupDetectionError {
+                Label(
+                    "Setup detection needs attention: \(setupDetectionError)",
+                    systemImage: "exclamationmark.triangle.fill"
+                )
+                .foregroundStyle(.orange)
+                .textSelection(.enabled)
+                .accessibilityLabel("Setup detection needs attention: \(setupDetectionError)")
             } else if model.kokoroSetup.phase == .cancelled {
                 Label("Setup cancelled. You can retry when ready.", systemImage: "xmark.circle")
                     .foregroundStyle(.secondary)
@@ -59,24 +67,26 @@ struct KokoroSetupProgressView: View {
     }
 
     private var controls: some View {
-        HStack {
-            if model.kokoroSetup.phase == .idle {
+        let phase = model.kokoroSetup.phase
+
+        return HStack {
+            if phase == .idle {
                 Button("Start Installing") { Task { await model.installKokoro() } }
                     .keyboardShortcut(.defaultAction)
-            } else if model.kokoroSetup.phase == .running {
+            } else if phase == .running {
                 Button("Cancel") { model.cancelKokoroSetup() }
                     .keyboardShortcut(.cancelAction)
-            } else if model.kokoroSetup.phase == .failed || model.kokoroSetup.phase == .cancelled {
+            } else if phase == .failed || phase == .cancelled {
                 Button("Retry") { Task { await model.retryKokoroSetup() } }
             }
 
-            if model.kokoroSetup.phase == .failed || model.kokoroSetup.phase == .cancelled {
+            if phase == .failed || phase == .cancelled {
                 Button("Copy Diagnostics") {
                     copyDiagnostics()
                 }
                 .disabled(model.kokoroSetupDiagnostics().isEmpty)
-                if copiedDiagnostics {
-                    Text("Diagnostics copied.")
+                if let diagnosticsCopyFeedback {
+                    Text(diagnosticsCopyFeedback)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -84,9 +94,9 @@ struct KokoroSetupProgressView: View {
 
             Spacer()
 
-            if model.kokoroSetup.phase != .running {
+            if phase != .running {
                 Button(doneTitle) { NSApp.keyWindow?.close() }
-                    .keyboardShortcut(model.kokoroSetup.phase == .idle ? .cancelAction : .defaultAction)
+                    .keyboardShortcut(phase == .idle ? .cancelAction : .defaultAction)
             }
         }
     }
@@ -168,7 +178,10 @@ struct KokoroSetupProgressView: View {
 
     private func copyDiagnostics() {
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(model.kokoroSetupDiagnostics(), forType: .string)
-        copiedDiagnostics = true
+        if NSPasteboard.general.setString(model.kokoroSetupDiagnostics(), forType: .string) {
+            diagnosticsCopyFeedback = "Diagnostics copied."
+        } else {
+            diagnosticsCopyFeedback = "Copy failed."
+        }
     }
 }

@@ -85,6 +85,7 @@ final class DockMenuSourceTests: XCTestCase {
         )
         XCTAssertTrue(delegate.contains("await model.refresh()"))
         XCTAssertTrue(delegate.contains("promptForKokoroSetupIfNeeded(model: model)"))
+        XCTAssertTrue(delegate.contains("guard model.shouldPromptForKokoroSetup else { return }"))
         XCTAssertFalse(delegate.contains("model.requestSetupStep(.kokoro)"))
         XCTAssertTrue(delegate.contains("openKokoroSetupWindow?()"))
         XCTAssertTrue(delegate.contains("openDashboardWindow?()"))

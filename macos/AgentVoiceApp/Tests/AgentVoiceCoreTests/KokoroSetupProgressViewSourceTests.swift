@@ -34,12 +34,21 @@ final class KokoroSetupProgressViewSourceTests: XCTestCase {
 
     func testProgressViewRequiresExplicitStartBeforeInstalling() throws {
         let source = try appSource("KokoroSetupProgressView.swift")
+        let body = try sourceSlice(
+            in: source,
+            from: "    var body: some View",
+            to: "    private var controls"
+        )
+        let controls = try sourceSlice(
+            in: source,
+            from: "    private var controls: some View",
+            to: "    private var stepList"
+        )
 
         XCTAssertTrue(source.contains("Ready to install Kokoro"))
-        XCTAssertTrue(source.contains("Start Installing"))
-        XCTAssertTrue(source.contains("Task { await model.installKokoro() }"))
+        XCTAssertTrue(controls.contains("Button(\"Start Installing\") { Task { await model.installKokoro() } }"))
         XCTAssertFalse(
-            source.contains(".task {\n            if model.kokoroSetup.phase == .idle {\n                await model.installKokoro()\n            }\n        }"),
+            body.contains("installKokoro"),
             "Opening the Kokoro installer window must not start network/download work without a button click."
         )
     }
@@ -69,6 +78,22 @@ final class KokoroSetupProgressViewSourceTests: XCTestCase {
         XCTAssertTrue(source.contains("accessibilityLabel(\"Kokoro setup progress\")"))
         XCTAssertTrue(source.contains("Setup failed"))
         XCTAssertTrue(source.contains("textSelection(.enabled)"))
+    }
+
+    func testProgressViewSurfacesKokoroDetectionErrors() throws {
+        let source = try appSource("KokoroSetupProgressView.swift")
+
+        XCTAssertTrue(source.contains("model.kokoroSetupDetectionError"))
+        XCTAssertTrue(source.contains("Setup detection needs attention"))
+    }
+
+    func testCopyDiagnosticsReportsPasteboardFailures() throws {
+        let source = try appSource("KokoroSetupProgressView.swift")
+        let copyDiagnostics = try functionBody(named: "copyDiagnostics", in: source)
+
+        XCTAssertTrue(copyDiagnostics.contains("if NSPasteboard.general.setString"))
+        XCTAssertTrue(copyDiagnostics.contains("Diagnostics copied."))
+        XCTAssertTrue(copyDiagnostics.contains("Copy failed."))
     }
 
     func testDetailsLogIsHeightBoundedSoItScrollsInsideInstallerWindow() throws {

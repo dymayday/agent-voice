@@ -413,6 +413,9 @@ extension AppModel {
         if let error = kokoroSetup.error {
             lines.append("Error: \(error)")
         }
+        if let kokoroSetupDetectionError {
+            lines.append("Kokoro setup detection error: \(kokoroSetupDetectionError)")
+        }
         lines.append(contentsOf: kokoroSetup.logs)
         return lines.joined(separator: "\n")
     }

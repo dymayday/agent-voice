@@ -248,6 +248,7 @@ final class AppModelKokoroSetupTests: XCTestCase {
         XCTAssertEqual(model.kokoroSetup.phase, .succeeded)
         XCTAssertTrue(model.shouldPromptForKokoroSetup)
         XCTAssertTrue(model.kokoroSetupDetectionError?.contains("config") == true)
+        XCTAssertTrue(model.kokoroSetupDiagnostics().contains("Kokoro setup detection error: config"))
         XCTAssertTrue(model.lastError?.contains("config") == true)
     }
 
@@ -278,6 +279,7 @@ final class AppModelKokoroSetupTests: XCTestCase {
 
         XCTAssertEqual(model.kokoroSetup.phase, .succeeded)
         XCTAssertTrue(model.shouldPromptForKokoroSetup)
+        XCTAssertTrue(model.kokoroSetupDiagnostics().contains("Kokoro setup detection error: doctor"))
         XCTAssertTrue(model.lastError?.contains("doctor") == true)
     }
 

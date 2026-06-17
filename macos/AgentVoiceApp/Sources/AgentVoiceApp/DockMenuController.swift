@@ -67,7 +67,7 @@ final class AgentVoiceDockMenuDelegate: NSObject, NSApplicationDelegate {
 
     static func routeInitialWindowIfNeeded(model: AppModel) {
         guard !didRouteInitialWindow, initialWindowRoutingTask == nil else { return }
-        guard openDashboardWindow != nil, openSetupWindow != nil, openKokoroSetupWindow != nil else { return }
+        guard openDashboardWindow != nil, openKokoroSetupWindow != nil else { return }
         guard !didUserOpenWindow else {
             didRouteInitialWindow = true
             return
