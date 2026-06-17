@@ -186,19 +186,18 @@ struct MenuBarSentinelView: View {
                         }
                     }
                 }
-                actionButton("Pause", systemImage: "pause.fill") {
-                    Task { await model.pause() }
-                }
-                actionButton("Resume", systemImage: "play.fill") {
-                    Task { await model.resume() }
-                }
                 actionButton("Voice Test", systemImage: "speaker.wave.2.fill") {
                     Task { await model.testVoice() }
                 }
                 actionButton("Clear Queue", systemImage: "trash", role: .destructive, disabled: !canClearQueue) {
                     Task { await model.clearQueue() }
                 }
-                actionButton("Clear Failed Jobs", systemImage: "xmark.octagon", role: .destructive, disabled: !canClearFailedQueue) {
+                actionButton(
+                    "Clear Failed Jobs",
+                    systemImage: "xmark.octagon",
+                    role: .destructive,
+                    disabled: !canClearFailedQueue
+                ) {
                     Task { await model.clearFailedJobs() }
                 }
             }
@@ -256,15 +255,6 @@ struct MenuBarSentinelView: View {
                 } else {
                     Button("No Summary to Replay") {}
                         .disabled(true)
-                }
-                Button(model.status?.ui.state == .paused ? "Resume" : "Pause") {
-                    Task {
-                        if model.status?.ui.state == .paused {
-                            await model.resume()
-                        } else {
-                            await model.pause()
-                        }
-                    }
                 }
                 Button("Run Voice Test") {
                     Task { await model.testVoice() }

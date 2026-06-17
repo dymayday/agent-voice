@@ -224,9 +224,7 @@ function defaultProcessorDeps(
 	config: ReturnType<typeof loadConfig>,
 	paths: ReturnType<typeof resolvePaths>,
 ): ProcessorDeps {
-	const kokoro = new KokoroClient(config, undefined, (message) => {
-		console.error(`[agent-voice] ${message}`);
-	});
+	const kokoro = new KokoroClient(config);
 	return {
 		summarize: (event, summarizeConfig) =>
 			summarizeWithSource(event, summarizeConfig, undefined, {
@@ -365,15 +363,11 @@ export async function runCli(
 		if (args.includes("--for") || args.includes("--until")) {
 			return result(2, "", "Timed pause is not implemented yet\n");
 		}
-		const config = loadConfig(paths);
-		saveConfig(paths, { ...config, enabled: false });
-		return result(0, "paused\n");
+		return result(2, "", "Pause/resume is not implemented yet\n");
 	}
 
 	if (command === "resume") {
-		const config = loadConfig(paths);
-		saveConfig(paths, { ...config, enabled: true });
-		return result(0, "resumed\n");
+		return result(2, "", "Pause/resume is not implemented yet\n");
 	}
 
 	if (command === "summarizer") {

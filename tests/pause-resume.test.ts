@@ -18,24 +18,21 @@ async function withTempHome<T>(
 }
 
 describe("agent-voice pause/resume", () => {
-	test("pause disables the system and resume enables it", async () => {
+	test("pause and resume are rejected until implemented", async () => {
 		await withTempHome(async (home) => {
 			const env = { AGENT_VOICE_HOME: home };
 			const paths = resolvePaths(env);
 
 			const pause = await runCli(["pause"], { env });
-			expect(pause.exitCode).toBe(0);
-			expect(pause.stdout).toContain("paused");
-			expect(loadConfig(paths).enabled).toBe(false);
-
-			const statusPaused = JSON.parse(
-				(await runCli(["status", "--json"], { env })).stdout,
-			);
-			expect(statusPaused.ui.state).toBe("paused");
+			expect(pause.exitCode).toBe(2);
+			expect(pause.stdout).toBe("");
+			expect(pause.stderr).toContain("Pause/resume is not implemented");
+			expect(loadConfig(paths).enabled).toBe(true);
 
 			const resume = await runCli(["resume"], { env });
-			expect(resume.exitCode).toBe(0);
-			expect(resume.stdout).toContain("resumed");
+			expect(resume.exitCode).toBe(2);
+			expect(resume.stdout).toBe("");
+			expect(resume.stderr).toContain("Pause/resume is not implemented");
 			expect(loadConfig(paths).enabled).toBe(true);
 		});
 	});

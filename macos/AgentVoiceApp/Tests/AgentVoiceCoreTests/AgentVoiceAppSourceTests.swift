@@ -117,7 +117,11 @@ final class AgentVoiceAppSourceTests: XCTestCase {
         let controls = try sourceSlice(in: source, from: "private var controls", to: "private var footer")
 
         XCTAssertTrue(controls.contains("actionButton(\"Clear Queue\", systemImage: \"trash\", role: .destructive"))
-        XCTAssertTrue(controls.contains("actionButton(\"Clear Failed Jobs\", systemImage: \"xmark.octagon\", role: .destructive"))
+        XCTAssertTrue(controls.contains("actionButton(\n                    \"Clear Failed Jobs\""))
+        XCTAssertFalse(controls.contains("actionButton(\"Pause\""))
+        XCTAssertFalse(controls.contains("actionButton(\"Resume\""))
+        XCTAssertFalse(controls.contains("await model.pause()"))
+        XCTAssertFalse(controls.contains("await model.resume()"))
         XCTAssertTrue(controls.contains("!canClearQueue"))
         XCTAssertTrue(controls.contains("!canClearFailedQueue"))
     }
@@ -145,6 +149,8 @@ final class AgentVoiceAppSourceTests: XCTestCase {
         XCTAssertTrue(smartActions.contains("Button(\"Open Setup\")"))
         XCTAssertTrue(smartActions.contains("Button(\"Replay Last Summary\")"))
         XCTAssertTrue(smartActions.contains("Button(\"Run Voice Test\")"))
+        XCTAssertFalse(smartActions.contains("await model.pause()"))
+        XCTAssertFalse(smartActions.contains("await model.resume()"))
     }
 
     func testSmartActionModePrioritizesAttentionBeforeDaemonStoppedAndUnknownStatus() throws {
@@ -182,6 +188,8 @@ final class AgentVoiceAppSourceTests: XCTestCase {
         XCTAssertTrue(smartActions.contains("openSetup()"))
         XCTAssertTrue(smartActions.contains("Task { await model.testVoice(summary) }"))
         XCTAssertTrue(smartActions.contains("Task { await model.testVoice() }"))
+        XCTAssertFalse(smartActions.contains("Task { await model.pause() }"))
+        XCTAssertFalse(smartActions.contains("Task { await model.resume() }"))
     }
 
     func testSmartActionsSnapshotAndRevealAreGuardedByAvailableData() throws {

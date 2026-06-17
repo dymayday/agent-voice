@@ -49,12 +49,6 @@ final class AgentVoiceDockMenuDelegate: NSObject, NSApplicationDelegate {
             enabled: currentModel != nil
         ))
 
-        let speechTitle = currentModel?.status?.ui.state == .paused ? "Resume Speech" : "Pause Speech"
-        menu.addItem(menuItem(
-            title: speechTitle,
-            action: #selector(toggleSpeechFromDockMenu(_:)),
-            enabled: currentModel != nil
-        ))
         menu.addItem(menuItem(
             title: "Run Voice Test",
             action: #selector(runVoiceTestFromDockMenu(_:)),
@@ -92,17 +86,6 @@ final class AgentVoiceDockMenuDelegate: NSObject, NSApplicationDelegate {
                 await model.stopDaemon()
             } else {
                 await model.startDaemon()
-            }
-        }
-    }
-
-    @objc private func toggleSpeechFromDockMenu(_ sender: NSMenuItem) {
-        guard let model = currentModel else { return }
-        Task { @MainActor in
-            if model.status?.ui.state == .paused {
-                await model.resume()
-            } else {
-                await model.pause()
             }
         }
     }
