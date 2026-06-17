@@ -9,13 +9,21 @@ enum AgentVoiceWindowID {
 
 @main
 struct AgentVoiceApplication: App {
-    @StateObject private var model = AppModel()
+    @NSApplicationDelegateAdaptor(AgentVoiceDockMenuDelegate.self) private var dockMenuDelegate
+    @StateObject private var model: AppModel
+
+    init() {
+        let appModel = AppModel()
+        _model = StateObject(wrappedValue: appModel)
+        AgentVoiceDockMenuDelegate.configure(model: appModel)
+    }
 
     var body: some Scene {
         MenuBarExtra {
             MenuBarSentinelView(model: model)
         } label: {
             StatusBarIconLabel()
+                .background(DockMenuWindowBridge())
         }
         .menuBarExtraStyle(.window)
 
