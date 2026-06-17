@@ -99,7 +99,7 @@ export function buildDoctorReport(
 				? {}
 				: {
 						action:
-							"Open Setup to configure Kokoro, run: agent-voice kokoro setup, or choose an existing Kokoro Python service script"
+							"Open Setup to configure Kokoro, run: agent-voice kokoro setup, or run: agent-voice config set tts.kokoroScript /absolute/path/to/kokoro_tts_service.py"
 					}),
 		});
 	}
