@@ -45,19 +45,22 @@ export function buildDoctorReport(
 	}
 
 	if (config) {
-		const exists = existsSync(config.tts.kokoroScript);
+		const script = config.tts.kokoroScript;
+		const exists = script.length > 0 && existsSync(script);
 		checks.push({
 			id: "tts.kokoroScript.exists",
 			ok: exists,
 			severity: exists ? "info" : "error",
 			message: exists
 				? "Kokoro script exists"
-				: `Kokoro script not found: ${config.tts.kokoroScript}`,
+				: script
+					? `Kokoro script not found: ${script}`
+					: "Kokoro script is not configured",
 			...(exists
 				? {}
 				: {
 						action:
-							"Open Setup to configure Kokoro, or run: agent-voice config set tts.kokoroScript /absolute/path/to/kokoro_tts_service.py",
+							"Open Setup to configure Kokoro, run: agent-voice kokoro setup, or choose an existing Kokoro Python service script"
 					}),
 		});
 	}

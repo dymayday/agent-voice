@@ -98,6 +98,37 @@ describe("agent-voice doctor --json", () => {
 		});
 	});
 
+	test("recommends kokoro setup when the Kokoro script is missing", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			const config = loadConfig(paths);
+			saveConfig(paths, {
+				...config,
+				tts: { ...config.tts, kokoroScript: "" },
+			});
+
+			const result = await runCli(["doctor", "--json"], {
+				env: { AGENT_VOICE_HOME: home },
+				daemonDeps: { isPidAlive: () => false },
+			});
+
+			expect(result.exitCode).toBe(0);
+			const parsed = JSON.parse(result.stdout) as {
+				checks: Array<{
+					id: string;
+					ok: boolean;
+					severity: string;
+					action?: string;
+				}>;
+			};
+			const kokoroCheck = parsed.checks.find(
+				(check) => check.id === "tts.kokoroScript.exists",
+			);
+			expect(kokoroCheck).toMatchObject({ ok: false, severity: "error" });
+			expect(kokoroCheck?.action).toContain("agent-voice kokoro setup");
+		});
+	});
+
 	test("doctor json handles a missing home directory without creating it", async () => {
 		const parent = mkdtempSync(
 			join(tmpdir(), "agent-voice-doctor-missing-home-"),

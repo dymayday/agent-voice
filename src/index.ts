@@ -29,6 +29,7 @@ const stdin = await readStdin();
 const result = await runCli(process.argv.slice(2), {
 	stdin,
 	env: process.env,
+	writeStdout: (chunk) => writeAll(process.stdout, chunk),
 });
 
 await Promise.all([
