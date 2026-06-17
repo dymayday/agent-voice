@@ -1,4 +1,7 @@
-import { extractClaudeQuestion, extractClaudeStopHook } from "./adapters/claude";
+import {
+	extractClaudeQuestion,
+	extractClaudeStopHook,
+} from "./adapters/claude";
 import {
 	clearDaemonLock,
 	enterForegroundDaemon,
@@ -74,6 +77,7 @@ Usage:
   agent-voice disable codex
   agent-voice config get
   agent-voice config set summarizer.timeoutSeconds 8
+  agent-voice models list
   agent-voice summarizer mode heuristic|default
   agent-voice doctor --json
   agent-voice daemon --foreground
@@ -98,6 +102,33 @@ function parseBoundedIntegerOption(
 	const value = Number(raw);
 	if (!Number.isInteger(value) || value < min || value > max) return null;
 	return value;
+}
+
+function availableSummarizerModels(config: ReturnType<typeof loadConfig>) {
+	const providers: Record<string, string[]> = {
+		"pi-fast": [config.summarizer.piModel, defaultConfig.summarizer.piModel],
+		"codex-fast": [
+			config.summarizer.codexModel,
+			defaultConfig.summarizer.codexModel,
+		],
+	};
+
+	if (config.summarizer.opencodeModel) {
+		providers.opencode = [config.summarizer.opencodeModel];
+	}
+
+	for (const [name, values] of Object.entries(providers)) {
+		providers[name] = Array.from(new Set(values.filter(Boolean) as string[]));
+	}
+
+	const models = Array.from(new Set(Object.values(providers).flat())).sort(
+		(a, b) => a.localeCompare(b),
+	);
+
+	return {
+		providers,
+		models,
+	};
 }
 
 function parseJson(input: string): unknown {
@@ -280,6 +311,16 @@ export async function runCli(
 		return result(0, `summarizer mode=${mode}\n`);
 	}
 
+	if (command === "models") {
+		const [, subcommand] = args;
+		if (subcommand !== "list") {
+			return result(2, "", "Usage: agent-voice models list\n");
+		}
+		const config = loadConfig(paths);
+		const payload = availableSummarizerModels(config);
+		return result(0, `${JSON.stringify(payload, null, 2)}\n`);
+	}
+
 	if (command === "doctor") {
 		if (!args.includes("--json")) {
 			return result(2, "", "doctor currently requires --json\n");
@@ -321,7 +362,9 @@ export async function runCli(
 		}
 		return result(
 			0,
-			formatHistoryJson(buildHistorySnapshot(paths, limit, before ?? undefined)),
+			formatHistoryJson(
+				buildHistorySnapshot(paths, limit, before ?? undefined),
+			),
 		);
 	}
 

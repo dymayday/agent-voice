@@ -9,6 +9,7 @@ public final class AppModel: ObservableObject {
     @Published public private(set) var config: AgentVoiceFullConfig?
     @Published public private(set) var lastError: String?
     @Published public private(set) var isLoadingHistoryPage = false
+    @Published public private(set) var availableSummarizerModels: [String] = []
     @Published public var draftVoice: String = ""
     @Published public var draftThinking: String = "off"
     @Published public var draftSummarizerModel: String = ""
@@ -20,6 +21,8 @@ public final class AppModel: ObservableObject {
     var isAutoRefreshRunning: Bool { autoRefreshTask != nil }
 
     private var autoRefreshTask: Task<Void, Never>?
+    private var summarizerModelsTask: Task<Void, Never>?
+    private var didLoadSummarizerModels = false
     private var lastHistoryTerminalCounts: TerminalQueueCounts?
     private var loadedHistoryPageCount = 0
 
@@ -49,6 +52,7 @@ public final class AppModel: ObservableObject {
 
     deinit {
         autoRefreshTask?.cancel()
+        summarizerModelsTask?.cancel()
     }
 
     public func refresh() async {
@@ -205,6 +209,26 @@ public final class AppModel: ObservableObject {
 
     public func setSummarizerMode(_ mode: String) async {
         await perform { try await cli.setSummarizerMode(mode) }
+    }
+
+    public func preloadSummarizerModels() {
+        guard !didLoadSummarizerModels, summarizerModelsTask == nil else { return }
+        summarizerModelsTask = Task {
+            await self.refreshSummarizerModels()
+        }
+    }
+
+    public func refreshSummarizerModels() async {
+        guard !didLoadSummarizerModels else { return }
+
+        do {
+            let response = try await cli.summarizerModels()
+            availableSummarizerModels = response.models
+        } catch {
+            availableSummarizerModels = []
+        }
+        didLoadSummarizerModels = true
+        summarizerModelsTask = nil
     }
 
     public func clearQueue() async {

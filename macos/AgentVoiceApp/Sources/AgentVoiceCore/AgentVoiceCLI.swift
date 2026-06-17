@@ -38,6 +38,11 @@ public struct AgentVoiceCLIError: Error, Equatable {
     }
 }
 
+public struct SummarizerModelsResponse: Codable, Equatable, Sendable {
+    public let providers: [String: [String]]
+    public let models: [String]
+}
+
 public struct AgentVoiceCLI: Sendable {
     public let executableURL: URL
     public let agentVoiceHome: URL?
@@ -78,6 +83,11 @@ public struct AgentVoiceCLI: Sendable {
     public func config() async throws -> AgentVoiceFullConfig {
         let result = try await run(["config", "get"])
         return try JSONDecoder().decode(AgentVoiceFullConfig.self, from: Data(result.stdout.utf8))
+    }
+
+    public func summarizerModels() async throws -> SummarizerModelsResponse {
+        let result = try await run(["models", "list"])
+        return try JSONDecoder().decode(SummarizerModelsResponse.self, from: Data(result.stdout.utf8))
     }
 
     public func pause() async throws {

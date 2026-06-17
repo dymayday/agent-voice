@@ -53,6 +53,24 @@ describe("agent-voice CLI", () => {
 		expect(result.stdout).toContain("agent-voice disable");
 		expect(result.stdout).toContain("agent-voice config get");
 		expect(result.stdout).toContain("agent-voice queue clear");
+		expect(result.stdout).toContain("agent-voice models list");
 		expect(result.stdout).toContain("agent-voice daemon --foreground");
+	});
+
+	test("returns available summarizer model list", async () => {
+		const home = mkdtempSync(join(tmpdir(), "agent-voice-cli-model-list-"));
+		try {
+			const result = await runCli(["models", "list"], {
+				env: { AGENT_VOICE_HOME: home },
+			});
+
+			expect(result.exitCode).toBe(0);
+			const payload = JSON.parse(result.stdout);
+			expect(Array.isArray(payload.models)).toBe(true);
+			expect(payload.providers["pi-fast"]).toContain("openai-codex/gpt-5.5");
+			expect(payload.providers["codex-fast"]).toContain("gpt-5.3-codex");
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
 	});
 });

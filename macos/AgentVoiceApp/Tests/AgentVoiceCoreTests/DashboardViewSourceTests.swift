@@ -94,6 +94,7 @@ final class DashboardViewSourceTests: XCTestCase {
         XCTAssertTrue(summarizerModelControls.contains("Button(\"Validate\")"))
         XCTAssertTrue(summarizerModelControls.contains("model.saveSummarizerModel()"))
         XCTAssertTrue(summarizerModelControls.contains("model.validateSummarizerModel()"))
+        XCTAssertTrue(summarizerModelControls.contains("Choose from models discovered at startup"))
     }
 
     func testDashboardAttentionSurfacesOpenAttentionWindow() throws {

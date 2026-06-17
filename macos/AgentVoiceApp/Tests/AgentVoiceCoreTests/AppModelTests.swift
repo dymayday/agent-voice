@@ -942,4 +942,28 @@ extension AppModelTests {
             ["config", "get"]
         ])
     }
+
+    func testSummarizerModelsLoadOnceAtStartup() async throws {
+        let modelsPayload = """
+        {
+          "providers": {
+            "pi-fast": ["openai-codex/gpt-5.5"],
+            "codex-fast": ["gpt-5.3-codex"]
+          },
+          "models": ["gpt-5.3-codex", "openai-codex/gpt-5.5"]
+        }
+        """
+        let runner = RecordingRunner(results: [
+            ProcessResult(exitCode: 0, stdout: modelsPayload, stderr: "")
+        ])
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+        let model = AppModel(cli: cli)
+
+        await model.refreshSummarizerModels()
+        XCTAssertEqual(model.availableSummarizerModels, ["gpt-5.3-codex", "openai-codex/gpt-5.5"])
+
+        await model.refreshSummarizerModels()
+        let requests = await runner.capturedRequests()
+        XCTAssertEqual(requests.map(\.arguments), [["models", "list"]])
+    }
 }

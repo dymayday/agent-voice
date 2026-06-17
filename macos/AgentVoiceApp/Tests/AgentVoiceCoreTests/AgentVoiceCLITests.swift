@@ -296,6 +296,26 @@ final class AgentVoiceCLITests: XCTestCase {
         XCTAssertEqual(requests.first?.arguments, ["config", "set", "summarizer.piModel", "openai-custom/model"])
     }
 
+    func testSummarizerModelsCommand() async throws {
+        let modelsPayload = """
+        {
+          "providers": {
+            "pi-fast": ["openai-codex/gpt-5.5"],
+            "codex-fast": ["gpt-5.3-codex"]
+          },
+          "models": ["gpt-5.3-codex", "openai-codex/gpt-5.5"]
+        }
+        """
+        let runner = RecordingRunner(stdout: modelsPayload)
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+
+        let response = try await cli.summarizerModels()
+
+        XCTAssertEqual(response.models, ["gpt-5.3-codex", "openai-codex/gpt-5.5"])
+        let requests = await runner.capturedRequests()
+        XCTAssertEqual(requests.first?.arguments, ["models", "list"])
+    }
+
     func testClearQueueCommand() async throws {
         let runner = RecordingRunner(stdout: "Cleared 2 queued job(s).\n")
         let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
