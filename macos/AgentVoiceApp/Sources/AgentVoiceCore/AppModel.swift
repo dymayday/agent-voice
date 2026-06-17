@@ -58,7 +58,6 @@ public final class AppModel: ObservableObject {
         autoRefreshTask?.cancel()
         summarizerModelsTask?.cancel()
         kokoroSetupTask?.cancel()
-        cli.cancelKokoroSetup()
     }
 
     public func refresh() async {
@@ -364,7 +363,6 @@ public final class AppModel: ObservableObject {
         guard kokoroSetup.phase == .running || kokoroSetupTask != nil else { return }
         isCancellingKokoroSetup = true
         kokoroSetupTask?.cancel()
-        cli.cancelKokoroSetup()
         kokoroSetup.phase = .cancelled
         kokoroSetup.currentTitle = "Kokoro setup cancelled"
         kokoroSetup.error = nil

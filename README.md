@@ -119,7 +119,7 @@ run/daemon.pid    # daemon lock
 run/audio/        # temporary WAV files
 ```
 
-Set `AGENT_VOICE_HOME` to move the whole state directory. Automatic Kokoro setup writes managed files only under `AGENT_VOICE_HOME/kokoro`.
+Set `AGENT_VOICE_HOME` to move the whole state directory. Automatic Kokoro setup keeps the managed virtual environment, service script, install state, and Hugging Face model cache under `AGENT_VOICE_HOME/kokoro`; package managers such as `uv` may still use their normal user-level caches unless you configure them separately.
 
 Queue data, config, generated WAV files, and Kokoro playback stay local. Default summarization may call configured `codex`, `pi`, or `opencode` providers; use `./bin/agent-voice summarizer mode heuristic` for local/no-network summaries. Summarizer privacy and no-network mode are separate from Kokoro setup: the explicit Kokoro setup step may still use the network to download TTS dependencies and model files.
 

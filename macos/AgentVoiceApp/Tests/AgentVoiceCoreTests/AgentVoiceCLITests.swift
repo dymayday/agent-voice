@@ -26,10 +26,29 @@ actor RecordingRunner: ProcessRunning {
     }
 }
 
+private final class RecordingStreamState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: AsyncThrowingStream<String, Error>.Continuation?
+
+    func setContinuation(_ continuation: AsyncThrowingStream<String, Error>.Continuation) {
+        lock.withLock {
+            self.continuation = continuation
+        }
+    }
+
+    func cancel() {
+        let continuation = lock.withLock {
+            let continuation = self.continuation
+            self.continuation = nil
+            return continuation
+        }
+        continuation?.finish(throwing: CancellationError())
+    }
+}
+
 final class RecordingStreamingRunner: ProcessStreaming, @unchecked Sendable {
     private let lock = NSLock()
     private var requests: [ProcessRequest] = []
-    private var continuations: [AsyncThrowingStream<String, Error>.Continuation] = []
     private let lines: [String]
     private let finishAutomatically: Bool
     private var didCancel = false
@@ -39,17 +58,16 @@ final class RecordingStreamingRunner: ProcessStreaming, @unchecked Sendable {
         self.finishAutomatically = finishAutomatically
     }
 
-    func stream(_ request: ProcessRequest) -> AsyncThrowingStream<String, Error> {
+    func stream(_ request: ProcessRequest) -> ProcessStream {
         lock.withLock {
             requests.append(request)
         }
 
         let lines = self.lines
         let finishAutomatically = self.finishAutomatically
-        return AsyncThrowingStream { continuation in
-            lock.withLock {
-                continuations.append(continuation)
-            }
+        let streamState = RecordingStreamState()
+        let stream = AsyncThrowingStream<String, Error> { continuation in
+            streamState.setContinuation(continuation)
             Task {
                 for line in lines {
                     continuation.yield(line)
@@ -60,17 +78,16 @@ final class RecordingStreamingRunner: ProcessStreaming, @unchecked Sendable {
                 }
             }
         }
+
+        return ProcessStream(lines: stream) { [weak self] in
+            self?.recordCancellation()
+            streamState.cancel()
+        }
     }
 
-    func cancelActiveStream() {
-        let activeContinuations = lock.withLock {
+    private func recordCancellation() {
+        lock.withLock {
             didCancel = true
-            let activeContinuations = continuations
-            continuations.removeAll()
-            return activeContinuations
-        }
-        for continuation in activeContinuations {
-            continuation.finish(throwing: CancellationError())
         }
     }
 
@@ -447,6 +464,88 @@ final class AgentVoiceCLITests: XCTestCase {
         _ = await task.result
 
         XCTAssertTrue(streamingRunner.wasCancelled())
+    }
+
+    func testStreamingLineDecoderPreservesUTF8AcrossChunks() throws {
+        var decoder = StreamingLineDecoder()
+        var firstChunk = Data(#"{"type":"log","stream":"stdout","message":"caf"#.utf8)
+        let eAcute = Array("é".utf8)
+        firstChunk.append(eAcute[0])
+
+        XCTAssertEqual(try decoder.append(firstChunk), [])
+
+        var secondChunk = Data([eAcute[1]])
+        secondChunk.append(contentsOf: Data(#""}"#.utf8))
+        secondChunk.append(0x0A)
+
+        XCTAssertEqual(
+            try decoder.append(secondChunk),
+            [#"{"type":"log","stream":"stdout","message":"café"}"#]
+        )
+        XCTAssertNil(try decoder.finish())
+    }
+
+    func testStreamingLineDecoderRejectsInvalidUTF8() {
+        var decoder = StreamingLineDecoder()
+
+        XCTAssertThrowsError(try decoder.append(Data([0xFF, 0x0A])))
+    }
+
+    func testFoundationStreamingRunnerStreamsLinesAndFinalPartialLine() async throws {
+        let runner = FoundationStreamingProcessRunner()
+        let processStream = runner.stream(shellRequest("printf 'one\\n'; printf 'two'"))
+
+        var lines: [String] = []
+        for try await line in processStream.lines {
+            lines.append(line)
+        }
+
+        XCTAssertEqual(lines, ["one", "two"])
+    }
+
+    func testFoundationStreamingRunnerPropagatesNonzeroExitWithStderr() async throws {
+        let runner = FoundationStreamingProcessRunner()
+        let processStream = runner.stream(shellRequest("printf 'before\\n'; printf 'boom\\n' >&2; exit 7"))
+
+        var lines: [String] = []
+        do {
+            for try await line in processStream.lines {
+                lines.append(line)
+            }
+            XCTFail("Expected nonzero streaming process exit to throw")
+        } catch let error as AgentVoiceCLIError {
+            XCTAssertEqual(error.exitCode, 7)
+            XCTAssertTrue(error.stderr.contains("boom"))
+        }
+        XCTAssertEqual(lines, ["before"])
+    }
+
+    func testFoundationStreamingRunnerCancelStopsOnlySelectedStream() async throws {
+        let runner = FoundationStreamingProcessRunner()
+        let longStream = runner.stream(shellRequest("trap 'exit 0' TERM; while true; do sleep 1; done"))
+        let longTask = Task {
+            for try await _ in longStream.lines {}
+        }
+        try await Task.sleep(nanoseconds: 50_000_000)
+
+        let shortStream = runner.stream(shellRequest("printf 'ready\\n'; printf 'done\\n'"))
+        longStream.cancel()
+
+        var shortLines: [String] = []
+        for try await line in shortStream.lines {
+            shortLines.append(line)
+        }
+        _ = await longTask.result
+
+        XCTAssertEqual(shortLines, ["ready", "done"])
+    }
+
+    private func shellRequest(_ script: String) -> ProcessRequest {
+        ProcessRequest(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["-c", script],
+            environment: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"]
+        )
     }
 
     private func waitForStreamingRequestCount(

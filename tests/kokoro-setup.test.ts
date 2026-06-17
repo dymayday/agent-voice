@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { describe, expect, test } from "bun:test";
 import {
 	existsSync,
@@ -22,6 +23,7 @@ import {
 	testKokoroService,
 	type KokoroSetupDeps,
 	type KokoroSetupEvent,
+	type KokoroSetupRunResult,
 } from "../src/kokoro-setup";
 import { resolvePaths } from "../src/paths";
 
@@ -29,6 +31,89 @@ const resourceRoot = join(import.meta.dir, "..", "resources", "kokoro");
 
 function tempHome(): string {
 	return mkdtempSync(join(tmpdir(), "agent-voice-kokoro-setup-"));
+}
+
+function withFakePythonKokoroDeps<T>(fn: (pythonPath: string) => T): T {
+	const pythonPath = mkdtempSync(join(tmpdir(), "agent-voice-kokoro-python-"));
+	try {
+		writeFileSync(
+			join(pythonPath, "kokoro.py"),
+			`
+class KPipeline:
+	def __init__(self, **kwargs):
+		self.kwargs = kwargs
+
+	def __call__(self, text, voice):
+		yield None, None, [0.0, 0.25, -0.25]
+`,
+			"utf8",
+		);
+		writeFileSync(
+			join(pythonPath, "numpy.py"),
+			`
+float32 = "float32"
+
+class FakeArray:
+	def __init__(self, values):
+		self.values = list(values)
+		self.size = len(self.values)
+
+	def reshape(self, *args):
+		return self
+
+	def __len__(self):
+		return len(self.values)
+
+def asarray(values, dtype=None):
+	return FakeArray(values)
+
+def concatenate(chunks):
+	combined = []
+	for chunk in chunks:
+		combined.extend(chunk.values)
+	return FakeArray(combined)
+`,
+			"utf8",
+		);
+		writeFileSync(
+			join(pythonPath, "soundfile.py"),
+			`
+def write(buffer, audio_data, sample_rate, format=None, subtype=None):
+	buffer.write(b"fake-wav")
+`,
+			"utf8",
+		);
+		return fn(pythonPath);
+	} finally {
+		rmSync(pythonPath, { recursive: true, force: true });
+	}
+}
+
+function runKokoroPythonService(input: string, pythonPath: string) {
+	return spawnSync(process.env.PYTHON ?? "python3", [join(resourceRoot, "kokoro_tts_service.py")], {
+		input,
+		encoding: "utf8",
+		env: {
+			...process.env,
+			PYTHONPATH: pythonPath,
+		},
+	});
+}
+
+function parseJsonLines(output: string): Array<Record<string, unknown>> {
+	return output
+		.trim()
+		.split("\n")
+		.filter(Boolean)
+		.map((line) => JSON.parse(line));
+}
+
+function expectKokoroSetupFailure(outcome: KokoroSetupRunResult): Extract<KokoroSetupRunResult, { ok: false }> {
+	expect(outcome.ok).toBe(false);
+	if (outcome.ok) {
+		throw new Error("Expected Kokoro setup to fail");
+	}
+	return outcome;
 }
 
 function fakeDeps(overrides: Partial<KokoroSetupDeps> = {}): KokoroSetupDeps {
@@ -59,6 +144,48 @@ describe("Kokoro setup resources", () => {
 		expect(source).toContain("models\" / \"huggingface");
 		expect(source).toContain('"status": "ready"');
 		expect(source).toContain('"audio"');
+	});
+
+	test("Kokoro JSONL service emits ready and audio responses with fake dependencies", () => {
+		withFakePythonKokoroDeps((pythonPath) => {
+			const result = runKokoroPythonService(
+				JSON.stringify({ text: "hello", voice: "af_heart", lang: "a" }) + "\n",
+				pythonPath,
+			);
+
+			expect(result.status, result.stderr).toBe(0);
+			const lines = parseJsonLines(result.stdout);
+			expect(lines[0]).toEqual({ status: "ready" });
+			expect(lines[1]?.audio).toBeTypeOf("string");
+			expect(lines[1]?.duration).toBe(0);
+		});
+	});
+
+	test("Kokoro JSONL service reports protocol errors as JSON", () => {
+		withFakePythonKokoroDeps((pythonPath) => {
+			const oversizedText = "x".repeat(1001);
+			const result = runKokoroPythonService(
+				[
+					"not json",
+					JSON.stringify({ text: "" }),
+					JSON.stringify({ text: oversizedText }),
+					JSON.stringify({ text: "hello", voice: "../bad" }),
+					JSON.stringify({ text: "hello", lang: "en" }),
+				].join("\n") + "\n",
+				pythonPath,
+			);
+
+			expect(result.status, result.stderr).toBe(0);
+			const lines = parseJsonLines(result.stdout);
+			expect(lines[0]).toEqual({ status: "ready" });
+			expect(lines.slice(1).map((line) => line.error)).toEqual([
+				expect.stringContaining("Invalid JSON"),
+				"Invalid input: text must be a non-empty string",
+				"Invalid input: text exceeds 1000 characters",
+				"Invalid input: voice id is not allowed",
+				"Invalid input: lang must be one lowercase letter",
+			]);
+		});
 	});
 
 	test("pins Python dependencies for managed Kokoro install", () => {
@@ -157,8 +284,8 @@ describe("Kokoro setup module", () => {
 				emit: () => {},
 			});
 
-			expect(outcome.ok).toBe(false);
-			expect(outcome.error).toContain("uv is required");
+			const failure = expectKokoroSetupFailure(outcome);
+			expect(failure.error).toContain("uv is required");
 			const after = loadConfig(paths, { createIfMissing: false });
 			expect(after.tts).toEqual(before.tts);
 		} finally {
@@ -194,8 +321,8 @@ describe("Kokoro setup module", () => {
 				deps: fakeDeps(),
 				emit: () => {},
 			});
-			expect(outcome.ok).toBe(false);
-			expect(outcome.error).toContain("already running");
+			const failure = expectKokoroSetupFailure(outcome);
+			expect(failure.error).toContain("already running");
 			expect(existsSync(join(kokoroManagedHome(paths), "setup.lock"))).toBe(
 				true,
 			);
@@ -348,8 +475,8 @@ describe("Kokoro setup module", () => {
 				emit: (event) => events.push(event),
 			});
 
-			expect(outcome.ok).toBe(false);
-			expect(outcome.error).toContain("service never became ready");
+			const failure = expectKokoroSetupFailure(outcome);
+			expect(failure.error).toContain("service never became ready");
 			expect(events).toContainEqual(
 				expect.objectContaining({
 					type: "step",
@@ -377,8 +504,8 @@ describe("Kokoro setup module", () => {
 				emit: () => {},
 			});
 
-			expect(outcome.ok).toBe(false);
-			expect(outcome.error).toContain(
+			const failure = expectKokoroSetupFailure(outcome);
+			expect(failure.error).toContain(
 				"Refusing to overwrite unsafe managed path",
 			);
 			expect(
@@ -401,8 +528,8 @@ describe("Kokoro setup module", () => {
 				emit: () => {},
 			});
 
-			expect(outcome.ok).toBe(false);
-			expect(outcome.error).toContain("Refusing to use unsafe managed path");
+			const failure = expectKokoroSetupFailure(outcome);
+			expect(failure.error).toContain("Refusing to use unsafe managed path");
 			expect(
 				loadConfig(paths, { createIfMissing: false }).tts.kokoroScript,
 			).toBe(defaultConfig.tts.kokoroScript);
@@ -428,13 +555,43 @@ describe("Kokoro setup module", () => {
 	});
 
 	test("macOS app build bundles Kokoro resources", () => {
-		const script = readFileSync(
-			join(import.meta.dir, "..", "scripts", "build-macos-app.sh"),
-			"utf8",
-		);
-		expect(script).toContain("resources/kokoro");
-		expect(script).toContain("$CLI_DIR/resources");
-	});
+		if (process.platform !== "darwin") {
+			return;
+		}
+
+		const repositoryRoot = join(import.meta.dir, "..");
+		const script = join(repositoryRoot, "scripts", "build-macos-app.sh");
+		const appDir = join(repositoryRoot, "dist", "Agent Voice.app");
+
+		try {
+			const result = Bun.spawnSync({
+				cmd: ["bash", script],
+				cwd: repositoryRoot,
+				stdout: "pipe",
+				stderr: "pipe",
+			});
+			const stdout = result.stdout.toString();
+			const stderr = result.stderr.toString();
+
+			expect(result.exitCode, stderr).toBe(0);
+			const builtApp = stdout.trim().split("\n").at(-1) ?? appDir;
+			const bundledKokoroRoot = join(
+				builtApp,
+				"Contents",
+				"Resources",
+				"agent-voice",
+				"resources",
+				"kokoro",
+			);
+
+			expect(
+				existsSync(join(bundledKokoroRoot, "kokoro_tts_service.py")),
+			).toBe(true);
+			expect(existsSync(join(bundledKokoroRoot, "requirements.txt"))).toBe(true);
+		} finally {
+			rmSync(appDir, { recursive: true, force: true });
+		}
+	}, 120_000);
 });
 
 describe("Kokoro setup CLI", () => {

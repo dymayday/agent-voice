@@ -41,12 +41,9 @@ export type KokoroSetupEvent =
 	| { type: "log"; stream: "stdout" | "stderr"; message: string }
 	| { type: "complete"; ok: boolean; error?: string };
 
-export interface KokoroSetupRunResult {
-	ok: boolean;
-	error?: string;
-	pythonPath?: string;
-	scriptPath?: string;
-}
+export type KokoroSetupRunResult =
+	| { ok: true; pythonPath: string; scriptPath: string }
+	| { ok: false; error: string };
 
 export interface KokoroSetupDeps {
 	commandExists(command: string): Promise<boolean>;
@@ -780,7 +777,7 @@ export async function runKokoroSetup(
 		await runStep(emit, "config", () => {
 			saveConfig(paths, stageConfig(paths, pythonPath, scriptPath));
 		});
-		const outcome = { ok: true, pythonPath, scriptPath };
+		const outcome: KokoroSetupRunResult = { ok: true, pythonPath, scriptPath };
 		emit({ type: "complete", ok: true });
 		return outcome;
 	} catch (error) {

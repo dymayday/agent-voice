@@ -28,9 +28,22 @@ public protocol ProcessRunning: Sendable {
     func run(_ request: ProcessRequest) async throws -> ProcessResult
 }
 
+public struct ProcessStream: Sendable {
+    public let lines: AsyncThrowingStream<String, Error>
+    private let cancelHandler: @Sendable () -> Void
+
+    public init(lines: AsyncThrowingStream<String, Error>, cancel: @escaping @Sendable () -> Void = {}) {
+        self.lines = lines
+        self.cancelHandler = cancel
+    }
+
+    public func cancel() {
+        cancelHandler()
+    }
+}
+
 public protocol ProcessStreaming: Sendable {
-    func stream(_ request: ProcessRequest) -> AsyncThrowingStream<String, Error>
-    func cancelActiveStream()
+    func stream(_ request: ProcessRequest) -> ProcessStream
 }
 
 public struct AgentVoiceCLIError: Error, Equatable {
@@ -159,10 +172,11 @@ public struct AgentVoiceCLI: Sendable {
         let streamingRunner = self.streamingRunner
 
         return AsyncThrowingStream { continuation in
+            let processStream = streamingRunner.stream(request)
             let task = Task {
                 do {
                     let decoder = JSONDecoder()
-                    for try await line in streamingRunner.stream(request) {
+                    for try await line in processStream.lines {
                         guard !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                             continue
                         }
@@ -178,14 +192,10 @@ public struct AgentVoiceCLI: Sendable {
             continuation.onTermination = { @Sendable termination in
                 task.cancel()
                 if case .cancelled = termination {
-                    streamingRunner.cancelActiveStream()
+                    processStream.cancel()
                 }
             }
         }
-    }
-
-    public func cancelKokoroSetup() {
-        streamingRunner.cancelActiveStream()
     }
 
     @discardableResult
@@ -271,13 +281,11 @@ public struct FoundationProcessRunner: ProcessRunning {
 
 
 public final class FoundationStreamingProcessRunner: ProcessStreaming, @unchecked Sendable {
-    private let lock = NSLock()
-    private var activeProcess: Process?
-
     public init() {}
 
-    public func stream(_ request: ProcessRequest) -> AsyncThrowingStream<String, Error> {
-        AsyncThrowingStream { continuation in
+    public func stream(_ request: ProcessRequest) -> ProcessStream {
+        let state = StreamingProcessState()
+        let stream = AsyncThrowingStream<String, Error> { continuation in
             let task = Task.detached {
                 let process = Process()
                 process.executableURL = request.executableURL
@@ -290,10 +298,11 @@ public final class FoundationStreamingProcessRunner: ProcessStreaming, @unchecke
                 process.standardError = stderr
                 process.standardInput = FileHandle.nullDevice
 
-                self.setActiveProcess(process)
-                defer { self.clearActiveProcess(process) }
+                state.set(process)
+                defer { state.clear(process) }
 
                 do {
+                    try Task.checkCancellation()
                     try process.run()
                     let stderrReader = PipeReader(handle: stderr.fileHandleForReading)
                     async let stderrData = stderrReader.readToEnd()
@@ -317,48 +326,26 @@ public final class FoundationStreamingProcessRunner: ProcessStreaming, @unchecke
                 }
             }
 
+            state.setTask(task)
+
             continuation.onTermination = { @Sendable termination in
                 task.cancel()
                 if case .cancelled = termination {
-                    self.cancelActiveStream()
+                    state.cancel()
                 }
             }
         }
-    }
 
-    public func cancelActiveStream() {
-        let process = currentActiveProcess()
-        if process?.isRunning == true {
-            process?.terminate()
+        return ProcessStream(lines: stream) {
+            state.cancel()
         }
-    }
-
-    private func setActiveProcess(_ process: Process) {
-        lock.lock()
-        activeProcess = process
-        lock.unlock()
-    }
-
-    private func clearActiveProcess(_ process: Process) {
-        lock.lock()
-        if activeProcess === process {
-            activeProcess = nil
-        }
-        lock.unlock()
-    }
-
-    private func currentActiveProcess() -> Process? {
-        lock.lock()
-        let process = activeProcess
-        lock.unlock()
-        return process
     }
 
     private func emitStdoutLines(
         from handle: FileHandle,
         to continuation: AsyncThrowingStream<String, Error>.Continuation
     ) throws {
-        var pending = ""
+        var decoder = StreamingLineDecoder()
 
         while true {
             if Task.isCancelled {
@@ -370,27 +357,90 @@ public final class FoundationStreamingProcessRunner: ProcessStreaming, @unchecke
                 break
             }
 
-            guard let chunk = String(data: data, encoding: .utf8) else {
-                continue
-            }
-            pending.append(chunk)
-
-            while let newline = pending.firstIndex(of: "\n") {
-                var line = String(pending[..<newline])
-                if line.last == "\r" {
-                    line.removeLast()
-                }
+            for line in try decoder.append(data) {
                 continuation.yield(line)
-                pending.removeSubrange(...newline)
             }
         }
 
-        if !pending.isEmpty {
-            var line = pending
-            if line.last == "\r" {
-                line.removeLast()
-            }
+        if let line = try decoder.finish() {
             continuation.yield(line)
         }
     }
+}
+
+private final class StreamingProcessState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var process: Process?
+    private var task: Task<Void, Never>?
+
+    func set(_ process: Process) {
+        lock.lock()
+        self.process = process
+        lock.unlock()
+    }
+
+    func setTask(_ task: Task<Void, Never>) {
+        lock.lock()
+        self.task = task
+        lock.unlock()
+    }
+
+    func clear(_ process: Process) {
+        lock.lock()
+        if self.process === process {
+            self.process = nil
+        }
+        lock.unlock()
+    }
+
+    func cancel() {
+        lock.lock()
+        let process = self.process
+        let task = self.task
+        lock.unlock()
+
+        task?.cancel()
+        if process?.isRunning == true {
+            process?.terminate()
+        }
+    }
+}
+
+struct StreamingLineDecoder {
+    private var pending = Data()
+
+    mutating func append(_ data: Data) throws -> [String] {
+        pending.append(data)
+        var lines: [String] = []
+
+        while let newlineIndex = pending.firstIndex(of: 0x0A) {
+            let lineData = trimmedCarriageReturn(Data(pending[..<newlineIndex]))
+            guard let line = String(data: lineData, encoding: .utf8) else {
+                throw StreamingOutputError.invalidUTF8
+            }
+            lines.append(line)
+            pending.removeSubrange(pending.startIndex...newlineIndex)
+        }
+
+        return lines
+    }
+
+    mutating func finish() throws -> String? {
+        guard !pending.isEmpty else { return nil }
+        let lineData = trimmedCarriageReturn(pending)
+        pending.removeAll()
+        guard let line = String(data: lineData, encoding: .utf8) else {
+            throw StreamingOutputError.invalidUTF8
+        }
+        return line
+    }
+
+    private func trimmedCarriageReturn(_ data: Data) -> Data {
+        guard data.last == 0x0D else { return data }
+        return data.dropLast()
+    }
+}
+
+enum StreamingOutputError: Error, Equatable {
+    case invalidUTF8
 }

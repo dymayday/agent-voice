@@ -101,6 +101,39 @@ final class KokoroSetupModelTests: XCTestCase {
         XCTAssertNil(snapshot.error)
     }
 
+    func testSnapshotRejectsUnknownAndDuplicateStepState() {
+        let snapshot = KokoroSetupSnapshot(
+            phase: .running,
+            currentStepID: "renamed-step",
+            currentTitle: "Installing",
+            completedStepIDs: ["prepare", "prepare", "unknown"],
+            skippedStepIDs: ["prepare", "config", "missing"],
+            failedStepID: "not-a-step",
+            logs: [],
+            error: nil
+        )
+
+        XCTAssertNil(snapshot.currentStepID)
+        XCTAssertEqual(snapshot.completedStepIDs, ["prepare"])
+        XCTAssertEqual(snapshot.skippedStepIDs, ["config"])
+        XCTAssertNil(snapshot.failedStepID)
+    }
+
+    func testEventCatchAllInitializerIsNotPublic() throws {
+        let source = try repositorySource("macos/AgentVoiceApp/Sources/AgentVoiceCore/KokoroSetupModels.swift")
+
+        XCTAssertFalse(source.contains("public init(\n        type: EventType"))
+    }
+
+    func testSnapshotStepStateIsPublicReadOnly() throws {
+        let source = try repositorySource("macos/AgentVoiceApp/Sources/AgentVoiceCore/KokoroSetupModels.swift")
+
+        XCTAssertTrue(source.contains("public internal(set) var currentStepID"))
+        XCTAssertTrue(source.contains("public internal(set) var completedStepIDs"))
+        XCTAssertTrue(source.contains("public internal(set) var skippedStepIDs"))
+        XCTAssertTrue(source.contains("public internal(set) var failedStepID"))
+    }
+
     private func repositorySource(_ relativePath: String) throws -> String {
         let packageRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

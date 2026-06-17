@@ -26,6 +26,7 @@ public struct KokoroSetupEvent: Codable, Equatable, Sendable {
         "skipped"
     ]
     private static let allowedLogStreams: Set<String> = ["stdout", "stderr"]
+    private static let allowedStepIDs = Set(KokoroSetupSteps.all.map(\.id))
 
     public let type: EventType
     public let id: String?
@@ -36,7 +37,7 @@ public struct KokoroSetupEvent: Codable, Equatable, Sendable {
     public let ok: Bool?
     public let error: String?
 
-    public init(
+    init(
         type: EventType,
         id: String? = nil,
         status: String? = nil,
@@ -94,7 +95,7 @@ public struct KokoroSetupEvent: Codable, Equatable, Sendable {
         title: String?,
         container: KeyedDecodingContainer<CodingKeys>
     ) throws {
-        guard let id, KokoroSetupSteps.all.contains(where: { $0.id == id }) else {
+        guard let id, allowedStepIDs.contains(id) else {
             throw DecodingError.dataCorruptedError(
                 forKey: .id,
                 in: container,
@@ -184,14 +185,14 @@ public enum KokoroSetupSteps {
 }
 
 public struct KokoroSetupSnapshot: Equatable, Sendable {
-    public var phase: KokoroSetupPhase
-    public var currentStepID: String?
-    public var currentTitle: String?
-    public var completedStepIDs: [String]
-    public var skippedStepIDs: [String]
-    public var failedStepID: String?
-    public var logs: [String]
-    public var error: String?
+    public internal(set) var phase: KokoroSetupPhase
+    public internal(set) var currentStepID: String?
+    public internal(set) var currentTitle: String?
+    public internal(set) var completedStepIDs: [String]
+    public internal(set) var skippedStepIDs: [String]
+    public internal(set) var failedStepID: String?
+    public internal(set) var logs: [String]
+    public internal(set) var error: String?
 
     public init(
         phase: KokoroSetupPhase = .idle,
@@ -203,13 +204,32 @@ public struct KokoroSetupSnapshot: Equatable, Sendable {
         logs: [String] = [],
         error: String? = nil
     ) {
+        let completedStepIDs = Self.validUniqueStepIDs(completedStepIDs)
+        let skippedStepIDs = Self.validUniqueStepIDs(skippedStepIDs, excluding: Set(completedStepIDs))
+
         self.phase = phase
-        self.currentStepID = currentStepID
+        self.currentStepID = Self.validStepID(currentStepID)
         self.currentTitle = currentTitle
         self.completedStepIDs = completedStepIDs
         self.skippedStepIDs = skippedStepIDs
-        self.failedStepID = failedStepID
+        self.failedStepID = Self.validStepID(failedStepID)
         self.logs = logs
         self.error = error
+    }
+
+    private static let knownStepIDs = Set(KokoroSetupSteps.all.map(\.id))
+
+    private static func validStepID(_ id: String?) -> String? {
+        guard let id, knownStepIDs.contains(id) else { return nil }
+        return id
+    }
+
+    private static func validUniqueStepIDs(_ ids: [String], excluding excludedIDs: Set<String> = []) -> [String] {
+        var seen = Set<String>()
+        return ids.filter { id in
+            knownStepIDs.contains(id) &&
+                !excludedIDs.contains(id) &&
+                seen.insert(id).inserted
+        }
     }
 }
