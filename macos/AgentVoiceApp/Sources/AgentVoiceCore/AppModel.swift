@@ -11,7 +11,7 @@ public final class AppModel: ObservableObject {
     @Published public var draftVoice: String = ""
     @Published public var draftThinking: String = "off"
 
-    public static let defaultAutoRefreshIntervalNanoseconds: UInt64 = 5_000_000_000
+    public static let defaultAutoRefreshIntervalNanoseconds: UInt64 = 2_000_000_000
 
     var autoRefreshSubscriberCount = 0
     var isAutoRefreshRunning: Bool { autoRefreshTask != nil }

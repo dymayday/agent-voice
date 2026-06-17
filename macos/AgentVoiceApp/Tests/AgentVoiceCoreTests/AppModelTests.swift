@@ -193,6 +193,10 @@ final class AppModelTests: XCTestCase {
         ])
     }
 
+    func testDefaultAutoRefreshIntervalIsTwoSeconds() {
+        XCTAssertEqual(AppModel.defaultAutoRefreshIntervalNanoseconds, 2_000_000_000)
+    }
+
     func testAutoRefreshUsesSharedReferenceCountForVisibleSurfaces() async throws {
         let runner = RecordingRunner(results: refreshResults(cycles: 1))
         let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
