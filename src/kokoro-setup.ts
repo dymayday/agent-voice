@@ -90,6 +90,17 @@ export interface KokoroManagedStatus {
 	checks: Array<{ id: string; ok: boolean; message: string }>;
 }
 
+export const KOKORO_SETUP_STEP_IDS: readonly KokoroSetupStepId[] = [
+	"prepare",
+	"uv-check",
+	"script",
+	"venv",
+	"deps",
+	"model",
+	"config",
+	"smoke-test",
+];
+
 const STEP_TITLES: Record<KokoroSetupStepId, string> = {
 	prepare: "Preparing install directory",
 	"uv-check": "Checking uv",

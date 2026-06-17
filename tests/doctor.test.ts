@@ -22,11 +22,13 @@ describe("agent-voice doctor --json", () => {
 		await withTempHome(async (home) => {
 			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
 			const fakeKokoro = join(home, "kokoro.py");
+			const fakePython = join(home, "python");
 			writeFileSync(fakeKokoro, "print('ready')\n", "utf8");
+			writeFileSync(fakePython, "#!/bin/sh\n", "utf8");
 			const config = loadConfig(paths);
 			saveConfig(paths, {
 				...config,
-				tts: { ...config.tts, kokoroScript: fakeKokoro },
+				tts: { ...config.tts, kokoroScript: fakeKokoro, python: fakePython },
 			});
 
 			const result = await runCli(["doctor", "--json"], {
@@ -40,6 +42,13 @@ describe("agent-voice doctor --json", () => {
 			};
 			expect(
 				parsed.checks.find((check) => check.id === "config.load")?.ok,
+			).toBe(true);
+			expect(
+				parsed.checks.find((check) => check.id === "kokoro.resourceScript.exists")
+					?.ok,
+			).toBe(true);
+			expect(
+				parsed.checks.find((check) => check.id === "tts.python.exists")?.ok,
 			).toBe(true);
 			expect(
 				parsed.checks.find((check) => check.id === "tts.kokoroScript.exists")
@@ -95,6 +104,43 @@ describe("agent-voice doctor --json", () => {
 			expect(existsSync(paths.config)).toBe(false);
 			expect(existsSync(paths.db)).toBe(false);
 			expect(existsSync(`${paths.db}-wal`)).toBe(false);
+		});
+	});
+
+	test("reports missing Kokoro Python executable", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			const fakeKokoro = join(home, "kokoro.py");
+			writeFileSync(fakeKokoro, "print('ready')\n", "utf8");
+			const config = loadConfig(paths);
+			saveConfig(paths, {
+				...config,
+				tts: {
+					...config.tts,
+					python: join(home, "missing-python"),
+					kokoroScript: fakeKokoro,
+				},
+			});
+
+			const result = await runCli(["doctor", "--json"], {
+				env: { AGENT_VOICE_HOME: home },
+				daemonDeps: { isPidAlive: () => false },
+			});
+
+			expect(result.exitCode).toBe(0);
+			const parsed = JSON.parse(result.stdout) as {
+				checks: Array<{
+					id: string;
+					ok: boolean;
+					severity: string;
+					action?: string;
+				}>;
+			};
+			const pythonCheck = parsed.checks.find(
+				(check) => check.id === "tts.python.exists",
+			);
+			expect(pythonCheck).toMatchObject({ ok: false, severity: "error" });
+			expect(pythonCheck?.action).toContain("agent-voice kokoro setup");
 		});
 	});
 

@@ -1,6 +1,8 @@
 import { existsSync } from "node:fs";
+import { delimiter, join } from "node:path";
 import { loadConfig } from "./config";
 import { getDaemonStatus, type DaemonCliDeps } from "./daemon";
+import { buildKokoroStatus } from "./kokoro-setup";
 import type { AgentVoicePaths } from "./paths";
 
 export interface DoctorCheck {
@@ -14,6 +16,14 @@ export interface DoctorCheck {
 export interface DoctorReport {
 	version: 1;
 	checks: DoctorCheck[];
+}
+
+function executableExists(commandOrPath: string): boolean {
+	if (!commandOrPath) return false;
+	if (commandOrPath.includes("/")) return existsSync(commandOrPath);
+	return (process.env.PATH ?? "")
+		.split(delimiter)
+		.some((directory) => directory.length > 0 && existsSync(join(directory, commandOrPath)));
 }
 
 export function buildDoctorReport(
@@ -44,7 +54,36 @@ export function buildDoctorReport(
 		});
 	}
 
+	const kokoroStatus = buildKokoroStatus(paths);
+	checks.push({
+		id: "kokoro.resourceScript.exists",
+		ok: kokoroStatus.resourceScriptExists,
+		severity: kokoroStatus.resourceScriptExists ? "info" : "error",
+		message: kokoroStatus.resourceScriptExists
+			? "Bundled Kokoro setup resource exists"
+			: `Bundled Kokoro setup resource not found: ${kokoroStatus.resourceScriptPath}`,
+		...(kokoroStatus.resourceScriptExists
+			? {}
+			: { action: "Reinstall Agent Voice or repair bundled Kokoro resources" }),
+	});
+
 	if (config) {
+		const python = config.tts.python;
+		const pythonExists = executableExists(python);
+		checks.push({
+			id: "tts.python.exists",
+			ok: pythonExists,
+			severity: pythonExists ? "info" : "error",
+			message: pythonExists
+				? "Kokoro Python executable exists"
+				: python
+					? `Kokoro Python executable not found: ${python}`
+					: "Kokoro Python executable is not configured",
+			...(pythonExists
+				? {}
+				: { action: "Run agent-voice kokoro setup or choose an existing Python executable" }),
+		});
+
 		const script = config.tts.kokoroScript;
 		const exists = script.length > 0 && existsSync(script);
 		checks.push({

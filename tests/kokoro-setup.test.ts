@@ -14,6 +14,7 @@ import { runCli } from "../src/cli";
 import { defaultConfig, loadConfig, saveConfig } from "../src/config";
 import {
 	buildKokoroStatus,
+	KOKORO_SETUP_STEP_IDS,
 	kokoroManagedHome,
 	kokoroManagedPython,
 	kokoroManagedScript,
@@ -106,16 +107,7 @@ describe("Kokoro setup module", () => {
 						event.type === "step" && event.status === "running",
 				)
 				.map((event) => event.id);
-			expect(runningStepIds).toEqual([
-				"prepare",
-				"uv-check",
-				"script",
-				"venv",
-				"deps",
-				"model",
-				"config",
-				"smoke-test",
-			]);
+			expect(runningStepIds).toEqual([...KOKORO_SETUP_STEP_IDS]);
 			for (const stepId of runningStepIds) {
 				expect(
 					events.some(

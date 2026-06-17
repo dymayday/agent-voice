@@ -73,6 +73,24 @@ final class KokoroSetupModelTests: XCTestCase {
         XCTAssertEqual(KokoroSetupSteps.all.last?.title, "Verify Kokoro")
     }
 
+    func testStepDefinitionsMatchTypeScriptContract() throws {
+        let source = try repositorySource("src/kokoro-setup.ts")
+        guard let start = source.range(of: "export const KOKORO_SETUP_STEP_IDS")?.lowerBound,
+              let end = source[start...].range(of: "];" )?.upperBound else {
+            return XCTFail("KOKORO_SETUP_STEP_IDS contract not found")
+        }
+
+        let declaration = String(source[start..<end])
+        let regex = try NSRegularExpression(pattern: #"\"([a-z-]+)\""#)
+        let nsDeclaration = declaration as NSString
+        let ids = regex.matches(
+            in: declaration,
+            range: NSRange(location: 0, length: nsDeclaration.length)
+        ).map { nsDeclaration.substring(with: $0.range(at: 1)) }
+
+        XCTAssertEqual(ids, KokoroSetupSteps.all.map(\.id))
+    }
+
     func testSnapshotDefaultsToIdle() {
         let snapshot = KokoroSetupSnapshot()
 
@@ -81,5 +99,17 @@ final class KokoroSetupModelTests: XCTestCase {
         XCTAssertTrue(snapshot.completedStepIDs.isEmpty)
         XCTAssertTrue(snapshot.logs.isEmpty)
         XCTAssertNil(snapshot.error)
+    }
+
+    private func repositorySource(_ relativePath: String) throws -> String {
+        let packageRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let repositoryRoot = packageRoot
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourceFile = repositoryRoot.appendingPathComponent(relativePath)
+        return try String(contentsOf: sourceFile, encoding: .utf8)
     }
 }
