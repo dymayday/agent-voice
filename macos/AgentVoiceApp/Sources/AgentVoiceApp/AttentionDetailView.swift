@@ -15,10 +15,11 @@ struct AttentionDetailView: View {
 
                 healthSummarySection
                 runtimeSection
-                queueActivitySection
+                queueSummarySection
                 configurationSection
                 doctorChecksSection
                 rawSnapshotSection
+                recentJobsSection
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(24)
@@ -114,65 +115,17 @@ private extension AttentionDetailView {
     }
 
     @ViewBuilder
-    var queueActivitySection: some View {
-        detailCard("Queue and activity", systemImage: "tray.full", tint: queueActivityTint) {
-            VStack(alignment: .leading, spacing: 16) {
+    var queueSummarySection: some View {
+        detailCard("Queue summary", systemImage: "tray.full", tint: queueActivityTint) {
+            VStack(alignment: .leading, spacing: 12) {
                 if let queues = model.status?.queues {
-                    VStack(alignment: .leading, spacing: 8) {
-                        labeledRow("Pending", String(queues.pending), valueTint: queues.pending > 0 ? .orange : .primary)
-                        labeledRow("Processing", String(queues.processing), valueTint: queues.processing > 0 ? .blue : .primary)
-                        labeledRow("Done", String(queues.done), valueTint: .green)
-                        labeledRow("Failed", String(queues.failed), valueTint: queues.failed > 0 ? .red : .primary)
-                        labeledRow("Skipped", String(queues.skipped), valueTint: queues.skipped > 0 ? .secondary : .primary)
-                    }
+                    labeledRow("Pending", String(queues.pending), valueTint: queues.pending > 0 ? .orange : .primary)
+                    labeledRow("Processing", String(queues.processing), valueTint: queues.processing > 0 ? .blue : .primary)
+                    labeledRow("Done", String(queues.done), valueTint: .green)
+                    labeledRow("Failed", String(queues.failed), valueTint: queues.failed > 0 ? .red : .primary)
+                    labeledRow("Skipped", String(queues.skipped), valueTint: queues.skipped > 0 ? .secondary : .primary)
                 } else {
                     emptyState("Queue counts unavailable. Refresh diagnostics to load queue state.")
-                }
-
-                Divider()
-
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(alignment: .firstTextBaseline, spacing: 12) {
-                        Text("Recent jobs")
-                            .font(.headline)
-                        Spacer()
-                        Text("\(recentJobs.count) loaded jobs · \(failedJobs.count) failed")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Button("Refresh history") {
-                            Task { await model.refreshHistory() }
-                        }
-                        .disabled(model.isLoadingHistoryPage)
-                    }
-
-                    Text("Newest jobs refresh when terminal queue counts change. Raw snapshots include loaded jobs only.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-
-                    if model.history == nil {
-                        emptyState("History unavailable. Refresh diagnostics to load recent jobs.")
-                    } else if recentJobs.isEmpty {
-                        emptyState("No recent jobs in history.")
-                    } else {
-                        VStack(alignment: .leading, spacing: 12) {
-                            ForEach(recentJobs) { job in
-                                jobCard(job)
-                            }
-
-                            if model.history?.pageInfo.hasMore == true {
-                                Button(model.isLoadingHistoryPage ? "Loading…" : "Load more") {
-                                    Task { await model.loadMoreHistory() }
-                                }
-                                .disabled(model.isLoadingHistoryPage)
-                            } else {
-                                Text("No more loaded history pages.")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .textSelection(.enabled)
-                            }
-                        }
-                    }
                 }
             }
         }
@@ -292,50 +245,103 @@ private extension AttentionDetailView {
         }
     }
 
-    func jobCard(_ job: AgentVoiceHistoryJob) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(job.agent.capitalized)
-                    .font(.headline)
-                Spacer()
-                Text(job.status.rawValue.capitalized)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(jobStatusTint(job.status))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(jobStatusTint(job.status).opacity(0.12))
-                    .clipShape(Capsule())
+    @ViewBuilder
+    var recentJobsSection: some View {
+        detailCard("Recent jobs", systemImage: "clock.arrow.circlepath", tint: failedJobs.isEmpty ? .blue : .red) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Text("Recent jobs")
+                        .font(.headline)
+                    Spacer()
+                    Text("\(recentJobs.count) loaded jobs · \(failedJobs.count) failed")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Button("Refresh history") {
+                        Task { await model.refreshHistory() }
+                    }
+                    .disabled(model.isLoadingHistoryPage)
+                }
+
+                Text("Newest jobs refresh when terminal queue counts change. Raw snapshots include loaded jobs only.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                     .textSelection(.enabled)
-            }
 
-            labeledRow("Job ID", job.id)
-            labeledRow("Created", job.createdAt)
-            labeledRow("Finished", job.finishedAt ?? "Not finished")
-            labeledRow("Attempts", String(job.attempts))
-            labeledRow("Working directory", job.cwd ?? "None")
-            labeledRow("Summarizer used", job.summarizerUsed ?? "None")
-            labeledRow("Skip reason", job.skipReason ?? "None")
+                if model.history == nil {
+                    emptyState("History unavailable. Refresh diagnostics to load recent jobs.")
+                } else if recentJobs.isEmpty {
+                    emptyState("No recent jobs in history.")
+                } else {
+                    VStack(alignment: .leading, spacing: 12) {
+                        ForEach(recentJobs) { job in
+                            jobCard(job)
+                        }
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Summary")
-                    .font(.subheadline.bold())
-                diagnosticTextBlock(job.summary ?? "No summary recorded")
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Last error")
-                    .font(.subheadline.bold())
-                diagnosticTextBlock(job.lastError ?? "No error recorded")
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Full raw job text")
-                    .font(.subheadline.bold())
-                diagnosticTextBlock(job.text.isEmpty ? "No raw job text recorded" : job.text)
+                        if model.history?.pageInfo.hasMore == true {
+                            Button(model.isLoadingHistoryPage ? "Loading…" : "Load more") {
+                                Task { await model.loadMoreHistory() }
+                            }
+                            .disabled(model.isLoadingHistoryPage)
+                        } else {
+                            Text("No more loaded history pages.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                        }
+                    }
+                }
             }
         }
+    }
+
+    func jobCard(_ job: AgentVoiceHistoryJob) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(job.agent.capitalized)
+                        .font(.headline)
+                    Spacer()
+                    Text(job.status.rawValue.capitalized)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(jobStatusTint(job.status))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(jobStatusTint(job.status).opacity(0.12))
+                        .clipShape(Capsule())
+                        .textSelection(.enabled)
+                }
+
+                labeledRow("Job ID", job.id)
+                labeledRow("Created", job.createdAt)
+                labeledRow("Finished", job.finishedAt ?? "Not finished")
+                labeledRow("Attempts", String(job.attempts))
+                labeledRow("Working directory", job.cwd ?? "None")
+                labeledRow("Summarizer used", job.summarizerUsed ?? "None")
+                labeledRow("Skip reason", job.skipReason ?? "None")
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Summary")
+                        .font(.subheadline.bold())
+                    diagnosticTextBlock(job.summary ?? "No summary recorded")
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Last error")
+                        .font(.subheadline.bold())
+                    diagnosticTextBlock(job.lastError ?? "No error recorded")
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Full raw job text")
+                        .font(.subheadline.bold())
+                    diagnosticTextBlock(job.text.isEmpty ? "No raw job text recorded" : job.text)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(14)
+        }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
+        .frame(height: 300)
         .background(jobStatusTint(job.status).opacity(0.08))
         .overlay {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
