@@ -58,4 +58,30 @@ final class DockMenuSourceTests: XCTestCase {
         XCTAssertTrue(bridge.contains("NSApplication.shared.activate(ignoringOtherApps: true)"))
     }
 
+    func testDockMenuWindowBridgeOpensDashboardOnInitialAppearance() throws {
+        let source = try appSource("DockMenuController.swift")
+        let bridge = try sourceSlice(
+            in: source,
+            from: "struct DockMenuWindowBridge",
+            to: "@MainActor"
+        )
+
+        XCTAssertTrue(
+            bridge.contains("@State private var didOpenDashboardOnLaunch = false"),
+            "The window bridge should track a one-shot cold-launch Dashboard open."
+        )
+        XCTAssertTrue(
+            bridge.contains("guard !didOpenDashboardOnLaunch else { return }"),
+            "The cold-launch Dashboard open should only run once."
+        )
+        XCTAssertTrue(
+            bridge.contains("didOpenDashboardOnLaunch = true"),
+            "The bridge should mark the cold-launch Dashboard open as consumed."
+        )
+        XCTAssertTrue(
+            bridge.contains("AgentVoiceDockMenuDelegate.openDashboardWindow?()"),
+            "The cold-launch path should reuse the same Dashboard-opening behavior as Dock/menu actions."
+        )
+    }
+
 }

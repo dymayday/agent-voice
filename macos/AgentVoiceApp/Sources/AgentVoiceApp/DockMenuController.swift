@@ -4,6 +4,7 @@ import SwiftUI
 
 struct DockMenuWindowBridge: View {
     @Environment(\.openWindow) private var openWindow
+    @State private var didOpenDashboardOnLaunch = false
 
     var body: some View {
         Color.clear
@@ -17,7 +18,14 @@ struct DockMenuWindowBridge: View {
                     NSApplication.shared.activate(ignoringOtherApps: true)
                     openWindow(id: AgentVoiceWindowID.setup)
                 }
+                openDashboardOnLaunch()
             }
+    }
+
+    private func openDashboardOnLaunch() {
+        guard !didOpenDashboardOnLaunch else { return }
+        didOpenDashboardOnLaunch = true
+        AgentVoiceDockMenuDelegate.openDashboardWindow?()
     }
 }
 

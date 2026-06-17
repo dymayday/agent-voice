@@ -64,6 +64,20 @@ final class AgentVoiceAppSourceTests: XCTestCase {
         )
     }
 
+    func testColdLaunchDoesNotDefaultToSetupWindowGroup() throws {
+        let source = try appSource("AgentVoiceApp.swift")
+
+        XCTAssertFalse(
+            source.contains("WindowGroup(\"Setup\", id: AgentVoiceWindowID.setup)"),
+            "Setup must not be the automatic cold-launch WindowGroup; "
+                + "launching the app from the Dock should open Dashboard by default."
+        )
+        XCTAssertTrue(
+            source.contains("Window(\"Setup\", id: AgentVoiceWindowID.setup)"),
+            "Setup should remain available as an explicit singleton window."
+        )
+    }
+
     func testDashboardAndMenuRegisterVisibleAutoRefresh() throws {
         let dashboardSource = try appSource("DashboardView.swift")
         let menuSource = try appSource("MenuBarSentinelView.swift")
