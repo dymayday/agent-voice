@@ -97,8 +97,8 @@ export const KOKORO_SETUP_STEP_IDS: readonly KokoroSetupStepId[] = [
 	"venv",
 	"deps",
 	"model",
-	"config",
 	"smoke-test",
+	"config",
 ];
 
 const STEP_TITLES: Record<KokoroSetupStepId, string> = {
@@ -108,8 +108,8 @@ const STEP_TITLES: Record<KokoroSetupStepId, string> = {
 	venv: "Creating Python environment",
 	deps: "Installing Python dependencies",
 	model: "Preloading Kokoro model assets",
-	config: "Staging Agent Voice config",
 	"smoke-test": "Verifying Kokoro service",
+	config: "Saving Agent Voice config",
 };
 
 const DEFAULT_COMMAND_TIMEOUT_MS = 10 * 60 * 1000;
@@ -708,7 +708,6 @@ export async function runKokoroSetup(
 	const requirements = resourceRequirementsPath(resourceRoot);
 	const childEnv = kokoroChildEnv(paths);
 	let releaseLock: (() => void) | undefined;
-	let stagedConfig: AgentVoiceConfig | undefined;
 
 	try {
 		releaseLock = acquireSetupLock(paths);
@@ -771,10 +770,6 @@ export async function runKokoroSetup(
 			});
 		});
 
-		await runStep(emit, "config", () => {
-			stagedConfig = stageConfig(paths, pythonPath, scriptPath);
-		});
-
 		await runStep(emit, "smoke-test", async () => {
 			const smoke = await deps.smokeTest(pythonPath, scriptPath, childEnv);
 			if (!smoke.ok) {
@@ -782,8 +777,9 @@ export async function runKokoroSetup(
 			}
 		});
 
-		if (!stagedConfig) throw new Error("Kokoro config was not staged");
-		saveConfig(paths, stagedConfig);
+		await runStep(emit, "config", () => {
+			saveConfig(paths, stageConfig(paths, pythonPath, scriptPath));
+		});
 		const outcome = { ok: true, pythonPath, scriptPath };
 		emit({ type: "complete", ok: true });
 		return outcome;

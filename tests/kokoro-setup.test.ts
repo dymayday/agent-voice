@@ -389,6 +389,28 @@ describe("Kokoro setup module", () => {
 		}
 	});
 
+	test("kokoro setup refuses a managed virtualenv symlink", async () => {
+		const home = tempHome();
+		try {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			mkdirSync(kokoroManagedHome(paths), { recursive: true });
+			symlinkSync(join(home, "outside-venv"), join(kokoroManagedHome(paths), ".venv"));
+
+			const outcome = await runKokoroSetup(paths, {
+				deps: fakeDeps(),
+				emit: () => {},
+			});
+
+			expect(outcome.ok).toBe(false);
+			expect(outcome.error).toContain("Refusing to use unsafe managed path");
+			expect(
+				loadConfig(paths, { createIfMissing: false }).tts.kokoroScript,
+			).toBe(defaultConfig.tts.kokoroScript);
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
 	test("kokoro status reports missing bundled resource script", () => {
 		const home = tempHome();
 		try {

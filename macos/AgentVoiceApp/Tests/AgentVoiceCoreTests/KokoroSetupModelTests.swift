@@ -66,11 +66,11 @@ final class KokoroSetupModelTests: XCTestCase {
             "venv",
             "deps",
             "model",
-            "config",
-            "smoke-test"
+            "smoke-test",
+            "config"
         ])
         XCTAssertEqual(KokoroSetupSteps.all.first?.title, "Prepare install directory")
-        XCTAssertEqual(KokoroSetupSteps.all.last?.title, "Verify Kokoro")
+        XCTAssertEqual(KokoroSetupSteps.all.last?.title, "Save Agent Voice config")
     }
 
     func testStepDefinitionsMatchTypeScriptContract() throws {

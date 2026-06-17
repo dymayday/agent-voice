@@ -178,8 +178,8 @@ public enum KokoroSetupSteps {
         .init(id: "venv", title: "Create Python environment"),
         .init(id: "deps", title: "Install Python dependencies"),
         .init(id: "model", title: "Download model assets"),
-        .init(id: "config", title: "Save Agent Voice config"),
-        .init(id: "smoke-test", title: "Verify Kokoro")
+        .init(id: "smoke-test", title: "Verify Kokoro"),
+        .init(id: "config", title: "Save Agent Voice config")
     ]
 }
 
