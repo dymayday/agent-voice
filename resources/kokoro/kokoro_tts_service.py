@@ -16,7 +16,15 @@ import json
 import os
 import re
 import sys
+from pathlib import Path
 from typing import Any
+
+# Keep runtime model/cache files beside the managed service script unless the
+# parent process explicitly chooses a different Hugging Face cache directory.
+os.environ.setdefault(
+	"HF_HOME",
+	str(Path(__file__).resolve().parent / "models" / "huggingface"),
+)
 
 import numpy as np
 import soundfile as sf

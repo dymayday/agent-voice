@@ -53,6 +53,8 @@ describe("Kokoro setup resources", () => {
 		expect(source).toContain("KPipeline");
 		expect(source).toContain("MAX_TEXT_CHARS");
 		expect(source).toContain("KOKORO_REPO_ID");
+		expect(source).toContain("HF_HOME");
+		expect(source).toContain("models\" / \"huggingface");
 		expect(source).toContain('"status": "ready"');
 		expect(source).toContain('"audio"');
 	});
