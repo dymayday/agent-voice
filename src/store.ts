@@ -195,6 +195,48 @@ export function claimNextDue(
 	}
 }
 
+// Sentinel timestamp meaning "a NULL-next_attempt_at pending row exists, i.e.
+// work is due now". Compares less than any real ISO timestamp.
+const DUE_NOW_SENTINEL = "0000-01-01T00:00:00.000Z";
+
+/**
+ * Earliest due-time across pending jobs, or null when nothing is pending.
+ *
+ * Index-friendly form (uses `idx_jobs_inflight`): a pending row with a NULL
+ * `next_attempt_at` means "due now", otherwise take the MIN of the future
+ * timestamps. This matches `claimNextDue` semantics
+ * (`next_attempt_at IS NULL OR next_attempt_at <= now`) exactly while avoiding a
+ * non-covering `COALESCE`-in-`MIN` scan.
+ */
+export function getNextDueTime(db: Database): string | null {
+	const row = db
+		.query(
+			`SELECT
+         CASE WHEN EXISTS(SELECT 1 FROM jobs WHERE status='pending' AND next_attempt_at IS NULL)
+              THEN '${DUE_NOW_SENTINEL}'
+              ELSE (SELECT MIN(next_attempt_at) FROM jobs WHERE status='pending' AND next_attempt_at IS NOT NULL)
+         END AS m`,
+		)
+		// .get() on an aggregate ALWAYS returns a row object, never null.
+		.get() as { m: string | null };
+	return row.m;
+}
+
+/**
+ * Milliseconds until the next pending job is due relative to `now`:
+ * - `null` when nothing is pending,
+ * - `0` when work is due now (sentinel), in the past, or unparseable,
+ * - otherwise the positive delta in milliseconds.
+ */
+export function msUntilNextDue(db: Database, now: Date): number | null {
+	const m = getNextDueTime(db);
+	if (m === null) return null;
+	const dueMs = Date.parse(m);
+	if (Number.isNaN(dueMs)) return 0;
+	const delta = dueMs - now.getTime();
+	return delta > 0 ? delta : 0;
+}
+
 export function recoverStale(
 	db: Database,
 	config: AgentVoiceConfig,
