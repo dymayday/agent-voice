@@ -147,6 +147,23 @@ final class AgentVoiceCLITests: XCTestCase {
 
         let requests = await runner.capturedRequests()
         XCTAssertEqual(requests.first?.environment["AGENT_VOICE_HOME"], "/tmp/custom-agent-voice")
+        XCTAssertEqual(requests.first?.workingDirectory?.path, "/tmp/custom-agent-voice/run")
+    }
+
+    func testDerivesAgentVoiceHomeAndWorkingDirectoryWhenHomeIsUnset() async throws {
+        let runner = RecordingRunner(stdout: statusJSON)
+        let cli = AgentVoiceCLI(
+            executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"),
+            baseEnvironment: ["HOME": "/tmp/test-user", "PATH": "/usr/bin:/bin"],
+            runner: runner
+        )
+
+        _ = try await cli.status()
+
+        let requests = await runner.capturedRequests()
+        let request = try XCTUnwrap(requests.first)
+        XCTAssertEqual(request.environment["AGENT_VOICE_HOME"], "/tmp/test-user/.agent-voice")
+        XCTAssertEqual(request.workingDirectory?.path, "/tmp/test-user/.agent-voice/run")
     }
 
     func testAddsCommonCliLookupPathsToEnvironment() async throws {
@@ -235,6 +252,30 @@ final class AgentVoiceCLITests: XCTestCase {
         XCTAssertEqual(result.exitCode, 0)
         XCTAssertEqual(result.stdout.count, byteCount)
         XCTAssertEqual(result.stderr.count, byteCount)
+    }
+
+    func testFoundationRunnerCreatesAndUsesRequestedWorkingDirectory() async throws {
+        let pwdPath = "/bin/pwd"
+        try XCTSkipIf(!FileManager.default.isExecutableFile(atPath: pwdPath), "pwd is unavailable")
+        let uniqueDirectoryName = UUID().uuidString
+        let workingDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(uniqueDirectoryName)
+            .appendingPathComponent("run")
+        let runner = FoundationProcessRunner()
+
+        let result = try await runner.run(ProcessRequest(
+            executableURL: URL(fileURLWithPath: pwdPath),
+            arguments: [],
+            environment: [:],
+            workingDirectory: workingDirectory
+        ))
+
+        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertTrue(
+            result.stdout
+                .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+                .hasSuffix("/\(uniqueDirectoryName)/run")
+        )
     }
 
     func testRunnerGivesChildEofStdinEvenWhenParentStdinNeverEnds() async throws {

@@ -4,11 +4,18 @@ public struct ProcessRequest: Equatable, Sendable {
     public let executableURL: URL
     public let arguments: [String]
     public let environment: [String: String]
+    public let workingDirectory: URL?
 
-    public init(executableURL: URL, arguments: [String], environment: [String: String]) {
+    public init(
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String],
+        workingDirectory: URL? = nil
+    ) {
         self.executableURL = executableURL
         self.arguments = arguments
         self.environment = environment
+        self.workingDirectory = workingDirectory
     }
 }
 
@@ -211,10 +218,29 @@ public struct AgentVoiceCLI: Sendable {
     private func makeRequest(_ arguments: [String]) -> ProcessRequest {
         var environment = baseEnvironment
         environment["PATH"] = cliLookupPath(from: environment["PATH"])
+        let home = effectiveAgentVoiceHome()
+        environment["AGENT_VOICE_HOME"] = home.path
+        return ProcessRequest(
+            executableURL: executableURL,
+            arguments: arguments,
+            environment: environment,
+            workingDirectory: home.appendingPathComponent("run", isDirectory: true)
+        )
+    }
+
+    private func effectiveAgentVoiceHome() -> URL {
         if let agentVoiceHome {
-            environment["AGENT_VOICE_HOME"] = agentVoiceHome.path
+            return agentVoiceHome
         }
-        return ProcessRequest(executableURL: executableURL, arguments: arguments, environment: environment)
+        if let envHome = baseEnvironment["AGENT_VOICE_HOME"], !envHome.isEmpty {
+            return URL(fileURLWithPath: envHome, isDirectory: true)
+        }
+        if let userHome = baseEnvironment["HOME"], !userHome.isEmpty {
+            return URL(fileURLWithPath: userHome, isDirectory: true)
+                .appendingPathComponent(".agent-voice", isDirectory: true)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".agent-voice", isDirectory: true)
     }
 
     private func cliLookupPath(from existingPath: String?) -> String {
@@ -250,6 +276,10 @@ public struct FoundationProcessRunner: ProcessRunning {
             process.executableURL = request.executableURL
             process.arguments = request.arguments
             process.environment = request.environment
+            if let workingDirectory = request.workingDirectory {
+                try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+                process.currentDirectoryURL = workingDirectory
+            }
 
             let stdout = Pipe()
             let stderr = Pipe()
@@ -289,20 +319,24 @@ public final class FoundationStreamingProcessRunner: ProcessStreaming, @unchecke
         let stream = AsyncThrowingStream<String, Error> { continuation in
             let task = Task.detached {
                 let process = Process()
-                process.executableURL = request.executableURL
-                process.arguments = request.arguments
-                process.environment = request.environment
-
-                let stdout = Pipe()
-                let stderr = Pipe()
-                process.standardOutput = stdout
-                process.standardError = stderr
-                process.standardInput = FileHandle.nullDevice
-
-                state.set(process)
-                defer { state.clear(process) }
-
                 do {
+                    process.executableURL = request.executableURL
+                    process.arguments = request.arguments
+                    process.environment = request.environment
+                    if let workingDirectory = request.workingDirectory {
+                        try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+                        process.currentDirectoryURL = workingDirectory
+                    }
+
+                    let stdout = Pipe()
+                    let stderr = Pipe()
+                    process.standardOutput = stdout
+                    process.standardError = stderr
+                    process.standardInput = FileHandle.nullDevice
+
+                    state.set(process)
+                    defer { state.clear(process) }
+
                     try Task.checkCancellation()
                     try process.run()
                     let stderrReader = PipeReader(handle: stderr.fileHandleForReading)
