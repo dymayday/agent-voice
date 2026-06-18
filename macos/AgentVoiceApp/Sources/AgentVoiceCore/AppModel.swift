@@ -10,6 +10,7 @@ public final class AppModel: ObservableObject {
     @Published public private(set) var lastError: String?
     @Published public private(set) var kokoroSetup = KokoroSetupSnapshot()
     @Published public private(set) var kokoroSetupDetectionError: String?
+    @Published public private(set) var cliDetectionError: String?
     @Published public private(set) var isLoadingHistoryPage = false
     @Published public private(set) var availableSummarizerModels: [String] = []
     @Published public private(set) var preferredSetupStep: SetupStep?
@@ -125,14 +126,14 @@ extension AppModel {
 
     private func refreshDiagnosticsSection() async {
         var errors: [String] = []
-        var kokoroDetectionErrors: [String] = []
+        var cliErrors: [String] = []
 
         do {
             doctorReport = try await cli.doctor()
         } catch {
             let message = "doctor: \(String(describing: error))"
             errors.append(message)
-            kokoroDetectionErrors.append(message)
+            appendCLIUnavailableError(error, message: message, to: &cliErrors)
         }
 
         do {
@@ -152,13 +153,12 @@ extension AppModel {
         } catch {
             let message = "config: \(String(describing: error))"
             errors.append(message)
-            kokoroDetectionErrors.append(message)
+            appendCLIUnavailableError(error, message: message, to: &cliErrors)
         }
 
-        kokoroSetupDetectionError = kokoroDetectionErrors.isEmpty ? nil : kokoroDetectionErrors.joined(separator: "\n")
-        if kokoroDetectionErrors.isEmpty {
-            resetStaleKokoroSetupSuccessIfNeeded()
-        }
+        cliDetectionError = cliErrors.isEmpty ? nil : cliErrors.joined(separator: "\n")
+        kokoroSetupDetectionError = nil
+        resetStaleKokoroSetupSuccessIfNeeded()
 
         lastDiagnosticsError = errors.isEmpty ? nil : errors.joined(separator: "\n")
     }
@@ -297,7 +297,7 @@ extension AppModel {
     }
 
     public var shouldPromptForKokoroSetup: Bool {
-        kokoroSetup.phase != .running && (hasMissingKokoroDiagnostics || kokoroSetupDetectionError != nil)
+        kokoroSetup.phase != .running && hasMissingKokoroDiagnostics
     }
 
     public func requestSetupStep(_ step: SetupStep) {
@@ -539,6 +539,9 @@ extension AppModel {
         if let kokoroSetupDetectionError {
             lines.append("Kokoro setup detection error: \(kokoroSetupDetectionError)")
         }
+        if let cliDetectionError {
+            lines.append("Agent Voice CLI error: \(cliDetectionError)")
+        }
         lines.append(contentsOf: kokoroSetup.logs)
         return lines.joined(separator: "\n")
     }
@@ -669,6 +672,17 @@ extension AppModel {
     private func appendUnique(_ id: String?, to ids: inout [String]) {
         guard let id, !ids.contains(id) else { return }
         ids.append(id)
+    }
+
+    private func appendCLIUnavailableError(_ error: Error, message: String, to errors: inout [String]) {
+        guard Self.isCLIUnavailableError(error) else { return }
+        errors.append(message)
+    }
+
+    private static func isCLIUnavailableError(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        return nsError.domain == NSCocoaErrorDomain &&
+            nsError.code == CocoaError.Code.fileNoSuchFile.rawValue
     }
 
     private func resetStaleKokoroSetupSuccessIfNeeded() {

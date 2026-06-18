@@ -59,6 +59,14 @@ struct KokoroSetupProgressView: View {
                     .foregroundStyle(.red)
                     .textSelection(.enabled)
                     .accessibilityLabel("Setup failed: \(error)")
+            } else if let cliDetectionError = model.cliDetectionError {
+                Label(
+                    "Agent Voice CLI unavailable: \(cliDetectionError)",
+                    systemImage: "terminal.fill"
+                )
+                .foregroundStyle(.orange)
+                .textSelection(.enabled)
+                .accessibilityLabel("Agent Voice CLI unavailable: \(cliDetectionError)")
             } else if let setupDetectionError = model.kokoroSetupDetectionError {
                 Label(
                     "Setup detection needs attention: \(setupDetectionError)",
