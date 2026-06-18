@@ -11,6 +11,33 @@ func appSource(_ fileName: String, callerFilePath: String = #filePath) throws ->
     return try String(contentsOf: sourceFile, encoding: .utf8)
 }
 
+func appSources(callerFilePath: String = #filePath) throws -> String {
+    let testFile = URL(fileURLWithPath: callerFilePath)
+    let packageRoot = testFile
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+    let appSourceRoot = packageRoot.appendingPathComponent("Sources/AgentVoiceApp")
+
+    guard let enumerator = FileManager.default.enumerator(
+        at: appSourceRoot,
+        includingPropertiesForKeys: [.isRegularFileKey],
+        options: [.skipsHiddenFiles]
+    ) else {
+        XCTFail("Could not enumerate app source files")
+        throw XCTSkip("Cannot verify source contract without app sources.")
+    }
+
+    let files = enumerator
+        .compactMap { $0 as? URL }
+        .filter { $0.pathExtension == "swift" }
+        .sorted { $0.path < $1.path }
+
+    return try files
+        .map { "// FILE: \($0.lastPathComponent)\n" + (try String(contentsOf: $0, encoding: .utf8)) }
+        .joined(separator: "\n")
+}
+
 func dashboardViewSource(callerFilePath: String = #filePath) throws -> String {
     try appSource("DashboardView.swift", callerFilePath: callerFilePath)
 }

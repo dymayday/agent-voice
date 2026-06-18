@@ -52,8 +52,9 @@ export async function processNextJob(
 	const claimed: StoredJob | null = claimNextDue(db, config, claimNow);
 	if (!claimed) return { kind: "idle", recovered };
 
-	// Resume after a crash that happened post-speak: summary already persisted.
-	if (claimed.summary) {
+	// Resume after a crash that happened after speech completed: only the
+	// explicit spoken marker means it is safe to skip replaying audio.
+	if (claimed.spokenAt) {
 		markDone(db, claimed.id, now());
 		return { kind: "processed", id: claimed.id };
 	}
@@ -89,7 +90,7 @@ export async function processNextJob(
 		return { kind: "failed", id: claimed.id };
 	}
 
-	markSpoken(db, claimed.id, summary, summarizerUsed);
+	markSpoken(db, claimed.id, summary, summarizerUsed, now());
 	markDone(db, claimed.id, now());
 	return { kind: "processed", id: claimed.id };
 }
