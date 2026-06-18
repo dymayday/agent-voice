@@ -704,10 +704,9 @@ describe("Kokoro setup module", () => {
 			expect(second.ok).toBe(true);
 			expect(secondConfig).toEqual(firstConfig);
 			expect(existsSync(kokoroManagedScript(paths))).toBe(true);
-			expect(secondRunCommands.map((run) => run.args.slice(0, 2))).not.toContainEqual([
-				"venv",
-				".venv",
-			]);
+			expect(
+				secondRunCommands.map((run) => run.args.slice(0, 2)),
+			).not.toContainEqual(["venv", ".venv"]);
 			expect(secondRunEvents).toContainEqual(
 				expect.objectContaining({
 					type: "step",
