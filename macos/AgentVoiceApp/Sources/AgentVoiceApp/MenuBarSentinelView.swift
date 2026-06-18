@@ -33,18 +33,7 @@ struct MenuBarSentinelView: View {
 
     private var header: some View {
         HStack(alignment: .center, spacing: 10) {
-            ZStack {
-                Circle()
-                    .fill(statusTint.opacity(0.16))
-                    .frame(width: 36, height: 36)
-                Circle()
-                    .fill(statusTint)
-                    .frame(width: 10, height: 10)
-                Image(systemName: "waveform")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(statusTint)
-                    .offset(y: 11)
-            }
+            menuHeaderStatusIcon
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("Agent Voice")
@@ -356,6 +345,22 @@ struct MenuBarSentinelView: View {
 }
 
 extension MenuBarSentinelView {
+    private var menuHeaderStatusIcon: some View {
+        ZStack {
+            Circle()
+                .fill(statusTint.opacity(0.10))
+            Circle()
+                .stroke(statusTint.opacity(0.12), lineWidth: 6)
+            Circle()
+                .stroke(statusTint.opacity(0.78), lineWidth: 2)
+            Image(systemName: "waveform")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(statusTint)
+        }
+        .frame(width: 40, height: 40)
+        .accessibilityHidden(true)
+    }
+
     private func sectionTitle(_ title: String) -> some View {
         Text(title.uppercased())
             .font(.caption2.weight(.semibold))
