@@ -170,6 +170,25 @@ function fakeDeps(overrides: Partial<KokoroSetupDeps> = {}): KokoroSetupDeps {
 	};
 }
 
+function fakeDepsFailingIfVenvRuns(
+	commands: Array<Parameters<KokoroSetupDeps["run"]>[0]>,
+): KokoroSetupDeps {
+	return fakeDeps({
+		run: async (request) => {
+			commands.push(request);
+			if (request.cmd === "uv" && request.args[0] === "venv") {
+				return {
+					ok: false,
+					stdout: "uv 0.11.20",
+					stderr: "A virtual environment already exists at: .venv",
+					exitCode: 2,
+				};
+			}
+			return { ok: true, stdout: "ok", stderr: "" };
+		},
+	});
+}
+
 describe("Kokoro setup resources", () => {
 	test("ships a Kokoro JSONL service script", () => {
 		const script = join(resourceRoot, "kokoro_tts_service.py");
@@ -666,6 +685,8 @@ describe("Kokoro setup module", () => {
 
 	test("kokoro setup is safe to repeat", async () => {
 		const home = tempHome();
+		const secondRunEvents: KokoroSetupEvent[] = [];
+		const secondRunCommands: Array<Parameters<KokoroSetupDeps["run"]>[0]> = [];
 		try {
 			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
 			const first = await runKokoroSetup(paths, {
@@ -674,8 +695,8 @@ describe("Kokoro setup module", () => {
 			});
 			const firstConfig = loadConfig(paths, { createIfMissing: false });
 			const second = await runKokoroSetup(paths, {
-				deps: fakeDeps(),
-				emit: () => {},
+				deps: fakeDepsFailingIfVenvRuns(secondRunCommands),
+				emit: (event) => secondRunEvents.push(event),
 			});
 			const secondConfig = loadConfig(paths, { createIfMissing: false });
 
@@ -683,6 +704,54 @@ describe("Kokoro setup module", () => {
 			expect(second.ok).toBe(true);
 			expect(secondConfig).toEqual(firstConfig);
 			expect(existsSync(kokoroManagedScript(paths))).toBe(true);
+			expect(secondRunCommands.map((run) => run.args.slice(0, 2))).not.toContainEqual([
+				"venv",
+				".venv",
+			]);
+			expect(secondRunEvents).toContainEqual(
+				expect.objectContaining({
+					type: "step",
+					id: "venv",
+					status: "skipped",
+				}),
+			);
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	test("kokoro setup explains the first model download before preloading assets", async () => {
+		const home = tempHome();
+		const events: KokoroSetupEvent[] = [];
+		try {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			const outcome = await runKokoroSetup(paths, {
+				deps: fakeDeps(),
+				emit: (event) => events.push(event),
+			});
+
+			expect(outcome.ok).toBe(true);
+			const modelRunningIndex = events.findIndex(
+				(event) =>
+					event.type === "step" &&
+					event.id === "model" &&
+					event.status === "running",
+			);
+			const modelDoneIndex = events.findIndex(
+				(event) =>
+					event.type === "step" &&
+					event.id === "model" &&
+					event.status === "done",
+			);
+			const explanatoryLogIndex = events.findIndex(
+				(event) =>
+					event.type === "log" &&
+					event.message.includes("first run can take several minutes"),
+			);
+
+			expect(modelRunningIndex).toBeGreaterThanOrEqual(0);
+			expect(explanatoryLogIndex).toBeGreaterThan(modelRunningIndex);
+			expect(explanatoryLogIndex).toBeLessThan(modelDoneIndex);
 		} finally {
 			rmSync(home, { recursive: true, force: true });
 		}

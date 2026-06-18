@@ -756,6 +756,10 @@ function assertManagedUvExecutable(
 	}
 }
 
+function hasManagedPython(paths: AgentVoicePaths): boolean {
+	return existsSync(kokoroManagedPython(paths));
+}
+
 function preflightLocalSetupInputs(
 	paths: AgentVoicePaths,
 	resourceRoot: string,
@@ -943,13 +947,17 @@ export async function runKokoroSetup(
 			copyFileSync(sourceScript, scriptPath);
 		});
 
-		await runStep(emit, "venv", async () => {
-			await runUvChecked(paths, deps, emit, uvCommand, {
-				args: ["venv", ".venv"],
-				cwd: managedHome,
-				timeoutMs: DEFAULT_COMMAND_TIMEOUT_MS,
+		if (hasManagedPython(paths)) {
+			emitStep(emit, "venv", "skipped");
+		} else {
+			await runStep(emit, "venv", async () => {
+				await runUvChecked(paths, deps, emit, uvCommand, {
+					args: ["venv", ".venv"],
+					cwd: managedHome,
+					timeoutMs: DEFAULT_COMMAND_TIMEOUT_MS,
+				});
 			});
-		});
+		}
 
 		await runStep(emit, "deps", async () => {
 			await runUvChecked(paths, deps, emit, uvCommand, {
@@ -960,6 +968,12 @@ export async function runKokoroSetup(
 		});
 
 		await runStep(emit, "model", async () => {
+			emit({
+				type: "log",
+				stream: "stdout",
+				message:
+					"Downloading Kokoro model assets; first run can take several minutes.",
+			});
 			await runChecked(deps, emit, {
 				cmd: pythonPath,
 				args: ["-c", preloadCode()],
