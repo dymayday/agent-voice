@@ -112,6 +112,23 @@ final class KokoroSetupProgressViewSourceTests: XCTestCase {
         )
     }
 
+    func testDetailsLogAutoScrollsToNewestOutput() throws {
+        let source = try appSource("KokoroSetupProgressView.swift")
+        let details = try sourceSlice(
+            in: source,
+            from: "DisclosureGroup(\"Details\"",
+            to: "if model.kokoroSetup.phase == .failed"
+        )
+
+        XCTAssertTrue(details.contains("ScrollViewReader"))
+        XCTAssertTrue(details.contains("detailsLogBottomID"))
+        XCTAssertTrue(details.contains("scrollTo(detailsLogBottomID, anchor: .bottom)"))
+        XCTAssertTrue(
+            details.contains(".onChange(of: model.kokoroSetup.logs)"),
+            "Details log should follow newly appended Kokoro setup log lines."
+        )
+    }
+
     private func appSource(_ fileName: String) throws -> String {
         let packageRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

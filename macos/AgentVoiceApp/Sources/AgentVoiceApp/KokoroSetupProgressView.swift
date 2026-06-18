@@ -7,6 +7,8 @@ struct KokoroSetupProgressView: View {
     @State private var showDetails = false
     @State private var diagnosticsCopyFeedback: String?
 
+    private let detailsLogBottomID = "kokoro-details-log-bottom"
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Kokoro Installer")
@@ -32,11 +34,22 @@ struct KokoroSetupProgressView: View {
             stepList
 
             DisclosureGroup("Details", isExpanded: $showDetails) {
-                ScrollView {
-                    Text(diagnosticsText)
-                        .font(.system(.caption, design: .monospaced))
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(diagnosticsText)
+                                .font(.system(.caption, design: .monospaced))
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+
+                            Color.clear
+                                .frame(height: 1)
+                                .id(detailsLogBottomID)
+                        }
+                    }
+                    .onChange(of: model.kokoroSetup.logs) { _ in
+                        proxy.scrollTo(detailsLogBottomID, anchor: .bottom)
+                    }
                 }
                 .frame(minHeight: 120, maxHeight: 180)
             }
