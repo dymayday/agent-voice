@@ -50,6 +50,44 @@ describe("createSignalWorkWaiter", () => {
 		expect(Date.now() - start).toBeLessThan(50);
 	});
 
+	test("notify() with no active wait sets the flag so the next wait() returns immediately", async () => {
+		const waiter = createSignalWorkWaiter();
+
+		// No wait() is in flight, so notify() arms the lost-wakeup guard.
+		waiter.notify();
+
+		// The pre-set flag is consumed synchronously: the next wait() must return
+		// without sleeping, even with a long timeout. This is the race fix.
+		const start = Date.now();
+		let resolved = false;
+		await waiter.wait(60_000).then(() => {
+			resolved = true;
+		});
+		expect(resolved).toBe(true);
+		expect(Date.now() - start).toBeLessThan(50);
+	});
+
+	test("notify() resolving an active wait leaves no flag, so a fresh wait() blocks to its timeout", async () => {
+		const waiter = createSignalWorkWaiter();
+
+		// Start a wait that would otherwise block, then wake it with notify().
+		let firstResolved = false;
+		const first = waiter.wait(60_000).then(() => {
+			firstResolved = true;
+		});
+		waiter.notify();
+		await first;
+		expect(firstResolved).toBe(true);
+
+		// A notify() that resolved an ACTIVE wait must NOT leave pendingWakeups set.
+		// A fresh wait() therefore has nothing to consume and must block until its
+		// timeout (proving no spurious immediate wakeup).
+		const shortMs = 20;
+		const start = Date.now();
+		await waiter.wait(shortMs);
+		expect(Date.now() - start).toBeGreaterThanOrEqual(shortMs - 5);
+	});
+
 	test("wait resolves after the timeout when no notify arrives", async () => {
 		const waiter = createSignalWorkWaiter();
 		const start = Date.now();
@@ -64,6 +102,32 @@ describe("createSignalWorkWaiter", () => {
 		// Clean up the in-flight wait so the timer does not linger.
 		waiter.notify();
 		await pending;
+	});
+
+	test("a real SIGUSR1 to the installed handler wakes an in-flight wait", async () => {
+		// Skip where signals are unavailable (e.g. Windows lacks SIGUSR1).
+		if (process.platform === "win32") return;
+
+		const waiter = createSignalWorkWaiter();
+		waiter.install();
+		try {
+			let resolved = false;
+			const start = Date.now();
+			// Long timeout: this wait would block for a minute without a signal.
+			const pending = waiter.wait(60_000).then(() => {
+				resolved = true;
+			});
+
+			// Deliver a real SIGUSR1 to ourselves; Node dispatches it to the
+			// installed handler, which calls notify() and wakes the wait.
+			process.kill(process.pid, "SIGUSR1");
+
+			await pending;
+			expect(resolved).toBe(true);
+			expect(Date.now() - start).toBeLessThan(5_000);
+		} finally {
+			waiter.uninstall();
+		}
 	});
 
 	test("install and uninstall add then remove exactly one SIGUSR1 listener", () => {

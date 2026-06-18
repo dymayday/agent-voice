@@ -34,6 +34,7 @@ public final class AppModel: ObservableObject {
     private var shouldReplaceHistoryOnNextRefresh = false
     private var lastStatusError: String?
     private var lastDiagnosticsError: String?
+    private var lastActionError: String?
 
     public static let kokoroVoicePresets = [
         "af_heart",
@@ -70,10 +71,11 @@ extension AppModel {
     public func refresh() async {
         await refreshStatusSection()
         await refreshDiagnosticsSection()
+        recomputeLastError()
     }
 
     private func recomputeLastError() {
-        let parts = [lastStatusError, lastDiagnosticsError].compactMap { $0 }
+        let parts = [lastStatusError, lastDiagnosticsError, lastActionError].compactMap { $0 }
         lastError = parts.isEmpty ? nil : parts.joined(separator: "\n")
     }
 
@@ -101,7 +103,6 @@ extension AppModel {
         }
 
         lastStatusError = errors.isEmpty ? nil : errors.joined(separator: "\n")
-        recomputeLastError()
     }
 
     private func refreshDiagnosticsSection() async {
@@ -142,15 +143,16 @@ extension AppModel {
         }
 
         lastDiagnosticsError = errors.isEmpty ? nil : errors.joined(separator: "\n")
-        recomputeLastError()
     }
 
     private func refreshStatus() async {
         await refreshStatusSection()
+        recomputeLastError()
     }
 
     private func refreshDiagnostics() async {
         await refreshDiagnosticsSection()
+        recomputeLastError()
     }
 
     public func startAutoRefresh(
@@ -215,7 +217,8 @@ extension AppModel {
             await refresh()
             return true
         } catch {
-            lastError = String(describing: error)
+            lastActionError = String(describing: error)
+            recomputeLastError()
             return false
         }
     }
@@ -265,10 +268,11 @@ extension AppModel {
             if let status {
                 lastHistoryTerminalCounts = TerminalQueueCounts(status.queues)
             }
-            lastError = nil
+            lastActionError = nil
         } catch {
-            lastError = "history: \(String(describing: error))"
+            lastActionError = "history: \(String(describing: error))"
         }
+        recomputeLastError()
     }
 
     public func loadMoreHistory() async {
@@ -281,10 +285,11 @@ extension AppModel {
         do {
             let nextPage = try await cli.history(limit: Self.defaultHistoryPageSize, before: cursor)
             appendHistoryPage(nextPage)
-            lastError = nil
+            lastActionError = nil
         } catch {
-            lastError = "history: \(String(describing: error))"
+            lastActionError = "history: \(String(describing: error))"
         }
+        recomputeLastError()
     }
 
 }
@@ -308,12 +313,13 @@ extension AppModel {
             let response = try await cli.summarizerModels()
             availableSummarizerModels = response.models
             didLoadSummarizerModels = true
-            lastError = nil
+            lastActionError = nil
         } catch {
             availableSummarizerModels = []
             didLoadSummarizerModels = false
-            lastError = "models: \(String(describing: error))"
+            lastActionError = "models: \(String(describing: error))"
         }
+        recomputeLastError()
         summarizerModelsTask = nil
     }
 
@@ -328,7 +334,8 @@ extension AppModel {
             await refresh()
         } catch {
             shouldReplaceHistoryOnNextRefresh = false
-            lastError = String(describing: error)
+            lastActionError = String(describing: error)
+            recomputeLastError()
         }
     }
 
@@ -336,7 +343,8 @@ extension AppModel {
         let voice = draftVoice.trimmingCharacters(in: .whitespacesAndNewlines)
         draftVoice = voice
         guard !voice.isEmpty else {
-            lastError = "Voice cannot be empty"
+            lastActionError = "Voice cannot be empty"
+            recomputeLastError()
             return
         }
         await perform { try await cli.setVoice(voice) }
@@ -345,7 +353,8 @@ extension AppModel {
     public func saveThinking() async {
         let thinking = draftThinking.trimmingCharacters(in: .whitespacesAndNewlines)
         guard Self.summarizerThinkingOptions.contains(thinking) else {
-            lastError = "Unsupported summarizer thinking effort"
+            lastActionError = "Unsupported summarizer thinking effort"
+            recomputeLastError()
             return
         }
         await perform { try await cli.setSummarizerThinking(thinking) }
@@ -367,11 +376,13 @@ extension AppModel {
         let model = draftSummarizerModel.trimmingCharacters(in: .whitespacesAndNewlines)
         draftSummarizerModel = model
         guard !model.isEmpty else {
-            lastError = "Summarizer model cannot be empty"
+            lastActionError = "Summarizer model cannot be empty"
+            recomputeLastError()
             return
         }
         guard let binding = summarizerModelBinding() else {
-            lastError = "No active summarizer model configuration available"
+            lastActionError = "No active summarizer model configuration available"
+            recomputeLastError()
             return
         }
 
@@ -382,11 +393,13 @@ extension AppModel {
         let model = draftSummarizerModel.trimmingCharacters(in: .whitespacesAndNewlines)
         draftSummarizerModel = model
         guard !model.isEmpty else {
-            lastError = "Summarizer model cannot be empty"
+            lastActionError = "Summarizer model cannot be empty"
+            recomputeLastError()
             return
         }
         guard let binding = summarizerModelBinding() else {
-            lastError = "No active summarizer model configuration available"
+            lastActionError = "No active summarizer model configuration available"
+            recomputeLastError()
             return
         }
 
@@ -472,7 +485,8 @@ extension AppModel {
     private func runKokoroSetup() async {
         isCancellingKokoroSetup = false
         kokoroSetup = KokoroSetupSnapshot(phase: .running, currentTitle: "Starting Kokoro setup")
-        lastError = nil
+        lastActionError = nil
+        recomputeLastError()
 
         var sawComplete = false
         defer {
@@ -500,14 +514,16 @@ extension AppModel {
             if !sawComplete {
                 kokoroSetup.phase = .failed
                 kokoroSetup.error = kokoroSetup.error ?? "Kokoro setup ended before a complete event."
-                lastError = kokoroSetup.error
+                lastActionError = kokoroSetup.error
+                recomputeLastError()
                 return
             }
 
             if kokoroSetup.phase == .succeeded {
                 await refresh()
             }
-            lastError = kokoroSetup.phase == .failed ? kokoroSetup.error : nil
+            lastActionError = kokoroSetup.phase == .failed ? kokoroSetup.error : nil
+            recomputeLastError()
         } catch is CancellationError {
             kokoroSetup.phase = .cancelled
             kokoroSetup.currentTitle = "Kokoro setup cancelled"
@@ -525,7 +541,8 @@ extension AppModel {
                 } else {
                     kokoroSetup.error = String(describing: error)
                 }
-                lastError = kokoroSetup.error
+                lastActionError = kokoroSetup.error
+                recomputeLastError()
             }
         }
     }
@@ -693,7 +710,8 @@ extension AppModel {
             try await operation()
             await refresh()
         } catch {
-            lastError = String(describing: error)
+            lastActionError = String(describing: error)
+            recomputeLastError()
         }
     }
 }

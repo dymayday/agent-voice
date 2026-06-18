@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
 	existsSync,
+	mkdirSync,
 	mkdtempSync,
 	readFileSync,
 	rmSync,
@@ -697,6 +698,84 @@ describe("agent-voice enqueue CLI", () => {
 
 			expect(result.exitCode).toBe(0);
 			expect(signals).toEqual([]);
+			expect(pendingCount(home)).toBe(1);
+		});
+	});
+
+	test("killProcess throwing ESRCH (process gone) never escapes enqueue", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			writeDaemonLock(paths, 7070);
+
+			const result = await runCli(
+				["enqueue", "--format", "text", "--agent", "claude"],
+				{
+					env: { AGENT_VOICE_HOME: home },
+					stdin: "Claude finished.",
+					daemonDeps: {
+						isPidAlive: (pid) => pid === 7070,
+						killProcess: () => {
+							const err = new Error("kill ESRCH") as NodeJS.ErrnoException;
+							err.code = "ESRCH";
+							throw err;
+						},
+					},
+				},
+			);
+
+			// ESRCH is benign (the process raced away); enqueue still succeeds.
+			expect(result.exitCode).toBe(0);
+			expect(pendingCount(home)).toBe(1);
+		});
+	});
+
+	test("killProcess throwing an unexpected code never escapes enqueue", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			writeDaemonLock(paths, 8080);
+
+			const result = await runCli(
+				["enqueue", "--format", "text", "--agent", "claude"],
+				{
+					env: { AGENT_VOICE_HOME: home },
+					stdin: "Claude finished.",
+					daemonDeps: {
+						isPidAlive: (pid) => pid === 8080,
+						killProcess: () => {
+							const err = new Error("kill EINVAL") as NodeJS.ErrnoException;
+							err.code = "EINVAL";
+							throw err;
+						},
+					},
+				},
+			);
+
+			// An unexpected code warns but must never rethrow; enqueue still succeeds.
+			expect(result.exitCode).toBe(0);
+			expect(pendingCount(home)).toBe(1);
+		});
+	});
+
+	test("a throwing lock-read/liveness path (daemon.pid is a directory) never escapes enqueue", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			// Make the daemon.pid path a directory so readDaemonLock's readFileSync
+			// throws a non-ENOENT error (EISDIR), exercising the outer try/catch in
+			// notifyDaemon rather than the inner kill catch.
+			mkdirSync(paths.run, { recursive: true });
+			mkdirSync(join(paths.run, "daemon.pid"), { recursive: true });
+
+			const result = await runCli(
+				["enqueue", "--format", "text", "--agent", "claude"],
+				{
+					env: { AGENT_VOICE_HOME: home },
+					stdin: "Claude finished.",
+				},
+			);
+
+			// readDaemonLock throws (EISDIR); the poke is swallowed and the job is
+			// still enqueued with a clean exit.
+			expect(result.exitCode).toBe(0);
 			expect(pendingCount(home)).toBe(1);
 		});
 	});

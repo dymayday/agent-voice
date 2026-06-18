@@ -26,7 +26,6 @@ import {
 	runMaintenance,
 	type JobStatus,
 } from "./store";
-import type { WorkWaiter } from "./daemon-wait";
 
 export interface DetachedDaemonRequest {
 	command: string;
@@ -51,7 +50,6 @@ export interface DaemonCliDeps {
 	pruneEveryIterations?: number;
 	pruneIntervalMs?: number;
 	waitForWork?: (timeoutMs: number) => Promise<void>;
-	notifier?: WorkWaiter;
 }
 
 export interface DaemonStatus {
@@ -316,7 +314,7 @@ export async function runDaemonLoop(
 	// `pollIntervalMs` is repurposed as the idle-wait safety-net cap.
 	const safetyNetMs = deps.pollIntervalMs ?? DEFAULT_SAFETY_NET_MS;
 	// Default fallback preserves the old timer-sleep behavior; the real
-	// entrypoint injects a signal-driven waiter via deps.waitForWork/notifier.
+	// entrypoint injects a signal-driven waiter via deps.waitForWork.
 	const waitForWork = deps.waitForWork ?? ((ms) => sleep(ms));
 	const pruneEvery = deps.pruneEveryIterations ?? 300;
 	const pruneIntervalMs = deps.pruneIntervalMs ?? DEFAULT_PRUNE_INTERVAL_MS;
@@ -360,16 +358,28 @@ export async function runDaemonLoop(
 				lastPruneMs = nowMs;
 			}
 			if (result.kind === "idle") {
-				// Single-writer invariant: an idle daemon has nothing in
-				// `processing`, so no pending job can go stale mid-wait. An orphan
-				// `processing` row from a crashed prior daemon is recovered on
-				// iteration 1 (process-then-wait order, before we ever wait here).
-				// Therefore msUntilNextDue (pending-only) is a sufficient deadline.
+				// Single-writer invariant: an idle daemon has nothing in `processing`
+				// that it owns, so no pending job it claimed can go stale mid-wait.
+				// An orphan `processing` row from a crashed prior daemon is invisible
+				// to msUntilNextDue (which counts only pending rows), so it does not
+				// shorten this wait. recoverStale resets such a row to pending on the
+				// first iteration AFTER it crosses processingTimeoutSeconds — which
+				// can be up to safetyNetMs late, since we only re-poll when the wait
+				// elapses or a poke arrives. The bound is acceptable: the orphan is a
+				// crash artifact, not steady-state work.
 				const dueInMs = msUntilNextDue(db, clock());
+				// Direct hand-edits to config.json (outside the CLI/GUI) are only
+				// observed within safetyNetMs: hot-reload now relies on the SIGUSR1
+				// poke that CLI/GUI config mutations send, so an external editor's
+				// change is picked up no sooner than the next safety-net wakeup.
 				const waitMs =
 					dueInMs === null
 						? safetyNetMs
 						: Math.max(0, Math.min(safetyNetMs, dueInMs));
+				// waitMs === 0 is a deliberate immediate re-poll: a retry crossed its
+				// due boundary between the claim's clock read and msUntilNextDue's
+				// clock read, so dueInMs <= 0. It is bounded to one extra iteration —
+				// the next claimNextDue will claim the now-due job.
 				if (waitMs > 0) await waitForWork(waitMs);
 			}
 		}

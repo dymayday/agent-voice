@@ -700,9 +700,8 @@ export async function runCli(
 		// disposition = terminate) could kill the just-spawned daemon. We do NOT
 		// install SIGTERM/SIGINT handlers — their default-terminate disposition
 		// preserves today's stop semantics (see B7). Tests inject their own
-		// notifier/waitForWork; only create a real waiter when neither is given.
+		// waitForWork; only create a real waiter when one is not given.
 		const waiter =
-			io.daemonDeps?.notifier === undefined &&
 			io.daemonDeps?.waitForWork === undefined
 				? createSignalWorkWaiter()
 				: null;
@@ -714,14 +713,9 @@ export async function runCli(
 				io.daemonDeps?.processorDepsForConfig ??
 				((nextConfig: ReturnType<typeof loadConfig>) =>
 					io.daemonDeps?.processorDeps ?? defaultDepsForConfig(nextConfig)),
-			// Derive wait and notify from the SAME object so a SIGUSR1 wakes the
-			// in-flight wait.
-			...(waiter
-				? {
-						notifier: waiter,
-						waitForWork: (ms: number) => waiter.wait(ms),
-					}
-				: {}),
+			// The waiter's wait() is woken by the SIGUSR1 handler the same object
+			// installed, so an enqueue/config poke wakes the in-flight wait.
+			...(waiter ? { waitForWork: (ms: number) => waiter.wait(ms) } : {}),
 		};
 		try {
 			const started = enterForegroundDaemon(paths, deps);

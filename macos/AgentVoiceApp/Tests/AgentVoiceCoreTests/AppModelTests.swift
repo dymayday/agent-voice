@@ -447,6 +447,37 @@ final class AppModelTests: XCTestCase {
         ])
     }
 
+    func testAutoRefreshStatusOnlyTickRefreshesHistoryWhenTerminalCountsChange() async throws {
+        // Tick 0 = full [status, history, doctor, config]; terminal counts recorded (done: 1).
+        // Tick 1 (default cadence, divisor 15 → diagnostics NOT due) returns done: 2, so the
+        // changed-counts branch fires history on this status-only tick. The tick-1 request
+        // sequence must be [status, history] and must NOT include doctor/config.
+        let runner = RecordingRunner(results: [
+            ProcessResult(exitCode: 0, stdout: statusJSON(done: 1), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyHistoryJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyDoctorJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: fullConfigJSON(), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: statusJSON(done: 2), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyHistoryJSON, stderr: "")
+        ])
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+        let model = AppModel(cli: cli)
+
+        model.startAutoRefresh(everyNanoseconds: 1_000_000)
+        try await waitForRequestCount(6, runner: runner)
+        model.stopAutoRefresh()
+
+        let requests = await runner.capturedRequests()
+        XCTAssertEqual(Array(requests.map(\.arguments).prefix(6)), [
+            ["status", "--json"],
+            ["history", "--json", "--limit", "10"],
+            ["doctor", "--json"],
+            ["config", "get"],
+            ["status", "--json"],
+            ["history", "--json", "--limit", "10"]
+        ])
+    }
+
     func testAutoRefreshRunsDiagnosticsOnConfiguredCadence() async throws {
         // diagnosticsEveryTicks: 2 → tick 0 full, tick 1 status-only,
         // tick 2 status + doctor + config (history skipped, counts unchanged).

@@ -33,11 +33,18 @@ export function createSignalWorkWaiter(): SignalWorkWaiter {
 
 	function notify(): void {
 		// Fully synchronous: no await, runs on the SIGUSR1 dispatch tick.
-		pendingWakeups = true;
 		if (resolveActive) {
+			// An active wait() is sleeping: resolve it directly. The resolveActive
+			// closure clears the timer and nulls itself. We do NOT set pendingWakeups
+			// here — doing so would leave the flag set after the wakeup and cause a
+			// spurious immediate return on the next wait().
 			const resolve = resolveActive;
 			resolveActive = null;
 			resolve();
+		} else {
+			// No active waiter: arm the lost-wakeup guard so a notify() that lands
+			// between the queue check and the next wait() is consumed, not lost.
+			pendingWakeups = true;
 		}
 	}
 

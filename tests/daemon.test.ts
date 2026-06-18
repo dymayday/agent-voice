@@ -545,6 +545,57 @@ describe("agent-voice daemon idle wait", () => {
 		});
 	});
 
+	test("idle wait does not call waitForWork when a pending row is already due (waitMs===0)", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			const event = createEvent({ agent: "claude", text: "Due any moment." });
+			const db = openDb(paths.db);
+			try {
+				enqueue(db, event);
+				// next_attempt_at sits BETWEEN the claim clock read and the
+				// idle-branch clock read below: future at claim (not claimed -> idle),
+				// past by the time msUntilNextDue runs (-> 0 -> waitMs 0).
+				db.query(
+					"UPDATE jobs SET next_attempt_at='2026-06-12T00:00:05.000Z' WHERE id=?",
+				).run(event.id);
+			} finally {
+				db.close();
+			}
+
+			// Stepping clock: the first two reads (loop lastPrune init + the claim
+			// inside processNextJob) see 00:00:00 so the 00:00:05 row is not yet due;
+			// every later read sees 00:00:10 so msUntilNextDue computes a past due
+			// time and returns 0.
+			let reads = 0;
+			const now = () =>
+				new Date(
+					reads++ < 2
+						? "2026-06-12T00:00:00.000Z"
+						: "2026-06-12T00:00:10.000Z",
+				);
+
+			const waits: number[] = [];
+			await runDaemonLoop(paths, config(), {
+				maxIterations: 1,
+				pollIntervalMs: 30_000,
+				// Keep both prune triggers dormant so the stepping clock only drives
+				// the claim-vs-idle boundary, not a prune.
+				pruneEveryIterations: 300,
+				pruneIntervalMs: Number.POSITIVE_INFINITY,
+				now,
+				waitForWork: async (ms) => {
+					waits.push(ms);
+				},
+				processorDeps: deps(),
+			});
+
+			// waitMs === 0, so waitForWork is never called. If it ever were, it would
+			// only be with a strictly positive value.
+			expect(waits).toEqual([]);
+			expect(waits.every((ms) => ms > 0)).toBe(true);
+		});
+	});
+
 	test("idle wait caps a far-future retry at the safety-net cap", async () => {
 		await withTempHome(async (home) => {
 			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
