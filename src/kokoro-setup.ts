@@ -119,6 +119,10 @@ const DEFAULT_SMOKE_TEST_TIMEOUT_MS = 60 * 1000;
 const KOKORO_REPO_ID = "hexgrad/Kokoro-82M";
 const SMOKE_TEST_TEXT = "Agent Voice Kokoro setup smoke test.";
 const MANAGED_UV_VERSION = "0.11.20";
+const KOKORO_WARNING_FILTERS = [
+	"ignore:dropout option adds dropout after all but last recurrent layer:UserWarning:torch.nn.modules.rnn",
+	"ignore::FutureWarning:torch.nn.utils.weight_norm",
+];
 
 export interface UvReleaseAsset {
 	version: string;
@@ -702,6 +706,12 @@ async function runChecked(
 	}
 }
 
+function kokoroPythonWarnings(): string {
+	const existing = process.env.PYTHONWARNINGS?.trim();
+	const filters = KOKORO_WARNING_FILTERS.join(",");
+	return existing ? `${existing},${filters}` : filters;
+}
+
 function kokoroChildEnv(paths: AgentVoicePaths): Record<string, string> {
 	const virtualEnv = join(kokoroManagedHome(paths), ".venv");
 	const pathEntries = [
@@ -711,10 +721,12 @@ function kokoroChildEnv(paths: AgentVoicePaths): Record<string, string> {
 	].filter((entry) => entry.length > 0);
 	return {
 		HF_HOME: kokoroHuggingFaceHome(paths),
+		HF_HUB_VERBOSITY: process.env.HF_HUB_VERBOSITY || "error",
 		KOKORO_REPO_ID: process.env.KOKORO_REPO_ID ?? KOKORO_REPO_ID,
 		KOKORO_REPO_REVISION: process.env.KOKORO_REPO_REVISION ?? "",
 		PATH: pathEntries.join(delimiter),
 		PYTHONUNBUFFERED: "1",
+		PYTHONWARNINGS: kokoroPythonWarnings(),
 		VIRTUAL_ENV: virtualEnv,
 	};
 }
@@ -969,7 +981,15 @@ export async function runKokoroSetup(
 
 		await runStep(emit, "deps", async () => {
 			await runUvChecked(paths, deps, emit, uvCommand, {
-				args: ["pip", "install", "--python", pythonPath, "-r", requirements],
+				args: [
+					"pip",
+					"install",
+					"--quiet",
+					"--python",
+					pythonPath,
+					"-r",
+					requirements,
+				],
 				cwd: managedHome,
 				timeoutMs: DEFAULT_COMMAND_TIMEOUT_MS,
 			});

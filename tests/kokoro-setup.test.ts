@@ -315,6 +315,7 @@ describe("Kokoro setup module", () => {
 					"uv",
 					"pip",
 					"install",
+					"--quiet",
 					"--python",
 					kokoroManagedPython(paths),
 					"-r",
@@ -326,6 +327,63 @@ describe("Kokoro setup module", () => {
 			expect(modelRun?.env?.HF_HOME).toBe(
 				join(kokoroManagedHome(paths), "models", "huggingface"),
 			);
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	test("kokoro setup suppresses known third-party Python warning noise", async () => {
+		const home = tempHome();
+		const pythonEnvs: Record<string, string>[] = [];
+		try {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			const pythonPath = kokoroManagedPython(paths);
+			const outcome = await runKokoroSetup(paths, {
+				deps: fakeDeps({
+					run: async (request) => {
+						if (
+							request.cmd === "uv" &&
+							request.args[0] === "venv" &&
+							request.cwd
+						) {
+							const binDir = join(request.cwd, ".venv", "bin");
+							mkdirSync(binDir, { recursive: true });
+							writeFileSync(join(binDir, "python"), "#!/bin/sh\n", "utf8");
+						}
+						if (request.cmd === pythonPath) {
+							pythonEnvs.push(request.env ?? {});
+						}
+						return { ok: true, stdout: "ok", stderr: "" };
+					},
+				}),
+			});
+
+			expect(outcome.ok).toBe(true);
+			expect(pythonEnvs.length).toBeGreaterThan(0);
+			const pythonWarnings = pythonEnvs[0]?.PYTHONWARNINGS ?? "";
+			expect(pythonWarnings).toContain("dropout option adds dropout");
+			expect(pythonWarnings).toContain("torch.nn.utils.weight_norm");
+			expect(pythonEnvs[0]?.HF_HUB_VERBOSITY).toBe("error");
+
+			const warningsResult = spawnSync(
+				process.env.PYTHON ?? "python3",
+				[
+					"-c",
+					[
+						"import warnings",
+						'warnings.warn_explicit("dropout option adds dropout after all but last recurrent layer", UserWarning, "rnn.py", 1009, module="torch.nn.modules.rnn")',
+						'warnings.warn_explicit("`torch.nn.utils.weight_norm` is deprecated in favor of `torch.nn.utils.parametrizations.weight_norm`.", FutureWarning, "weight_norm.py", 144, module="torch.nn.utils.weight_norm")',
+						'print("ok")',
+					].join("\n"),
+				],
+				{
+					encoding: "utf8",
+					env: { ...process.env, PYTHONWARNINGS: pythonWarnings },
+				},
+			);
+			expect(warningsResult.status, warningsResult.stderr).toBe(0);
+			expect(warningsResult.stdout.trim()).toBe("ok");
+			expect(warningsResult.stderr).toBe("");
 		} finally {
 			rmSync(home, { recursive: true, force: true });
 		}
@@ -376,6 +434,7 @@ describe("Kokoro setup module", () => {
 					managedUv,
 					"pip",
 					"install",
+					"--quiet",
 					"--python",
 					kokoroManagedPython(paths),
 					"-r",
