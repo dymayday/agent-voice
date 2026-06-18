@@ -162,6 +162,10 @@ final class AppModelActionTests: XCTestCase {
         XCTAssertEqual(requests.map(\.arguments), [["stop"]])
     }
 
+}
+
+@MainActor
+final class AppModelSettingsActionTests: XCTestCase {
     func testSaveVoiceTrimsDelegatesAndRefreshes() async throws {
         let runner = RecordingRunner(results: [
             ProcessResult(exitCode: 0, stdout: "", stderr: ""),
@@ -311,7 +315,7 @@ final class AppModelActionTests: XCTestCase {
             ProcessResult(exitCode: 0, stdout: statusJSON(), stderr: ""),
             ProcessResult(exitCode: 0, stdout: emptyHistoryJSON, stderr: ""),
             ProcessResult(exitCode: 0, stdout: emptyDoctorJSON, stderr: ""),
-            ProcessResult(exitCode: 0, stdout: fullConfigJSON(piModel: "pi-updated"), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: fullConfigJSON(piModel: "pi-updated"), stderr: "")
         ])
         let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
         let model = AppModel(cli: cli)
@@ -360,6 +364,10 @@ final class AppModelActionTests: XCTestCase {
         XCTAssertEqual(model.summarizerModelInUseValue, "opencode-model")
     }
 
+}
+
+@MainActor
+final class AppModelSummarizerActionTests: XCTestCase {
     func testValidateSummarizerModelTemporarilyWritesAndRestoresConfig() async throws {
         let runner = RecordingRunner(results: [
             ProcessResult(exitCode: 0, stdout: statusJSON(), stderr: ""),

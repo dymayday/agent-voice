@@ -84,6 +84,8 @@ final class DockMenuSourceTests: XCTestCase {
             to: "    func applicationShouldHandleReopen"
         )
         XCTAssertTrue(delegate.contains("await model.refresh()"))
+        XCTAssertTrue(delegate.contains("if model.status?.daemon.running != true"))
+        XCTAssertTrue(delegate.contains("await model.startDaemon()"))
         XCTAssertTrue(delegate.contains("promptForKokoroSetupIfNeeded(model: model)"))
         XCTAssertTrue(delegate.contains("guard model.shouldPromptForKokoroSetup else { return }"))
         XCTAssertFalse(delegate.contains("model.requestSetupStep(.kokoro)"))
@@ -93,6 +95,21 @@ final class DockMenuSourceTests: XCTestCase {
             try offset(of: "openDashboardWindow?()", in: delegate),
             try offset(of: "promptForKokoroSetupIfNeeded(model: model)", in: delegate),
             "Cold launch must always show the dashboard, then separately prompt for Kokoro setup when needed."
+        )
+        XCTAssertLessThan(
+            try offset(of: "await model.refresh()", in: delegate),
+            try offset(of: "if model.status?.daemon.running != true", in: delegate),
+            "Cold launch must inspect status before deciding whether to auto-start the daemon."
+        )
+        XCTAssertLessThan(
+            try offset(of: "if model.status?.daemon.running != true", in: delegate),
+            try offset(of: "await model.startDaemon()", in: delegate),
+            "Cold launch should start only when status shows the daemon is not running."
+        )
+        XCTAssertLessThan(
+            try offset(of: "await model.startDaemon()", in: delegate),
+            try offset(of: "promptForKokoroSetupIfNeeded(model: model)", in: delegate),
+            "Dashboard should receive the daemon auto-start refresh before Kokoro prompting runs."
         )
         XCTAssertFalse(
             bridge.contains("AgentVoiceDockMenuDelegate.openKokoroSetupWindow?()"),
