@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
+unset CDPATH
 
 SOURCE="${BASH_SOURCE[0]}"
 while [[ -L "$SOURCE" ]]; do
-	SCRIPT_DIR="$(CDPATH= cd -P -- "$(dirname -- "$SOURCE")" && pwd)"
+	SCRIPT_DIR="$(cd -P -- "$(dirname -- "$SOURCE")" && pwd)"
 	TARGET="$(readlink "$SOURCE")"
 	if [[ "$TARGET" == /* ]]; then
 		SOURCE="$TARGET"
@@ -11,7 +12,7 @@ while [[ -L "$SOURCE" ]]; do
 		SOURCE="$SCRIPT_DIR/$TARGET"
 	fi
 done
-SCRIPT_DIR="$(CDPATH= cd -P -- "$(dirname -- "$SOURCE")" && pwd)"
+SCRIPT_DIR="$(cd -P -- "$(dirname -- "$SOURCE")" && pwd)"
 ROOT_DIR="$(dirname -- "$SCRIPT_DIR")"
 PACKAGE_DIR="$ROOT_DIR/macos/AgentVoiceApp"
 APP_DIR="$ROOT_DIR/dist/Agent Voice.app"
@@ -19,8 +20,85 @@ CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
 CLI_DIR="$RESOURCES_DIR/agent-voice"
+CLEAN_CACHE_BEFORE_BUILD=0
 
-swift build -c release --package-path "$PACKAGE_DIR"
+usage() {
+	cat <<'EOF'
+Usage:
+  build-macos-app.sh [--clean-cache]
+  build-macos-app.sh clean-cache
+
+Options:
+  --clean-cache  Remove SwiftPM build cache before building.
+  clean-cache    Remove SwiftPM build cache and exit.
+EOF
+}
+
+clean_build_cache() {
+	rm -rf "$PACKAGE_DIR/.build"
+}
+
+is_stale_swift_cache_error() {
+	local output="$1"
+	[[ "$output" == *"was compiled with module cache path"* ]] ||
+		[[ "$output" == *"missing required module 'SwiftShims'"* ]]
+}
+
+run_release_build() {
+	swift build -c release --package-path "$PACKAGE_DIR"
+}
+
+case "${1:-}" in
+clean-cache)
+	clean_build_cache
+	echo "Cleaned Swift build cache: $PACKAGE_DIR/.build"
+	exit 0
+	;;
+--clean-cache)
+	CLEAN_CACHE_BEFORE_BUILD=1
+	shift
+	;;
+-h | --help)
+	usage
+	exit 0
+	;;
+"")
+	;;
+*)
+	usage >&2
+	exit 2
+	;;
+esac
+
+if [[ $# -gt 0 ]]; then
+	usage >&2
+	exit 2
+fi
+
+if [[ "$CLEAN_CACHE_BEFORE_BUILD" -eq 1 ]]; then
+	clean_build_cache
+fi
+
+set +e
+BUILD_OUTPUT="$(run_release_build 2>&1)"
+BUILD_STATUS=$?
+set -e
+
+if [[ "$BUILD_STATUS" -ne 0 ]]; then
+	if [[ -n "$BUILD_OUTPUT" ]]; then
+		printf '%s\n' "$BUILD_OUTPUT" >&2
+	fi
+	if is_stale_swift_cache_error "$BUILD_OUTPUT"; then
+		printf '%s\n' "Swift build cache appears stale; cleaning Swift build cache and retrying once." >&2
+		clean_build_cache
+		run_release_build
+	else
+		exit "$BUILD_STATUS"
+	fi
+elif [[ -n "$BUILD_OUTPUT" ]]; then
+	printf '%s\n' "$BUILD_OUTPUT"
+fi
+
 BIN_DIR="$(swift build -c release --package-path "$PACKAGE_DIR" --show-bin-path)"
 
 rm -rf "$APP_DIR"

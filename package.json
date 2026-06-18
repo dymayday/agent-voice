@@ -10,7 +10,9 @@
   },
   "scripts": {
     "test": "bun test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build:macos": "bash scripts/build-macos-app.sh",
+    "clean:cache": "bash scripts/build-macos-app.sh clean-cache"
   },
   "devDependencies": {
     "@types/node": "latest",

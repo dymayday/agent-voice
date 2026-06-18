@@ -211,11 +211,20 @@ bun test
 bun run typecheck
 swift test --package-path macos/AgentVoiceApp
 swift build --package-path macos/AgentVoiceApp
-bash scripts/build-macos-app.sh
+bun run build:macos
+bun run clean:cache
+# Removes macos/AgentVoiceApp/.build if SwiftPM cache is stale.
 ```
+
+`bash scripts/build-macos-app.sh --clean-cache` also removes the SwiftPM cache
+before building. The build script retries once automatically when Swift reports
+stale module-cache paths such as `missing required module 'SwiftShims'`.
 
 ## Troubleshooting
 
+- **macOS build reports stale Swift module cache or `SwiftShims`:** run
+  `bun run clean:cache` or build with
+  `bash scripts/build-macos-app.sh --clean-cache`.
 - **No sound:** run **Voice Test** or `./bin/agent-voice test 'hello'`; verify
   macOS audio output, `afplay`, and `./bin/agent-voice doctor --json`.
 - **Managed `uv` install fails:** check network access, proxy settings,
