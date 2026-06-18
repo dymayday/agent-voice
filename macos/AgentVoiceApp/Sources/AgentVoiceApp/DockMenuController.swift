@@ -142,6 +142,11 @@ final class AgentVoiceDockMenuDelegate: NSObject, NSApplicationDelegate {
     // backgrounded window would otherwise keep polling. Occlusion drives a hard
     // suspend; activation drives the focused/unfocused cadence.
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Handlers hop through Task { @MainActor } to reach the main-actor model:
+        // MainActor.assumeIsolated would be synchronous but is macOS 14+, and this
+        // target deploys to macOS 13. Ordering across the hops is benign — each
+        // visibility handler reads NSApp.occlusionState live (not a captured value)
+        // and setHostActive is a last-writer-wins cadence flag.
         let center = NotificationCenter.default
         center.addObserver(
             forName: NSApplication.didChangeOcclusionStateNotification,
@@ -169,8 +174,10 @@ final class AgentVoiceDockMenuDelegate: NSObject, NSApplicationDelegate {
         ) { _ in
             Task { @MainActor in Self.model?.setHostActive(false) }
         }
-        // Seed the initial visibility so a launch-time occluded window is gated.
+        // Seed initial visibility and focus so a launch that is occluded or not
+        // frontmost (login item, `open -g`) starts in the right state.
         Self.syncHostVisibility()
+        Self.model?.setHostActive(NSApp.isActive)
     }
 
     private static func syncHostVisibility() {

@@ -135,8 +135,11 @@ public struct AgentVoiceCLI: Sendable {
 
     private static func isProcessAlive(_ pid: Int) -> Bool {
         guard pid > 0, pid <= Int(Int32.max) else { return false }
-        if kill(pid_t(pid), 0) == 0 { return true }
-        return errno == EPERM  // alive but owned by another user
+        // Mirror the authoritative defaultIsPidAlive (src/daemon.ts), which treats
+        // any failure as dead. Our daemon is always spawned as the same user, so a
+        // live daemon returns 0; EPERM can only mean a foreign pid that is never
+        // ours, which we must not trust.
+        return kill(pid_t(pid), 0) == 0
     }
 
     public func doctor() async throws -> DoctorReport {

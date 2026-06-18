@@ -733,8 +733,10 @@ export async function runCli(
 				);
 			} finally {
 				clearDaemonLock(paths);
-				// Remove the published snapshot so a stopped daemon leaves no stale
-				// "running" file; the GUI then falls back to spawning the CLI.
+				// Belt-and-suspenders for the paths where the loop actually returns
+				// (--once, bounded test mode, intentional-stop). A production daemon
+				// is usually SIGTERM'd mid-wait and never reaches here, so the
+				// authoritative clear lives in stopDaemon; this covers the rest.
 				clearStatusSnapshot(paths);
 			}
 		} catch (error) {

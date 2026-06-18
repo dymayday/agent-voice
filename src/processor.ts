@@ -46,11 +46,16 @@ export async function processNextJob(
 	config: AgentVoiceConfig,
 	deps: ProcessorDeps,
 	now: () => Date = () => new Date(),
+	// Fired right after a job is claimed (status -> processing), before the long
+	// summarize/speak work, so callers can publish the in-flight "processing"
+	// state that would otherwise be invisible between claim and completion.
+	onClaimed?: () => void,
 ): Promise<ProcessNextJobResult> {
 	const claimNow = now();
 	const recovered = recoverStale(db, config, claimNow);
 	const claimed: StoredJob | null = claimNextDue(db, config, claimNow);
 	if (!claimed) return { kind: "idle", recovered };
+	onClaimed?.();
 
 	// Resume after a crash that happened after speech completed: only the
 	// explicit spoken marker means it is safe to skip replaying audio.

@@ -31,10 +31,14 @@ public final class AppModel: ObservableObject {
     // visibility-driven restart reuses it and focus changes take effect live.
     private var autoRefreshIntervalNanoseconds = AppModel.defaultAutoRefreshIntervalNanoseconds
     private var diagnosticsRefreshEveryTicks = AppModel.defaultDiagnosticsRefreshEveryTicks
-    // Loop runs only when subscribers exist AND the app is visible. Default true
+    // Loop runs only when subscribers exist AND a surface is visible. Default true
     // so headless/unit contexts (no occlusion signals) behave as before.
     private var isHostVisible = true
     private var isHostActive = true
+    // The menu-bar popover is its own surface: when open it is inherently visible
+    // and is NOT covered by app-window occlusion accounting, so it gets a
+    // dedicated flag and bypasses the occlusion gate.
+    private var isMenuPopoverOpen = false
     private var summarizerModelsTask: Task<Void, Never>?
     private var kokoroSetupTask: Task<Void, Never>?
     private var isCancellingKokoroSetup = false
@@ -188,19 +192,25 @@ extension AppModel {
         }
     }
 
-    /// Hard-gate the refresh loop on app visibility. When the app is fully
-    /// occluded/minimized/backgrounded we cancel the loop (no spawns, no file
-    /// reads) but keep the subscriber count, so becoming visible again resumes
-    /// it. Restarting begins at tick 0, which performs an immediate full refresh
-    /// so a revealed window is never stale.
+    /// Hard-gate the refresh loop on window occlusion. When the app's windows are
+    /// fully occluded/minimized we cancel the loop (no spawns, no file reads) but
+    /// keep the subscriber count, so becoming visible again resumes it. Mere
+    /// backgrounding/loss of focus does NOT cancel — that only backs off the
+    /// cadence via setHostActive. Restarting begins at tick 0, which performs an
+    /// immediate full refresh so a revealed window is never stale.
     public func setHostVisibility(_ visible: Bool) {
         guard isHostVisible != visible else { return }
         isHostVisible = visible
-        if visible {
-            ensureLoopRunning()
-        } else {
-            cancelLoop()
-        }
+        reconcileLoop()
+    }
+
+    /// The menu-bar popover is a visible surface independent of window occlusion;
+    /// drive it from the popover view's appear/disappear so it keeps refreshing
+    /// even when all windows are closed/occluded.
+    public func setMenuPopoverOpen(_ open: Bool) {
+        guard isMenuPopoverOpen != open else { return }
+        isMenuPopoverOpen = open
+        reconcileLoop()
     }
 
     /// Soft-gate on focus: when the app is visible but not frontmost, the loop
@@ -209,14 +219,24 @@ extension AppModel {
         isHostActive = active
     }
 
-    private var effectiveIntervalNanoseconds: UInt64 {
+    private var hasVisibleSurface: Bool { isHostVisible || isMenuPopoverOpen }
+
+    var effectiveIntervalNanoseconds: UInt64 {
         isHostActive
             ? autoRefreshIntervalNanoseconds
             : max(autoRefreshIntervalNanoseconds, AppModel.inactiveAutoRefreshIntervalNanoseconds)
     }
 
+    private func reconcileLoop() {
+        if hasVisibleSurface {
+            ensureLoopRunning()
+        } else {
+            cancelLoop()
+        }
+    }
+
     private func ensureLoopRunning() {
-        guard autoRefreshSubscriberCount > 0, isHostVisible, autoRefreshTask == nil else { return }
+        guard autoRefreshSubscriberCount > 0, hasVisibleSurface, autoRefreshTask == nil else { return }
         autoRefreshTask = Task { [weak self] in
             var tick = 0
             while !Task.isCancelled {

@@ -4,6 +4,7 @@ import {
 	mkdirSync,
 	openSync,
 	closeSync,
+	readdirSync,
 	readFileSync,
 	renameSync,
 	rmSync,
@@ -122,6 +123,25 @@ export function writeStatusSnapshotAtomic(
 
 export function clearStatusSnapshot(paths: AgentVoicePaths): void {
 	rmSync(statusSnapshotPath(paths), { force: true });
+}
+
+/**
+ * Remove orphaned `status.json.<pid>.tmp` files left behind if a daemon was
+ * killed between the write and the rename in `writeStatusSnapshotAtomic`. The
+ * temp name is keyed by pid, so each crashed daemon leaves at most one; a sweep
+ * at startup keeps the run directory tidy. Best-effort: never throws.
+ */
+export function sweepStaleSnapshotTemps(paths: AgentVoicePaths): void {
+	try {
+		if (!existsSync(paths.run)) return;
+		for (const name of readdirSync(paths.run)) {
+			if (name.startsWith("status.json.") && name.endsWith(".tmp")) {
+				rmSync(join(paths.run, name), { force: true });
+			}
+		}
+	} catch {
+		// Best-effort cleanup only.
+	}
 }
 
 function defaultIsPidAlive(pid: number): boolean {
@@ -368,6 +388,8 @@ export async function runDaemonLoop(
 	try {
 		const clock = deps.now ?? (() => new Date());
 		let lastPruneMs = clock().getTime();
+		// Clear any temp files orphaned by a previously-crashed daemon (B13).
+		sweepStaleSnapshotTemps(paths);
 		// Publish the daemon's status to run/status.json so the GUI can read it
 		// in-process instead of spawning the CLI. We are the running daemon, so
 		// daemon.running is always true here. The byte-identical guard skips the
@@ -383,17 +405,42 @@ export async function runDaemonLoop(
 					paths: { home: paths.home, config: paths.config, db: paths.db },
 				}),
 			);
-			if (json === lastSnapshotJson) return;
-			lastSnapshotJson = json;
-			writeStatusSnapshotAtomic(paths, json);
-			summary.snapshotWrites += 1;
+			// Skip only when both the content AND the on-disk file are unchanged;
+			// re-publish if the file was removed out from under us (B12).
+			if (json === lastSnapshotJson && existsSync(statusSnapshotPath(paths))) {
+				return;
+			}
+			// Best-effort: a cosmetic status write must NEVER crash the daemon that
+			// processes jobs. Write first, then commit the dedup cache only on
+			// success so a failed write is retried next tick instead of being
+			// silently suppressed (B1).
+			try {
+				writeStatusSnapshotAtomic(paths, json);
+				lastSnapshotJson = json;
+				summary.snapshotWrites += 1;
+			} catch (error) {
+				console.warn(
+					`[agent-voice] failed to publish status snapshot: ${
+						error instanceof Error ? error.message : String(error)
+					}`,
+				);
+			}
 		};
 		// Site (a): announce "running" promptly, before the first wait.
 		publishSnapshot(currentDaemonConfig(paths, configCache));
 		while (summary.iterations < maxIterations && !hasIntentionalStop(paths)) {
 			const currentConfig = currentDaemonConfig(paths, configCache);
 			const procDeps = await getProcessorDeps(currentConfig);
-			const result = await processNextJob(db, currentConfig, procDeps, clock);
+			const result = await processNextJob(
+				db,
+				currentConfig,
+				procDeps,
+				clock,
+				// Publish the in-flight "processing" state as soon as the job is
+				// claimed, so the GUI sees queues.processing>0 for the job's
+				// duration instead of jumping pending -> done (B5).
+				() => publishSnapshot(currentConfig),
+			);
 			summary.iterations += 1;
 			if (result.kind === "processed") summary.processed += 1;
 			if (result.kind === "idle") summary.idle += 1;
@@ -511,6 +558,10 @@ export async function stopDaemon(
 			(deps.killProcess ?? defaultKillProcess)(pid, "SIGTERM");
 		}
 		clearDaemonLock(paths);
+		// The SIGTERM'd daemon dies on its default disposition without running its
+		// finally (it only handles SIGUSR1), so clear the snapshot here too —
+		// otherwise a stopped daemon leaves a stale running:true file behind.
+		clearStatusSnapshot(paths);
 	}
 	return { stopped: pid !== null, pid };
 }

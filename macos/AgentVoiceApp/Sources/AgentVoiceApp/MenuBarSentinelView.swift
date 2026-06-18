@@ -29,6 +29,10 @@ struct MenuBarSentinelView: View {
         .frame(width: 340)
         .onAppear { model.startAutoRefresh() }
         .onDisappear { model.stopAutoRefresh() }
+        // The popover is a visible surface that window-occlusion does not track,
+        // so signal it explicitly to keep refreshing while all windows are closed.
+        .onAppear { model.setMenuPopoverOpen(true) }
+        .onDisappear { model.setMenuPopoverOpen(false) }
     }
 
     private var header: some View {
