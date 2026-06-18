@@ -12,7 +12,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { runCli } from "../src/cli";
 import { defaultConfig, loadConfig, saveConfig } from "../src/config";
 import {
@@ -383,6 +383,15 @@ describe("Kokoro setup module", () => {
 				],
 				expect.arrayContaining([kokoroManagedPython(paths), "-c"]),
 			]);
+			const modelRun = runs.at(-1);
+			const pathEntries = (modelRun?.env?.PATH ?? "").split(delimiter);
+			expect(pathEntries).toContain(join(kokoroManagedHome(paths), "bin"));
+			expect(pathEntries).toContain(
+				join(kokoroManagedHome(paths), ".venv", "bin"),
+			);
+			expect(modelRun?.env?.VIRTUAL_ENV).toBe(
+				join(kokoroManagedHome(paths), ".venv"),
+			);
 		} finally {
 			rmSync(home, { recursive: true, force: true });
 		}

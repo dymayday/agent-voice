@@ -13,7 +13,7 @@ import {
 	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { join, resolve } from "node:path";
+import { delimiter, join, resolve } from "node:path";
 import { loadConfig, saveConfig, type AgentVoiceConfig } from "./config";
 import type { AgentVoicePaths } from "./paths";
 
@@ -703,11 +703,19 @@ async function runChecked(
 }
 
 function kokoroChildEnv(paths: AgentVoicePaths): Record<string, string> {
+	const virtualEnv = join(kokoroManagedHome(paths), ".venv");
+	const pathEntries = [
+		join(virtualEnv, "bin"),
+		kokoroManagedBin(paths),
+		process.env.PATH ?? "",
+	].filter((entry) => entry.length > 0);
 	return {
 		HF_HOME: kokoroHuggingFaceHome(paths),
 		KOKORO_REPO_ID: process.env.KOKORO_REPO_ID ?? KOKORO_REPO_ID,
 		KOKORO_REPO_REVISION: process.env.KOKORO_REPO_REVISION ?? "",
+		PATH: pathEntries.join(delimiter),
 		PYTHONUNBUFFERED: "1",
+		VIRTUAL_ENV: virtualEnv,
 	};
 }
 
