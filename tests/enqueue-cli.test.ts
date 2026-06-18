@@ -9,6 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runCli } from "../src/cli";
+import { writeDaemonLock } from "../src/daemon";
 import { openDb } from "../src/db";
 import { createEvent } from "../src/events";
 import { resolvePaths } from "../src/paths";
@@ -589,6 +590,156 @@ describe("agent-voice enqueue CLI", () => {
 		expect(cliSource).not.toContain(`./${removedModule}`);
 		expect(cliSource).not.toContain(removedHelper);
 		expect(cliSource).not.toContain("trim" + "End");
+	});
+
+	test("inserted enqueue pokes the daemon once with SIGUSR1", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			writeDaemonLock(paths, 4242);
+			const signals: Array<{ pid: number; signal: NodeJS.Signals }> = [];
+
+			const result = await runCli(
+				["enqueue", "--format", "text", "--agent", "claude"],
+				{
+					env: { AGENT_VOICE_HOME: home },
+					stdin: "Claude finished.",
+					daemonDeps: {
+						isPidAlive: (pid) => pid === 4242,
+						killProcess: (pid, signal) => {
+							signals.push({ pid, signal });
+						},
+					},
+				},
+			);
+
+			expect(result.exitCode).toBe(0);
+			expect(signals).toEqual([{ pid: 4242, signal: "SIGUSR1" }]);
+			expect(pendingCount(home)).toBe(1);
+		});
+	});
+
+	test("duplicate enqueue does not poke the daemon", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			writeDaemonLock(paths, 4242);
+			const event = createEvent({ agent: "pi", text: "Once." });
+			const signals: Array<{ pid: number; signal: NodeJS.Signals }> = [];
+			const daemonDeps = {
+				isPidAlive: (pid: number) => pid === 4242,
+				killProcess: (pid: number, signal: NodeJS.Signals) => {
+					signals.push({ pid, signal });
+				},
+			};
+
+			const first = await runCli(["enqueue", "--format", "event-json"], {
+				env: { AGENT_VOICE_HOME: home },
+				stdin: JSON.stringify(event),
+				daemonDeps,
+			});
+			expect(first.exitCode).toBe(0);
+
+			const second = await runCli(["enqueue", "--format", "event-json"], {
+				env: { AGENT_VOICE_HOME: home },
+				stdin: JSON.stringify(event),
+				daemonDeps,
+			});
+			expect(second.exitCode).toBe(0);
+
+			// One signal for the insert; none for the duplicate.
+			expect(signals).toEqual([{ pid: 4242, signal: "SIGUSR1" }]);
+			expect(pendingCount(home)).toBe(1);
+		});
+	});
+
+	test("dead daemon (pre-check fails) is not signalled and exit stays 0", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			writeDaemonLock(paths, 5050);
+			const signals: number[] = [];
+
+			const result = await runCli(
+				["enqueue", "--format", "text", "--agent", "claude"],
+				{
+					env: { AGENT_VOICE_HOME: home },
+					stdin: "Claude finished.",
+					daemonDeps: {
+						isPidAlive: () => false,
+						killProcess: (pid) => {
+							signals.push(pid);
+						},
+					},
+				},
+			);
+
+			expect(result.exitCode).toBe(0);
+			expect(signals).toEqual([]);
+			expect(pendingCount(home)).toBe(1);
+		});
+	});
+
+	test("missing daemon lock means no signal and exit stays 0", async () => {
+		await withTempHome(async (home) => {
+			const signals: number[] = [];
+
+			const result = await runCli(
+				["enqueue", "--format", "text", "--agent", "claude"],
+				{
+					env: { AGENT_VOICE_HOME: home },
+					stdin: "Claude finished.",
+					daemonDeps: {
+						isPidAlive: () => true,
+						killProcess: (pid) => {
+							signals.push(pid);
+						},
+					},
+				},
+			);
+
+			expect(result.exitCode).toBe(0);
+			expect(signals).toEqual([]);
+			expect(pendingCount(home)).toBe(1);
+		});
+	});
+
+	test("config-mutating commands poke the daemon", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			writeDaemonLock(paths, 6060);
+			const signals: NodeJS.Signals[] = [];
+			const daemonDeps = {
+				isPidAlive: (pid: number) => pid === 6060,
+				killProcess: (_pid: number, signal: NodeJS.Signals) => {
+					signals.push(signal);
+				},
+			};
+			const env = { AGENT_VOICE_HOME: home };
+
+			const setVoice = await runCli(
+				["config", "set", "tts.voice", "af_sky"],
+				{ env, daemonDeps },
+			);
+			expect(setVoice.exitCode).toBe(0);
+
+			const disable = await runCli(["disable", "codex"], { env, daemonDeps });
+			expect(disable.exitCode).toBe(0);
+
+			const enable = await runCli(["enable", "codex"], { env, daemonDeps });
+			expect(enable.exitCode).toBe(0);
+
+			const mode = await runCli(["summarizer", "mode", "heuristic"], {
+				env,
+				daemonDeps,
+			});
+			expect(mode.exitCode).toBe(0);
+
+			// Each successful config write wakes the daemon via SIGUSR1.
+			expect(signals).toEqual([
+				"SIGUSR1",
+				"SIGUSR1",
+				"SIGUSR1",
+				"SIGUSR1",
+			]);
+		});
 	});
 
 	test("enqueue storage failure exits nonzero without starting daemon side effects", async () => {

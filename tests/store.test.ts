@@ -99,6 +99,107 @@ describe("store: enqueue + dedup", () => {
 
 import { claimNextDue, recoverStale } from "../src/store";
 import { defaultConfig } from "../src/config";
+import { getNextDueTime, msUntilNextDue } from "../src/store";
+
+describe("store: due-time queries", () => {
+	test("empty queue returns null", () => {
+		const db = openDb(":memory:");
+		try {
+			expect(getNextDueTime(db)).toBeNull();
+			expect(msUntilNextDue(db, new Date("2026-06-12T00:00:00.000Z"))).toBeNull();
+		} finally {
+			db.close();
+		}
+	});
+
+	test("pending job with NULL next_attempt_at is due now (sentinel, 0ms)", () => {
+		const db = openDb(":memory:");
+		try {
+			enqueue(db, createEvent({ agent: "claude", text: "Due now." }));
+			expect(getNextDueTime(db)).toBe("0000-01-01T00:00:00.000Z");
+			expect(msUntilNextDue(db, new Date("2026-06-12T00:00:00.000Z"))).toBe(0);
+		} finally {
+			db.close();
+		}
+	});
+
+	test("future next_attempt_at yields a positive ms delta", () => {
+		const db = openDb(":memory:");
+		try {
+			const event = createEvent({ agent: "pi", text: "Later." });
+			enqueue(db, event);
+			db.query(
+				"UPDATE jobs SET next_attempt_at='2026-06-12T00:00:30.000Z' WHERE id=?",
+			).run(event.id);
+			expect(getNextDueTime(db)).toBe("2026-06-12T00:00:30.000Z");
+			expect(
+				msUntilNextDue(db, new Date("2026-06-12T00:00:00.000Z")),
+			).toBe(30_000);
+		} finally {
+			db.close();
+		}
+	});
+
+	test("past next_attempt_at clamps to 0 (<=0)", () => {
+		const db = openDb(":memory:");
+		try {
+			const event = createEvent({ agent: "codex", text: "Overdue." });
+			enqueue(db, event);
+			db.query(
+				"UPDATE jobs SET next_attempt_at='2026-06-12T00:00:00.000Z' WHERE id=?",
+			).run(event.id);
+			expect(
+				msUntilNextDue(db, new Date("2026-06-12T00:01:00.000Z")),
+			).toBe(0);
+		} finally {
+			db.close();
+		}
+	});
+
+	test("ignores non-pending jobs (done/processing/failed)", () => {
+		const db = openDb(":memory:");
+		try {
+			const done = createEvent({ agent: "claude", text: "Done." });
+			const processing = createEvent({ agent: "codex", text: "Processing." });
+			const failed = createEvent({ agent: "pi", text: "Failed." });
+			for (const e of [done, processing, failed]) enqueue(db, e);
+			db.query(
+				"UPDATE jobs SET status='done', next_attempt_at='2026-06-12T00:00:05.000Z' WHERE id=?",
+			).run(done.id);
+			db.query(
+				"UPDATE jobs SET status='processing', next_attempt_at='2026-06-12T00:00:05.000Z' WHERE id=?",
+			).run(processing.id);
+			db.query(
+				"UPDATE jobs SET status='failed', next_attempt_at='2026-06-12T00:00:05.000Z' WHERE id=?",
+			).run(failed.id);
+			// No pending rows remain, so both queries report "no pending work".
+			expect(getNextDueTime(db)).toBeNull();
+			expect(
+				msUntilNextDue(db, new Date("2026-06-12T00:00:00.000Z")),
+			).toBeNull();
+		} finally {
+			db.close();
+		}
+	});
+
+	test("NULL-pending row wins over a future-pending row (due now)", () => {
+		const db = openDb(":memory:");
+		try {
+			const future = createEvent({ agent: "claude", text: "Future." });
+			const dueNow = createEvent({ agent: "codex", text: "Now." });
+			enqueue(db, future);
+			enqueue(db, dueNow);
+			db.query(
+				"UPDATE jobs SET next_attempt_at='2026-06-12T01:00:00.000Z' WHERE id=?",
+			).run(future.id);
+			// dueNow keeps NULL next_attempt_at -> sentinel wins.
+			expect(getNextDueTime(db)).toBe("0000-01-01T00:00:00.000Z");
+			expect(msUntilNextDue(db, new Date("2026-06-12T00:00:00.000Z"))).toBe(0);
+		} finally {
+			db.close();
+		}
+	});
+});
 
 describe("store: claim + recover", () => {
 	test("oldest due pending job is claimed first and moved to processing", () => {

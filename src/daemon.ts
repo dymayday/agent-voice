@@ -21,10 +21,12 @@ import { Database } from "bun:sqlite";
 import { openDb } from "./db";
 import {
 	countByStatus,
+	msUntilNextDue,
 	pruneRetention,
 	runMaintenance,
 	type JobStatus,
 } from "./store";
+import type { WorkWaiter } from "./daemon-wait";
 
 export interface DetachedDaemonRequest {
 	command: string;
@@ -47,6 +49,9 @@ export interface DaemonCliDeps {
 	maxIterations?: number;
 	pollIntervalMs?: number;
 	pruneEveryIterations?: number;
+	pruneIntervalMs?: number;
+	waitForWork?: (timeoutMs: number) => Promise<void>;
+	notifier?: WorkWaiter;
 }
 
 export interface DaemonStatus {
@@ -286,6 +291,12 @@ function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// When the idle wait is uncapped (no upcoming retry), fall back to this
+// safety-net cap so a missed wakeup never strands a job indefinitely.
+const DEFAULT_SAFETY_NET_MS = 30_000;
+// Wall-clock cadence for retention pruning (1h) — see B9.
+const DEFAULT_PRUNE_INTERVAL_MS = 3_600_000;
+
 export async function runDaemonLoop(
 	paths: AgentVoicePaths,
 	config: AgentVoiceConfig,
@@ -302,8 +313,13 @@ export async function runDaemonLoop(
 		failed: 0,
 	};
 	const maxIterations = deps.maxIterations ?? Number.POSITIVE_INFINITY;
-	const pollIntervalMs = deps.pollIntervalMs ?? 200;
+	// `pollIntervalMs` is repurposed as the idle-wait safety-net cap.
+	const safetyNetMs = deps.pollIntervalMs ?? DEFAULT_SAFETY_NET_MS;
+	// Default fallback preserves the old timer-sleep behavior; the real
+	// entrypoint injects a signal-driven waiter via deps.waitForWork/notifier.
+	const waitForWork = deps.waitForWork ?? ((ms) => sleep(ms));
 	const pruneEvery = deps.pruneEveryIterations ?? 300;
+	const pruneIntervalMs = deps.pruneIntervalMs ?? DEFAULT_PRUNE_INTERVAL_MS;
 	const configCache: DaemonConfigCache = { config, mtimeMs: null };
 	let activeProcessorDeps: ProcessorDeps | null = null;
 	async function getProcessorDeps(currentConfig: AgentVoiceConfig): Promise<ProcessorDeps> {
@@ -322,6 +338,7 @@ export async function runDaemonLoop(
 	const db = openDb(paths.db);
 	try {
 		const clock = deps.now ?? (() => new Date());
+		let lastPruneMs = clock().getTime();
 		while (summary.iterations < maxIterations && !hasIntentionalStop(paths)) {
 			const currentConfig = currentDaemonConfig(paths, configCache);
 			const procDeps = await getProcessorDeps(currentConfig);
@@ -331,11 +348,30 @@ export async function runDaemonLoop(
 			if (result.kind === "idle") summary.idle += 1;
 			if (result.kind === "retry_scheduled") summary.retryScheduled += 1;
 			if (result.kind === "failed") summary.failed += 1;
-			if (summary.iterations % pruneEvery === 0) {
+			// Prune on the iteration cadence (preserves existing test triggers)
+			// OR on a wall-clock schedule — the latter keeps pruning alive on a
+			// mostly-idle daemon where iterations advance only ~1/30s (B9).
+			const nowMs = clock().getTime();
+			const iterationDue = pruneEvery > 0 && summary.iterations % pruneEvery === 0;
+			const wallClockDue = nowMs - lastPruneMs >= pruneIntervalMs;
+			if (iterationDue || wallClockDue) {
 				pruneRetention(db, currentConfig.spool.retentionDays, clock());
 				runMaintenance(db);
+				lastPruneMs = nowMs;
 			}
-			if (result.kind === "idle") await sleep(pollIntervalMs);
+			if (result.kind === "idle") {
+				// Single-writer invariant: an idle daemon has nothing in
+				// `processing`, so no pending job can go stale mid-wait. An orphan
+				// `processing` row from a crashed prior daemon is recovered on
+				// iteration 1 (process-then-wait order, before we ever wait here).
+				// Therefore msUntilNextDue (pending-only) is a sufficient deadline.
+				const dueInMs = msUntilNextDue(db, clock());
+				const waitMs =
+					dueInMs === null
+						? safetyNetMs
+						: Math.max(0, Math.min(safetyNetMs, dueInMs));
+				if (waitMs > 0) await waitForWork(waitMs);
+			}
 		}
 	} finally {
 		db.close();
@@ -414,4 +450,48 @@ export async function stopDaemon(
 
 export function hasIntentionalStop(paths: AgentVoicePaths): boolean {
 	return existsSync(intentionalStopPath(paths));
+}
+
+/**
+ * Best-effort wakeup poke to a running daemon via SIGUSR1.
+ *
+ * Called after an enqueue insert or a config mutation so the daemon wakes from
+ * its idle wait promptly instead of waiting out the safety-net cap. This must
+ * never throw or block out of the success path of its caller — the entire body
+ * (including `readDaemonLock`, which re-throws non-ENOENT errors like EACCES) is
+ * wrapped in a try/catch.
+ *
+ * PID-reuse TOCTOU (accepted, documented): between `readDaemonLock` and `kill`
+ * the daemon could die and the PID be reused. This is the same risk the
+ * existing `stopDaemon` SIGTERM path already carries. Worst realistic case is a
+ * missed wakeup (covered by the safety net) or a stray SIGUSR1.
+ */
+export function notifyDaemon(
+	paths: AgentVoicePaths,
+	deps: DaemonCliDeps = {},
+): void {
+	try {
+		const pid = readDaemonLock(paths);
+		if (pid === null) return;
+		// Liveness pre-check avoids signalling a reused PID.
+		if (!(deps.isPidAlive ?? defaultIsPidAlive)(pid)) return;
+		try {
+			(deps.killProcess ?? defaultKillProcess)(pid, "SIGUSR1");
+		} catch (err) {
+			const code = (err as NodeJS.ErrnoException).code;
+			// ESRCH: process gone; EPERM: not ours — both are benign for a
+			// best-effort poke. Anything else is unexpected: warn, but never
+			// rethrow (the caller still exits successfully).
+			if (code !== "ESRCH" && code !== "EPERM") {
+				console.warn(
+					`[agent-voice] failed to notify daemon pid=${pid}: ${
+						err instanceof Error ? err.message : String(err)
+					}`,
+				);
+			}
+		}
+	} catch {
+		// readDaemonLock or anything else above threw (e.g. EACCES). Best-effort:
+		// swallow so the caller's success path is never disturbed.
+	}
 }

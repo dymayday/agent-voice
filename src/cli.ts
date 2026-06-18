@@ -7,12 +7,14 @@ import {
 	enterForegroundDaemon,
 	formatDaemonStatus,
 	getDaemonStatus,
+	notifyDaemon,
 	runDaemonLoop,
 	runDaemonOnce,
 	startDaemon,
 	stopDaemon,
 	type DaemonCliDeps,
 } from "./daemon";
+import { createSignalWorkWaiter } from "./daemon-wait";
 import {
 	defaultConfig,
 	isAgentName,
@@ -344,6 +346,9 @@ export async function runCli(
 				const config = loadConfig(paths, { createIfMissing: false });
 				const updated = setConfigValue(config, key, value);
 				saveConfig(paths, updated);
+				// Wake the daemon so a config change affects spoken output now
+				// instead of after the idle safety-net cap (B8).
+				notifyDaemon(paths, io.daemonDeps);
 				return result(0, "");
 			} catch (error) {
 				return result(
@@ -366,6 +371,7 @@ export async function runCli(
 		const config = loadConfig(paths);
 		config.agents[agent].enabled = command === "enable";
 		saveConfig(paths, config);
+		notifyDaemon(paths, io.daemonDeps);
 		return result(0, "");
 	}
 
@@ -394,6 +400,7 @@ export async function runCli(
 		}
 		const config = loadConfig(paths);
 		saveConfig(paths, setSummarizerMode(config, mode));
+		notifyDaemon(paths, io.daemonDeps);
 		return result(0, `summarizer mode=${mode}\n`);
 	}
 
@@ -441,6 +448,10 @@ export async function runCli(
 				...(emit ? { emit } : {}),
 			});
 			await streamWriteChain;
+
+			// A successful setup writes the Kokoro python/script path into config;
+			// wake the daemon so it reloads and can speak immediately (B8).
+			if (outcome.ok) notifyDaemon(paths, io.daemonDeps);
 
 			if (jsonl) {
 				return result(
@@ -618,11 +629,15 @@ export async function runCli(
 
 		try {
 			const db = openDb(paths.db);
+			let inserted: boolean;
 			try {
-				enqueue(db, event);
+				inserted = enqueue(db, event).inserted;
 			} finally {
 				db.close();
 			}
+			// Wake the daemon only on a real insert; a duplicate (inserted=false)
+			// added nothing to process. Best-effort: never disturbs the exit 0.
+			if (inserted) notifyDaemon(paths, io.daemonDeps);
 			return result(0, "");
 		} catch (error) {
 			return result(
@@ -679,13 +694,34 @@ export async function runCli(
 		}
 		const config = loadConfig(paths);
 		const defaultDepsForConfig = defaultProcessorDepsFactory(paths);
-		const deps = {
+		// Install the SIGUSR1 wakeup handler BEFORE enterForegroundDaemon writes
+		// the PID lock: enqueue discovers the PID only via that lock, so
+		// installing first closes the startup window where a SIGUSR1 (default
+		// disposition = terminate) could kill the just-spawned daemon. We do NOT
+		// install SIGTERM/SIGINT handlers — their default-terminate disposition
+		// preserves today's stop semantics (see B7). Tests inject their own
+		// notifier/waitForWork; only create a real waiter when neither is given.
+		const waiter =
+			io.daemonDeps?.notifier === undefined &&
+			io.daemonDeps?.waitForWork === undefined
+				? createSignalWorkWaiter()
+				: null;
+		waiter?.install();
+		const deps: DaemonCliDeps = {
 			...(io.daemonDeps ?? {}),
 			processorDeps: processorDepsFor(config, paths, io.daemonDeps),
 			processorDepsForConfig:
 				io.daemonDeps?.processorDepsForConfig ??
 				((nextConfig: ReturnType<typeof loadConfig>) =>
 					io.daemonDeps?.processorDeps ?? defaultDepsForConfig(nextConfig)),
+			// Derive wait and notify from the SAME object so a SIGUSR1 wakes the
+			// in-flight wait.
+			...(waiter
+				? {
+						notifier: waiter,
+						waitForWork: (ms: number) => waiter.wait(ms),
+					}
+				: {}),
 		};
 		try {
 			const started = enterForegroundDaemon(paths, deps);
@@ -709,6 +745,10 @@ export async function runCli(
 				"",
 				`${error instanceof Error ? error.message : String(error)}\n`,
 			);
+		} finally {
+			// Named-handler removeListener (idempotent) so in-process daemon-command
+			// tests don't accumulate SIGUSR1 listeners across `bun test`.
+			waiter?.uninstall();
 		}
 	}
 

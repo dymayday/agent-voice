@@ -18,6 +18,7 @@ public final class AppModel: ObservableObject {
     @Published public var draftSummarizerModel: String = ""
 
     public static let defaultAutoRefreshIntervalNanoseconds: UInt64 = 2_000_000_000
+    public static let defaultDiagnosticsRefreshEveryTicks = 15  // 15 * 2s ≈ 30s
     public static let defaultHistoryPageSize = 10
 
     var autoRefreshSubscriberCount = 0
@@ -31,6 +32,8 @@ public final class AppModel: ObservableObject {
     private var lastHistoryTerminalCounts: TerminalQueueCounts?
     private var loadedHistoryPageCount = 0
     private var shouldReplaceHistoryOnNextRefresh = false
+    private var lastStatusError: String?
+    private var lastDiagnosticsError: String?
 
     public static let kokoroVoicePresets = [
         "af_heart",
@@ -65,8 +68,17 @@ public final class AppModel: ObservableObject {
 
 extension AppModel {
     public func refresh() async {
+        await refreshStatusSection()
+        await refreshDiagnosticsSection()
+    }
+
+    private func recomputeLastError() {
+        let parts = [lastStatusError, lastDiagnosticsError].compactMap { $0 }
+        lastError = parts.isEmpty ? nil : parts.joined(separator: "\n")
+    }
+
+    private func refreshStatusSection() async {
         var errors: [String] = []
-        var kokoroDetectionErrors: [String] = []
         var refreshedStatus: AgentVoiceStatusSnapshot?
 
         do {
@@ -87,6 +99,14 @@ extension AppModel {
                 errors.append("history: \(String(describing: error))")
             }
         }
+
+        lastStatusError = errors.isEmpty ? nil : errors.joined(separator: "\n")
+        recomputeLastError()
+    }
+
+    private func refreshDiagnosticsSection() async {
+        var errors: [String] = []
+        var kokoroDetectionErrors: [String] = []
 
         do {
             doctorReport = try await cli.doctor()
@@ -120,19 +140,40 @@ extension AppModel {
         if kokoroDetectionErrors.isEmpty {
             resetStaleKokoroSetupSuccessIfNeeded()
         }
-        lastError = errors.isEmpty ? nil : errors.joined(separator: "\n")
+
+        lastDiagnosticsError = errors.isEmpty ? nil : errors.joined(separator: "\n")
+        recomputeLastError()
+    }
+
+    private func refreshStatus() async {
+        await refreshStatusSection()
+    }
+
+    private func refreshDiagnostics() async {
+        await refreshDiagnosticsSection()
     }
 
     public func startAutoRefresh(
-        everyNanoseconds intervalNanoseconds: UInt64 = AppModel.defaultAutoRefreshIntervalNanoseconds
+        everyNanoseconds intervalNanoseconds: UInt64 = AppModel.defaultAutoRefreshIntervalNanoseconds,
+        diagnosticsEveryTicks: Int = AppModel.defaultDiagnosticsRefreshEveryTicks
     ) {
         autoRefreshSubscriberCount += 1
         guard autoRefreshTask == nil else { return }
 
         let intervalNanoseconds = max(intervalNanoseconds, 1_000_000)
+        let tickDivisor = max(1, diagnosticsEveryTicks)
         autoRefreshTask = Task { [weak self] in
+            var tick = 0
             while !Task.isCancelled {
-                await self?.refresh()
+                if tick == 0 {
+                    await self?.refresh()
+                } else {
+                    await self?.refreshStatus()
+                    if tick % tickDivisor == 0 {
+                        await self?.refreshDiagnostics()
+                    }
+                }
+                tick &+= 1
                 do {
                     try await Task.sleep(nanoseconds: intervalNanoseconds)
                 } catch {

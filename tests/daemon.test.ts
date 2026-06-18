@@ -494,3 +494,162 @@ describe("agent-voice daemon processor", () => {
 		});
 	});
 });
+
+describe("agent-voice daemon idle wait", () => {
+	test("idle wait uses min(safetyNet, msUntilNextDue) for a seeded future retry", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			const event = createEvent({ agent: "claude", text: "Retry later." });
+			const db = openDb(paths.db);
+			try {
+				enqueue(db, event);
+				// Schedule the retry 10s after the fixed clock; safety-net is 30s,
+				// so min(30_000, 10_000) = 10_000.
+				db.query(
+					"UPDATE jobs SET next_attempt_at='2026-06-12T00:00:10.000Z' WHERE id=?",
+				).run(event.id);
+			} finally {
+				db.close();
+			}
+
+			const waits: number[] = [];
+			await runDaemonLoop(paths, config(), {
+				maxIterations: 1,
+				pollIntervalMs: 30_000, // safety-net cap
+				now: () => new Date("2026-06-12T00:00:00.000Z"),
+				waitForWork: async (ms) => {
+					waits.push(ms);
+				},
+				processorDeps: deps(),
+			});
+
+			expect(waits).toEqual([10_000]);
+		});
+	});
+
+	test("idle wait falls back to the safety-net cap when nothing is pending", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			const waits: number[] = [];
+			await runDaemonLoop(paths, config(), {
+				maxIterations: 1,
+				pollIntervalMs: 30_000,
+				now: () => new Date("2026-06-12T00:00:00.000Z"),
+				waitForWork: async (ms) => {
+					waits.push(ms);
+				},
+				processorDeps: deps(),
+			});
+			// No pending rows -> msUntilNextDue null -> wait the full safety net.
+			expect(waits).toEqual([30_000]);
+		});
+	});
+
+	test("idle wait caps a far-future retry at the safety-net cap", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			const event = createEvent({ agent: "pi", text: "Much later." });
+			const db = openDb(paths.db);
+			try {
+				enqueue(db, event);
+				db.query(
+					"UPDATE jobs SET next_attempt_at='2026-06-12T01:00:00.000Z' WHERE id=?",
+				).run(event.id);
+			} finally {
+				db.close();
+			}
+			const waits: number[] = [];
+			await runDaemonLoop(paths, config(), {
+				maxIterations: 1,
+				pollIntervalMs: 30_000,
+				now: () => new Date("2026-06-12T00:00:00.000Z"),
+				waitForWork: async (ms) => {
+					waits.push(ms);
+				},
+				processorDeps: deps(),
+			});
+			// 1h out, capped to the 30s safety net.
+			expect(waits).toEqual([30_000]);
+		});
+	});
+});
+
+describe("agent-voice daemon wall-clock pruning", () => {
+	test("prunes on elapsed pruneIntervalMs even without the iteration trigger", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			const seed = openDb(paths.db);
+			try {
+				// An old terminal row that retention pruning should delete.
+				const old = createEvent({ agent: "claude", text: "Old done." });
+				enqueue(seed, old);
+				seed
+					.query(
+						"UPDATE jobs SET status='done', finished_at='2026-05-01T00:00:00.000Z' WHERE id=?",
+					)
+					.run(old.id);
+			} finally {
+				seed.close();
+			}
+
+			// pruneIntervalMs: 0 makes the wall-clock branch (now - lastPrune >= 0)
+			// fire on the first iteration with a fixed clock. The iteration trigger
+			// (pruneEveryIterations: 300) can never fire at maxIterations: 1, so a
+			// prune here proves the wall-clock path is what ran.
+			await runDaemonLoop(paths, config({ spool: { retentionDays: 7 } }), {
+				maxIterations: 1,
+				pollIntervalMs: 0,
+				pruneEveryIterations: 300, // far above maxIterations: never triggers
+				pruneIntervalMs: 0, // wall-clock branch fires immediately
+				now: () => new Date("2026-06-12T00:00:00.000Z"),
+				waitForWork: async () => {},
+				processorDeps: deps(),
+			});
+
+			const check = openDb(paths.db);
+			try {
+				// The old done row was pruned by the wall-clock-triggered prune.
+				expect(countByStatus(check).done).toBe(0);
+			} finally {
+				check.close();
+			}
+		});
+	});
+
+	test("iteration-cadence pruning still fires (default trigger preserved)", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			const seed = openDb(paths.db);
+			try {
+				const old = createEvent({ agent: "codex", text: "Old done." });
+				enqueue(seed, old);
+				seed
+					.query(
+						"UPDATE jobs SET status='done', finished_at='2026-05-01T00:00:00.000Z' WHERE id=?",
+					)
+					.run(old.id);
+			} finally {
+				seed.close();
+			}
+
+			// Fixed clock so the wall-clock branch never fires; only the
+			// iteration trigger (pruneEveryIterations: 1) can prune.
+			await runDaemonLoop(paths, config({ spool: { retentionDays: 7 } }), {
+				maxIterations: 1,
+				pollIntervalMs: 0,
+				pruneEveryIterations: 1,
+				pruneIntervalMs: Number.POSITIVE_INFINITY,
+				now: () => new Date("2026-06-12T00:00:00.000Z"),
+				waitForWork: async () => {},
+				processorDeps: deps(),
+			});
+
+			const check = openDb(paths.db);
+			try {
+				expect(countByStatus(check).done).toBe(0);
+			} finally {
+				check.close();
+			}
+		});
+	});
+});

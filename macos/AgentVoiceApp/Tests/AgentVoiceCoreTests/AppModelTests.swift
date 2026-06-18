@@ -396,4 +396,111 @@ final class AppModelTests: XCTestCase {
         ])
     }
 
+    func testAutoRefreshFirstTickPerformsFullRefresh() async throws {
+        let runner = RecordingRunner(results: [
+            ProcessResult(exitCode: 0, stdout: statusJSON(done: 1), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyHistoryJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyDoctorJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: fullConfigJSON(), stderr: "")
+        ])
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+        let model = AppModel(cli: cli)
+
+        model.startAutoRefresh(everyNanoseconds: 5_000_000_000)
+        try await waitForRequestCount(4, runner: runner)
+        model.stopAutoRefresh()
+
+        let requests = await runner.capturedRequests()
+        XCTAssertEqual(Array(requests.map(\.arguments).prefix(4)), [
+            ["status", "--json"],
+            ["history", "--json", "--limit", "10"],
+            ["doctor", "--json"],
+            ["config", "get"]
+        ])
+    }
+
+    func testAutoRefreshSecondTickRefreshesStatusOnly() async throws {
+        // Tick 0 = full [status, history, doctor, config] (terminal counts recorded).
+        // Tick 1 (default cadence, divisor 15) = [status] only; history skipped because
+        // terminal counts are unchanged and diagnostics not yet due.
+        let runner = RecordingRunner(results: [
+            ProcessResult(exitCode: 0, stdout: statusJSON(done: 1), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyHistoryJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyDoctorJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: fullConfigJSON(), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: statusJSON(done: 1), stderr: "")
+        ])
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+        let model = AppModel(cli: cli)
+
+        model.startAutoRefresh(everyNanoseconds: 1_000_000)
+        try await waitForRequestCount(5, runner: runner)
+        model.stopAutoRefresh()
+
+        let requests = await runner.capturedRequests()
+        XCTAssertEqual(Array(requests.map(\.arguments).prefix(5)), [
+            ["status", "--json"],
+            ["history", "--json", "--limit", "10"],
+            ["doctor", "--json"],
+            ["config", "get"],
+            ["status", "--json"]
+        ])
+    }
+
+    func testAutoRefreshRunsDiagnosticsOnConfiguredCadence() async throws {
+        // diagnosticsEveryTicks: 2 → tick 0 full, tick 1 status-only,
+        // tick 2 status + doctor + config (history skipped, counts unchanged).
+        let runner = RecordingRunner(results: [
+            ProcessResult(exitCode: 0, stdout: statusJSON(done: 1), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyHistoryJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyDoctorJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: fullConfigJSON(), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: statusJSON(done: 1), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: statusJSON(done: 1), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyDoctorJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: fullConfigJSON(), stderr: "")
+        ])
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+        let model = AppModel(cli: cli)
+
+        model.startAutoRefresh(everyNanoseconds: 1_000_000, diagnosticsEveryTicks: 2)
+        try await waitForRequestCount(8, runner: runner)
+        model.stopAutoRefresh()
+
+        let requests = await runner.capturedRequests()
+        XCTAssertEqual(Array(requests.map(\.arguments).prefix(8)), [
+            ["status", "--json"],
+            ["history", "--json", "--limit", "10"],
+            ["doctor", "--json"],
+            ["config", "get"],
+            ["status", "--json"],
+            ["status", "--json"],
+            ["doctor", "--json"],
+            ["config", "get"]
+        ])
+    }
+
+    func testAutoRefreshPreservesDiagnosticsErrorAcrossStatusOnlyTick() async throws {
+        // Tick 0 full refresh: status OK, doctor FAILS → lastError carries the doctor error.
+        // Tick 1 status-only refresh succeeds; the status section must NOT clobber the
+        // live diagnostics error recorded on the previous full tick.
+        let runner = RecordingRunner(results: [
+            ProcessResult(exitCode: 0, stdout: statusJSON(done: 1), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyHistoryJSON, stderr: ""),
+            ProcessResult(exitCode: 1, stdout: "", stderr: "doctor exploded"),
+            ProcessResult(exitCode: 0, stdout: fullConfigJSON(), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: statusJSON(done: 1), stderr: "")
+        ])
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+        let model = AppModel(cli: cli)
+
+        model.startAutoRefresh(everyNanoseconds: 1_000_000)
+        try await waitForRequestCount(5, runner: runner)
+        model.stopAutoRefresh()
+
+        let lastError = model.lastError
+        XCTAssertNotNil(lastError)
+        XCTAssertTrue(lastError?.contains("doctor:") == true, "Expected lastError to still contain the doctor failure, got: \(String(describing: lastError))")
+    }
+
 }
