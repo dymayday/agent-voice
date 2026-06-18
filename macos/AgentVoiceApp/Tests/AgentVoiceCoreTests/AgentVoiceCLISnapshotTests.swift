@@ -80,6 +80,17 @@ final class AgentVoiceCLISnapshotTests: XCTestCase {
         XCTAssertEqual(requests.first?.arguments, ["status", "--json"])
     }
 
+    func testFallsBackToSpawnWhenSnapshotPidIsZero() async throws {
+        // A zero/invalid pid must never be trusted (the pid > 0 guard).
+        try writeSnapshot(running: true, pid: 0)
+        let runner = RecordingRunner(stdout: spawnStatusJSON)
+        let snapshot = try await makeCLI(runner: runner).status()
+
+        XCTAssertEqual(snapshot.queues.pending, 9)
+        let requests = await runner.capturedRequests()
+        XCTAssertEqual(requests.first?.arguments, ["status", "--json"])
+    }
+
     func testFallsBackToSpawnWhenSnapshotReportsStopped() async throws {
         try writeSnapshot(running: false, pid: nil)
         let runner = RecordingRunner(stdout: spawnStatusJSON)

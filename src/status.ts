@@ -4,6 +4,11 @@ import { getDaemonStatus, type DaemonCliDeps } from "./daemon";
 import type { AgentVoicePaths } from "./paths";
 import type { JobStatus } from "./store";
 
+/** The config fields the status snapshot exposes (deriveUiState reads `enabled`). */
+export type StatusConfigView = Pick<AgentVoiceConfig, "enabled" | "agents">;
+/** The path fields the status snapshot exposes. */
+export type StatusPaths = { home: string; config: string; db: string };
+
 export interface AppStatusSnapshot {
 	version: 1;
 	daemon: {
@@ -12,8 +17,8 @@ export interface AppStatusSnapshot {
 		pid: number | null;
 	};
 	queues: Record<JobStatus, number>;
-	config: Pick<AgentVoiceConfig, "enabled" | "agents">;
-	paths: { home: string; config: string; db: string };
+	config: StatusConfigView;
+	paths: StatusPaths;
 	ui: {
 		state:
 			| "ready"
@@ -36,8 +41,8 @@ function deriveDaemonRunState(
 export interface StatusSnapshotInput {
 	daemon: { running: boolean; pid: number | null };
 	queues: Record<JobStatus, number>;
-	config: Pick<AgentVoiceConfig, "enabled" | "agents">;
-	paths: { home: string; config: string; db: string };
+	config: StatusConfigView;
+	paths: StatusPaths;
 }
 
 /**
@@ -57,7 +62,10 @@ export function composeStatusSnapshot(
 			pid: input.daemon.pid,
 		},
 		queues: input.queues,
-		config: { enabled: input.config.enabled, agents: input.config.agents },
+		// Pass the views straight through: callers that hold a full AgentVoiceConfig
+		// narrow to StatusConfigView at the boundary (buildAppStatusSnapshot,
+		// createStatusPublisher), so there is nothing extra to strip here.
+		config: input.config,
 		paths: input.paths,
 	};
 	return { ...base, ui: deriveUiState(base) };

@@ -194,10 +194,10 @@ extension AppModel {
 
     /// Hard-gate the refresh loop on window occlusion. When the app's windows are
     /// fully occluded/minimized we cancel the loop (no spawns, no file reads) but
-    /// keep the subscriber count, so becoming visible again resumes it. Mere
-    /// backgrounding/loss of focus does NOT cancel — that only backs off the
-    /// cadence via setHostActive. Restarting begins at tick 0, which performs an
-    /// immediate full refresh so a revealed window is never stale.
+    /// keep the subscriber count, so becoming visible again resumes it. Mere loss
+    /// of focus (the app still has a visible window) does NOT cancel — that only
+    /// backs off the cadence via setHostActive. Restarting begins at tick 0, which
+    /// performs an immediate full refresh so a revealed window is never stale.
     public func setHostVisibility(_ visible: Bool) {
         guard isHostVisible != visible else { return }
         isHostVisible = visible

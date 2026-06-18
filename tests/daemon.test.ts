@@ -922,4 +922,56 @@ describe("agent-voice daemon status snapshot publishing", () => {
 			expect(existsSync(orphan)).toBe(false);
 		});
 	});
+
+	test("retries the identical write on the next tick after a failure", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			// Block writes by making the target a directory (rename fails); the
+			// waitForWork hook removes it before the second iteration.
+			mkdirSync(statusSnapshotPath(paths), { recursive: true });
+			let unblocked = false;
+			const loop = await runDaemonLoop(paths, config(), {
+				maxIterations: 2,
+				pollIntervalMs: 1000, // > 0 so the idle wait (and our hook) runs
+				now: () => new Date("2026-06-18T00:00:00.000Z"),
+				waitForWork: async () => {
+					if (!unblocked) {
+						unblocked = true;
+						rmSync(statusSnapshotPath(paths), { recursive: true, force: true });
+					}
+				},
+				processorDeps: deps(),
+			});
+
+			// Site (a) and iteration 1 failed without poisoning the cache, so the
+			// byte-identical idle payload is retried on iteration 2 and lands.
+			expect(loop.snapshotWrites).toBe(1);
+			expect(existsSync(statusSnapshotPath(paths))).toBe(true);
+			expect(readSnapshot(paths).daemon.running).toBe(true);
+		});
+	});
+
+	test("re-publishes an idle snapshot if the file is deleted externally", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			let deleted = false;
+			const loop = await runDaemonLoop(paths, config(), {
+				maxIterations: 2,
+				pollIntervalMs: 1000,
+				now: () => new Date("2026-06-18T00:00:00.000Z"),
+				waitForWork: async () => {
+					if (!deleted) {
+						deleted = true;
+						rmSync(statusSnapshotPath(paths), { force: true });
+					}
+				},
+				processorDeps: deps(),
+			});
+
+			// Site (a) wrote it; iteration 1 deduped (file present); after the
+			// external delete, iteration 2 re-publishes the byte-identical payload.
+			expect(loop.snapshotWrites).toBe(2);
+			expect(existsSync(statusSnapshotPath(paths))).toBe(true);
+		});
+	});
 });

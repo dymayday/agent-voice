@@ -165,31 +165,47 @@ export function createStatusPublisher(
 	db: Database,
 ): StatusPublisher {
 	let lastJson: string | null = null;
+	let lastWarnedError: string | null = null;
 	let writes = 0;
 	return {
 		get writes() {
 			return writes;
 		},
 		publish(config: AgentVoiceConfig): void {
-			const json = formatAppStatusJson(
-				composeStatusSnapshot({
-					daemon: { running: true, pid: process.pid },
-					queues: countByStatus(db),
-					config: { enabled: config.enabled, agents: config.agents },
-					paths: { home: paths.home, config: paths.config, db: paths.db },
-				}),
-			);
-			if (json === lastJson && existsSync(statusSnapshotPath(paths))) return;
+			// The WHOLE body is best-effort: nothing here — snapshot composition,
+			// the countByStatus read, the dedup stat, or the write — may crash the
+			// job-processing daemon, because a status snapshot is purely cosmetic.
 			try {
+				const json = formatAppStatusJson(
+					composeStatusSnapshot({
+						daemon: { running: true, pid: process.pid },
+						queues: countByStatus(db),
+						config: { enabled: config.enabled, agents: config.agents },
+						paths: { home: paths.home, config: paths.config, db: paths.db },
+					}),
+				);
+				// Skip when content AND the on-disk file are unchanged; re-publish if
+				// the file was removed out from under us. lastJson advances only after
+				// a successful write, so a failed write is retried next tick.
+				if (json === lastJson && existsSync(statusSnapshotPath(paths))) return;
 				writeStatusSnapshotAtomic(paths, json);
 				lastJson = json;
 				writes += 1;
+				if (lastWarnedError !== null) {
+					console.warn("[agent-voice] status snapshot publishing recovered");
+					lastWarnedError = null;
+				}
 			} catch (error) {
-				console.warn(
-					`[agent-voice] failed to publish status snapshot: ${
-						error instanceof Error ? error.message : String(error)
-					}`,
-				);
+				// Log once per distinct error, not once per tick: a persistent
+				// failure (full disk, EACCES) would otherwise flood the daemon log
+				// and bury the underlying condition.
+				const message = error instanceof Error ? error.message : String(error);
+				if (message !== lastWarnedError) {
+					console.warn(
+						`[agent-voice] failed to publish status snapshot (will keep retrying): ${message}`,
+					);
+					lastWarnedError = message;
+				}
 			}
 		},
 	};
@@ -439,7 +455,7 @@ export async function runDaemonLoop(
 	try {
 		const clock = deps.now ?? (() => new Date());
 		let lastPruneMs = clock().getTime();
-		// Clear temp files orphaned by a previously-crashed daemon (B13), then
+		// Clear temp files orphaned by a previously-crashed daemon, then
 		// publish "running" promptly so the GUI sees it before the first wait. The
 		// publisher owns the dedup/best-effort/self-heal policy; the loop just
 		// announces state transitions.
@@ -456,7 +472,7 @@ export async function runDaemonLoop(
 				clock,
 				// Publish the in-flight "processing" state as soon as the job is
 				// claimed, so the GUI sees queues.processing>0 for the job's
-				// duration instead of jumping pending -> done (B5).
+				// duration instead of jumping pending -> done.
 				() => publisher.publish(currentConfig),
 			);
 			summary.iterations += 1;
@@ -523,6 +539,9 @@ export async function startDaemon(
 
 	clearDaemonLock(paths);
 	clearIntentionalStop(paths);
+	// Drop any snapshot left by a previously-crashed daemon so a relaunch never
+	// inherits a stale running:true file before the new daemon's first publish.
+	clearStatusSnapshot(paths);
 	const pid = deps.startBackground
 		? await deps.startBackground(paths)
 		: await (deps.spawnDetached ?? defaultSpawnDetached)(
