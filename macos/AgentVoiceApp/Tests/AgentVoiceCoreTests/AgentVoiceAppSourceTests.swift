@@ -47,6 +47,36 @@ final class AgentVoiceAppSourceTests: XCTestCase {
         )
     }
 
+    func testMenuHeaderUsesStatusHaloWaveformIcon() throws {
+        let source = try appSource("MenuBarSentinelView.swift")
+        let header = try propertyBody(named: "header", in: source)
+        let icon = try propertyBody(named: "menuHeaderStatusIcon", in: source)
+
+        XCTAssertTrue(header.contains("menuHeaderStatusIcon"))
+        XCTAssertTrue(icon.contains("Image(systemName: \"waveform\")"))
+        XCTAssertTrue(icon.contains(".foregroundStyle(statusTint)"))
+        XCTAssertTrue(icon.contains(".stroke(statusTint.opacity(0.12), lineWidth: 6)"))
+        XCTAssertTrue(icon.contains(".stroke(statusTint.opacity(0.78), lineWidth: 2)"))
+        XCTAssertTrue(icon.contains(".frame(width: 40, height: 40)"))
+        XCTAssertTrue(icon.contains(".accessibilityHidden(true)"))
+        XCTAssertFalse(
+            icon.contains(".offset("),
+            "The dropdown header waveform should stay centered inside the halo helper."
+        )
+        XCTAssertFalse(
+            icon.contains(".frame(width: 10, height: 10)"),
+            "The halo helper should not reintroduce a separate status dot."
+        )
+        XCTAssertFalse(
+            header.contains(".offset(y: 11)"),
+            "The dropdown header waveform should be centered, not visually offset."
+        )
+        XCTAssertFalse(
+            header.contains(".frame(width: 10, height: 10)"),
+            "The dropdown header should not use a separate centered status dot."
+        )
+    }
+
     func testDashboardSceneIsSingletonWindow() throws {
         let source = try appSource("AgentVoiceApp.swift")
 
