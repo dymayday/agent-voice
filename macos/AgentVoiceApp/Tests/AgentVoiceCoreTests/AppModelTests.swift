@@ -6,13 +6,16 @@ func statusJSON(
     done: Int = 1,
     failed: Int = 0,
     skipped: Int = 0,
-    attention: [String] = []
+    attention: [String] = [],
+    daemonState: String = "running",
+    daemonRunning: Bool = true,
+    daemonPid: String = "123"
 ) -> String {
     let attentionJSON = attention.map { "\"\($0)\"" }.joined(separator: ",")
     return """
     {
       "version": 1,
-      "daemon": { "state": "running", "running": true, "pid": 123 },
+      "daemon": { "state": "\(daemonState)", "running": \(daemonRunning), "pid": \(daemonPid) },
       "queues": { "pending": 0, "processing": 0, "done": \(done), "failed": \(failed), "skipped": \(skipped) },
       "config": { "enabled": true, "agents": { "pi": { "enabled": true, "mode": "native" } } },
       "paths": { "home": "/tmp/av", "config": "/tmp/av/config.json", "db": "/tmp/av/queue.db" },

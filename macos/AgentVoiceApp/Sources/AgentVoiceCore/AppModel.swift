@@ -164,6 +164,11 @@ extension AppModel {
         await perform { try await cli.startDaemon() }
     }
 
+    public func startDaemonIfNeededOnLaunch() async {
+        guard status?.daemon.running != true else { return }
+        await perform { try await cli.startDaemon() }
+    }
+
     public func stopDaemon() async {
         await perform { try await cli.stopDaemon() }
     }

@@ -124,6 +124,44 @@ final class AppModelActionTests: XCTestCase {
         XCTAssertNil(model.lastError)
     }
 
+    func testStartDaemonIfNeededOnLaunchStartsStoppedDaemonAndRefreshes() async throws {
+        let stoppedStatus = statusJSON(
+            uiState: "daemon_stopped",
+            daemonState: "stopped",
+            daemonRunning: false,
+            daemonPid: "null"
+        )
+        let runner = RecordingRunner(results: [
+            ProcessResult(exitCode: 0, stdout: stoppedStatus, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyHistoryJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyDoctorJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: fullConfigJSON(), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: "started pid=456\n", stderr: ""),
+            ProcessResult(exitCode: 0, stdout: statusJSON(), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: emptyDoctorJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: fullConfigJSON(), stderr: "")
+        ])
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+        let model = AppModel(cli: cli)
+
+        await model.refresh()
+        await model.startDaemonIfNeededOnLaunch()
+
+        XCTAssertEqual(model.status?.daemon.running, true)
+        XCTAssertNil(model.lastError)
+        let requests = await runner.capturedRequests()
+        XCTAssertEqual(requests.map(\.arguments), [
+            ["status", "--json"],
+            ["history", "--json", "--limit", "10"],
+            ["doctor", "--json"],
+            ["config", "get"],
+            ["start"],
+            ["status", "--json"],
+            ["doctor", "--json"],
+            ["config", "get"]
+        ])
+    }
+
     func testStopDaemonBeforeQuitStopsAndRefreshesOnSuccess() async throws {
         let runner = RecordingRunner(results: [
             ProcessResult(exitCode: 0, stdout: "stopped pid=123\n", stderr: ""),

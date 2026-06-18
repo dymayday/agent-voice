@@ -79,6 +79,8 @@ final class AgentVoiceDockMenuDelegate: NSObject, NSApplicationDelegate {
             defer { initialWindowRoutingTask = nil }
             await model.refresh()
             guard !Task.isCancelled else { return }
+            await model.startDaemonIfNeededOnLaunch()
+            guard !Task.isCancelled else { return }
             promptForKokoroSetupIfNeeded(model: model)
         }
     }
