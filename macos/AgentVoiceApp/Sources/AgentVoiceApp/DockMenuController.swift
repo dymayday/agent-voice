@@ -137,6 +137,43 @@ final class AgentVoiceDockMenuDelegate: NSObject, NSApplicationDelegate {
         return menu
     }
 
+    // Gate the GUI's auto-refresh loop on real app visibility/focus. `onAppear`/
+    // `onDisappear` only fire on window open/close, so an open-but-occluded or
+    // backgrounded window would otherwise keep polling. Occlusion drives a hard
+    // suspend; activation drives the focused/unfocused cadence.
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        observeOnMain(NSApplication.didChangeOcclusionStateNotification) {
+            Self.syncHostVisibility()
+        }
+        observeOnMain(NSApplication.didBecomeActiveNotification) {
+            Self.model?.setHostActive(true)
+            // Re-seed visibility in case an occlusion change was missed while inactive.
+            Self.syncHostVisibility()
+        }
+        observeOnMain(NSApplication.didResignActiveNotification) {
+            Self.model?.setHostActive(false)
+        }
+        // Seed initial visibility and focus so a launch that is occluded or not
+        // frontmost (login item, `open -g`) starts in the right state.
+        Self.syncHostVisibility()
+        Self.model?.setHostActive(NSApp.isActive)
+    }
+
+    /// Observe an NSApp notification and run `body` on the main actor. The
+    /// Task { @MainActor } hop reaches the main-actor model: MainActor.assumeIsolated
+    /// would be synchronous but is macOS 14+, and this target deploys to macOS 13.
+    /// Ordering across hops is benign — syncHostVisibility reads occlusion state
+    /// live and setHostActive is a last-writer-wins cadence flag.
+    private func observeOnMain(_ name: Notification.Name, _ body: @escaping @MainActor () -> Void) {
+        NotificationCenter.default.addObserver(forName: name, object: NSApp, queue: .main) { _ in
+            Task { @MainActor in body() }
+        }
+    }
+
+    private static func syncHostVisibility() {
+        model?.setHostVisibility(NSApp.occlusionState.contains(.visible))
+    }
+
     @objc private func openDashboardFromDockMenu(_ sender: NSMenuItem) {
         Self.openDashboardWindow?()
     }

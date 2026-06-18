@@ -184,4 +184,16 @@ final class DockMenuSourceTests: XCTestCase {
         )
     }
 
+    func testDelegateGatesAutoRefreshOnAppVisibilityAndFocus() throws {
+        let source = try appSource("DockMenuController.swift")
+
+        XCTAssertTrue(source.contains("func applicationDidFinishLaunching"))
+        XCTAssertTrue(source.contains("NSApplication.didChangeOcclusionStateNotification"))
+        XCTAssertTrue(source.contains("NSApp.occlusionState.contains(.visible)"))
+        XCTAssertTrue(source.contains("setHostVisibility"))
+        XCTAssertTrue(source.contains("NSApplication.didBecomeActiveNotification"))
+        XCTAssertTrue(source.contains("NSApplication.didResignActiveNotification"))
+        XCTAssertTrue(source.contains("setHostActive"))
+    }
+
 }

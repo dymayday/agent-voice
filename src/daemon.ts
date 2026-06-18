@@ -4,7 +4,9 @@ import {
 	mkdirSync,
 	openSync,
 	closeSync,
+	readdirSync,
 	readFileSync,
+	renameSync,
 	rmSync,
 	statSync,
 	writeFileSync,
@@ -26,6 +28,7 @@ import {
 	runMaintenance,
 	type JobStatus,
 } from "./store";
+import { composeStatusSnapshot, formatAppStatusJson } from "./status";
 
 export interface DetachedDaemonRequest {
 	command: string;
@@ -95,6 +98,117 @@ export function clearDaemonLock(paths: AgentVoicePaths): void {
 
 export function clearIntentionalStop(paths: AgentVoicePaths): void {
 	rmSync(intentionalStopPath(paths), { force: true });
+}
+
+export function statusSnapshotPath(paths: AgentVoicePaths): string {
+	return join(paths.run, "status.json");
+}
+
+/**
+ * Publish the daemon's status JSON for in-process GUI reads (so the GUI does not
+ * have to spawn the CLI to learn queue/daemon state). Write-temp-then-rename
+ * keeps every concurrent read a complete document; the temp lives in the same
+ * directory as the target so the rename stays on one filesystem (atomic).
+ */
+export function writeStatusSnapshotAtomic(
+	paths: AgentVoicePaths,
+	json: string,
+): void {
+	ensureRunDir(paths);
+	const finalPath = statusSnapshotPath(paths);
+	const tmpPath = `${finalPath}.${process.pid}.tmp`;
+	writeFileSync(tmpPath, json, "utf8");
+	renameSync(tmpPath, finalPath);
+}
+
+export function clearStatusSnapshot(paths: AgentVoicePaths): void {
+	rmSync(statusSnapshotPath(paths), { force: true });
+}
+
+/**
+ * Remove orphaned `status.json.<pid>.tmp` files left behind if a daemon was
+ * killed between the write and the rename in `writeStatusSnapshotAtomic`. The
+ * temp name is keyed by pid, so each crashed daemon leaves at most one; a sweep
+ * at startup keeps the run directory tidy. Best-effort: never throws.
+ */
+export function sweepStaleSnapshotTemps(paths: AgentVoicePaths): void {
+	try {
+		if (!existsSync(paths.run)) return;
+		for (const name of readdirSync(paths.run)) {
+			if (name.startsWith("status.json.") && name.endsWith(".tmp")) {
+				rmSync(join(paths.run, name), { force: true });
+			}
+		}
+	} catch {
+		// Best-effort cleanup only.
+	}
+}
+
+export interface StatusPublisher {
+	/** Publish the running daemon's status for the given config (best-effort). */
+	publish(config: AgentVoiceConfig): void;
+	/** Number of writes that actually hit disk (for diagnostics/tests). */
+	readonly writes: number;
+}
+
+/**
+ * Publishes the daemon's status to run/status.json for in-process GUI reads.
+ * Owns the policy so the loop doesn't have to:
+ *  - dedup: skip byte-identical writes, but re-publish if the file vanished;
+ *  - best-effort: a cosmetic status write must NEVER crash the job-processing
+ *    daemon, so write failures are swallowed;
+ *  - write-then-commit: the dedup cache only advances after a successful write,
+ *    so a failed write is retried next tick instead of being silently dropped.
+ */
+export function createStatusPublisher(
+	paths: AgentVoicePaths,
+	db: Database,
+): StatusPublisher {
+	let lastJson: string | null = null;
+	let lastWarnedError: string | null = null;
+	let writes = 0;
+	return {
+		get writes() {
+			return writes;
+		},
+		publish(config: AgentVoiceConfig): void {
+			// The WHOLE body is best-effort: nothing here — snapshot composition,
+			// the countByStatus read, the dedup stat, or the write — may crash the
+			// job-processing daemon, because a status snapshot is purely cosmetic.
+			try {
+				const json = formatAppStatusJson(
+					composeStatusSnapshot({
+						daemon: { running: true, pid: process.pid },
+						queues: countByStatus(db),
+						config: { enabled: config.enabled, agents: config.agents },
+						paths: { home: paths.home, config: paths.config, db: paths.db },
+					}),
+				);
+				// Skip when content AND the on-disk file are unchanged; re-publish if
+				// the file was removed out from under us. lastJson advances only after
+				// a successful write, so a failed write is retried next tick.
+				if (json === lastJson && existsSync(statusSnapshotPath(paths))) return;
+				writeStatusSnapshotAtomic(paths, json);
+				lastJson = json;
+				writes += 1;
+				if (lastWarnedError !== null) {
+					console.warn("[agent-voice] status snapshot publishing recovered");
+					lastWarnedError = null;
+				}
+			} catch (error) {
+				// Log once per distinct error, not once per tick: a persistent
+				// failure (full disk, EACCES) would otherwise flood the daemon log
+				// and bury the underlying condition.
+				const message = error instanceof Error ? error.message : String(error);
+				if (message !== lastWarnedError) {
+					console.warn(
+						`[agent-voice] failed to publish status snapshot (will keep retrying): ${message}`,
+					);
+					lastWarnedError = message;
+				}
+			}
+		},
+	};
 }
 
 function defaultIsPidAlive(pid: number): boolean {
@@ -282,6 +396,7 @@ export interface DaemonLoopResult {
 	idle: number;
 	retryScheduled: number;
 	failed: number;
+	snapshotWrites: number;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -309,6 +424,7 @@ export async function runDaemonLoop(
 		idle: 0,
 		retryScheduled: 0,
 		failed: 0,
+		snapshotWrites: 0,
 	};
 	const maxIterations = deps.maxIterations ?? Number.POSITIVE_INFINITY;
 	// `pollIntervalMs` is repurposed as the idle-wait safety-net cap.
@@ -339,10 +455,26 @@ export async function runDaemonLoop(
 	try {
 		const clock = deps.now ?? (() => new Date());
 		let lastPruneMs = clock().getTime();
+		// Clear temp files orphaned by a previously-crashed daemon, then
+		// publish "running" promptly so the GUI sees it before the first wait. The
+		// publisher owns the dedup/best-effort/self-heal policy; the loop just
+		// announces state transitions.
+		sweepStaleSnapshotTemps(paths);
+		const publisher = createStatusPublisher(paths, db);
+		publisher.publish(currentDaemonConfig(paths, configCache));
 		while (summary.iterations < maxIterations && !hasIntentionalStop(paths)) {
 			const currentConfig = currentDaemonConfig(paths, configCache);
 			const procDeps = await getProcessorDeps(currentConfig);
-			const result = await processNextJob(db, currentConfig, procDeps, clock);
+			const result = await processNextJob(
+				db,
+				currentConfig,
+				procDeps,
+				clock,
+				// Publish the in-flight "processing" state as soon as the job is
+				// claimed, so the GUI sees queues.processing>0 for the job's
+				// duration instead of jumping pending -> done.
+				() => publisher.publish(currentConfig),
+			);
 			summary.iterations += 1;
 			if (result.kind === "processed") summary.processed += 1;
 			if (result.kind === "idle") summary.idle += 1;
@@ -359,6 +491,10 @@ export async function runDaemonLoop(
 				runMaintenance(db);
 				lastPruneMs = nowMs;
 			}
+			// Publish the post-iteration state (covers processed/failed/retry/idle
+			// and config hot-reload) BEFORE the daemon parks on the idle wait, so
+			// the GUI sees fresh state even while the daemon sleeps.
+			publisher.publish(currentConfig);
 			if (result.kind === "idle") {
 				// Single-writer invariant: an idle daemon has nothing in `processing`
 				// that it owns, so no pending job it claimed can go stale mid-wait.
@@ -385,6 +521,7 @@ export async function runDaemonLoop(
 				if (waitMs > 0) await waitForWork(waitMs);
 			}
 		}
+		summary.snapshotWrites = publisher.writes;
 	} finally {
 		db.close();
 	}
@@ -402,6 +539,9 @@ export async function startDaemon(
 
 	clearDaemonLock(paths);
 	clearIntentionalStop(paths);
+	// Drop any snapshot left by a previously-crashed daemon so a relaunch never
+	// inherits a stale running:true file before the new daemon's first publish.
+	clearStatusSnapshot(paths);
 	const pid = deps.startBackground
 		? await deps.startBackground(paths)
 		: await (deps.spawnDetached ?? defaultSpawnDetached)(
@@ -456,6 +596,10 @@ export async function stopDaemon(
 			(deps.killProcess ?? defaultKillProcess)(pid, "SIGTERM");
 		}
 		clearDaemonLock(paths);
+		// The SIGTERM'd daemon dies on its default disposition without running its
+		// finally (it only handles SIGUSR1), so clear the snapshot here too —
+		// otherwise a stopped daemon leaves a stale running:true file behind.
+		clearStatusSnapshot(paths);
 	}
 	return { stopped: pid !== null, pid };
 }

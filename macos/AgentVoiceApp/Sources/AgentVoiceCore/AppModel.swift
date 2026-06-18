@@ -20,11 +20,25 @@ public final class AppModel: ObservableObject {
     public static let defaultAutoRefreshIntervalNanoseconds: UInt64 = 2_000_000_000
     public static let defaultDiagnosticsRefreshEveryTicks = 15  // 15 * 2s ≈ 30s
     public static let defaultHistoryPageSize = 10
+    // Slower cadence when the app is visible but not frontmost (unfocused).
+    public static let inactiveAutoRefreshIntervalNanoseconds: UInt64 = 12_000_000_000
 
     var autoRefreshSubscriberCount = 0
     var isAutoRefreshRunning: Bool { autoRefreshTask != nil }
 
     private var autoRefreshTask: Task<Void, Never>?
+    // Cadence captured from the most recent startAutoRefresh, read each tick so a
+    // visibility-driven restart reuses it and focus changes take effect live.
+    private var autoRefreshIntervalNanoseconds = AppModel.defaultAutoRefreshIntervalNanoseconds
+    private var diagnosticsRefreshEveryTicks = AppModel.defaultDiagnosticsRefreshEveryTicks
+    // Loop runs only when subscribers exist AND a surface is visible. Default true
+    // so headless/unit contexts (no occlusion signals) behave as before.
+    private var isHostVisible = true
+    private var isHostActive = true
+    // The menu-bar popover is its own surface: when open it is inherently visible
+    // and is NOT covered by app-window occlusion accounting, so it gets a
+    // dedicated flag and bypasses the occlusion gate.
+    private var isMenuPopoverOpen = false
     private var summarizerModelsTask: Task<Void, Never>?
     private var kokoroSetupTask: Task<Void, Never>?
     private var isCancellingKokoroSetup = false
@@ -56,7 +70,11 @@ public final class AppModel: ObservableObject {
             self.cli = cli
         } else {
             let settings = AppSettings.defaultSettings()
-            self.cli = AgentVoiceCLI(executableURL: settings.executableURL, agentVoiceHome: settings.agentVoiceHome)
+            self.cli = AgentVoiceCLI(
+                executableURL: settings.executableURL,
+                agentVoiceHome: settings.agentVoiceHome,
+                readsStatusSnapshot: true
+            )
         }
     }
 
@@ -160,29 +178,9 @@ extension AppModel {
         diagnosticsEveryTicks: Int = AppModel.defaultDiagnosticsRefreshEveryTicks
     ) {
         autoRefreshSubscriberCount += 1
-        guard autoRefreshTask == nil else { return }
-
-        let intervalNanoseconds = max(intervalNanoseconds, 1_000_000)
-        let tickDivisor = max(1, diagnosticsEveryTicks)
-        autoRefreshTask = Task { [weak self] in
-            var tick = 0
-            while !Task.isCancelled {
-                if tick == 0 {
-                    await self?.refresh()
-                } else {
-                    await self?.refreshStatus()
-                    if tick % tickDivisor == 0 {
-                        await self?.refreshDiagnostics()
-                    }
-                }
-                tick &+= 1
-                do {
-                    try await Task.sleep(nanoseconds: intervalNanoseconds)
-                } catch {
-                    break
-                }
-            }
-        }
+        autoRefreshIntervalNanoseconds = max(intervalNanoseconds, 1_000_000)
+        diagnosticsRefreshEveryTicks = max(1, diagnosticsEveryTicks)
+        ensureLoopRunning()
     }
 
     public func stopAutoRefresh() {
@@ -190,9 +188,80 @@ extension AppModel {
         autoRefreshSubscriberCount -= 1
 
         if autoRefreshSubscriberCount == 0 {
-            autoRefreshTask?.cancel()
-            autoRefreshTask = nil
+            cancelLoop()
         }
+    }
+
+    /// Hard-gate the refresh loop on window occlusion. When the app's windows are
+    /// fully occluded/minimized we cancel the loop (no spawns, no file reads) but
+    /// keep the subscriber count, so becoming visible again resumes it. Mere loss
+    /// of focus (the app still has a visible window) does NOT cancel — that only
+    /// backs off the cadence via setHostActive. Restarting begins at tick 0, which
+    /// performs an immediate full refresh so a revealed window is never stale.
+    public func setHostVisibility(_ visible: Bool) {
+        guard isHostVisible != visible else { return }
+        isHostVisible = visible
+        reconcileLoop()
+    }
+
+    /// The menu-bar popover is a visible surface independent of window occlusion;
+    /// drive it from the popover view's appear/disappear so it keeps refreshing
+    /// even when all windows are closed/occluded.
+    public func setMenuPopoverOpen(_ open: Bool) {
+        guard isMenuPopoverOpen != open else { return }
+        isMenuPopoverOpen = open
+        reconcileLoop()
+    }
+
+    /// Soft-gate on focus: when the app is visible but not frontmost, the loop
+    /// reads the slower inactive interval on its next tick (no restart).
+    public func setHostActive(_ active: Bool) {
+        isHostActive = active
+    }
+
+    private var hasVisibleSurface: Bool { isHostVisible || isMenuPopoverOpen }
+
+    var effectiveIntervalNanoseconds: UInt64 {
+        isHostActive
+            ? autoRefreshIntervalNanoseconds
+            : max(autoRefreshIntervalNanoseconds, AppModel.inactiveAutoRefreshIntervalNanoseconds)
+    }
+
+    private func reconcileLoop() {
+        if hasVisibleSurface {
+            ensureLoopRunning()
+        } else {
+            cancelLoop()
+        }
+    }
+
+    private func ensureLoopRunning() {
+        guard autoRefreshSubscriberCount > 0, hasVisibleSurface, autoRefreshTask == nil else { return }
+        autoRefreshTask = Task { [weak self] in
+            var tick = 0
+            while !Task.isCancelled {
+                guard let self else { return }
+                if tick == 0 {
+                    await self.refresh()
+                } else {
+                    await self.refreshStatus()
+                    if tick % self.diagnosticsRefreshEveryTicks == 0 {
+                        await self.refreshDiagnostics()
+                    }
+                }
+                tick &+= 1
+                do {
+                    try await Task.sleep(nanoseconds: self.effectiveIntervalNanoseconds)
+                } catch {
+                    break
+                }
+            }
+        }
+    }
+
+    private func cancelLoop() {
+        autoRefreshTask?.cancel()
+        autoRefreshTask = nil
     }
 
     public func pause() async {

@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -7,7 +14,14 @@ import {
 	saveConfig,
 	type AgentVoiceConfig,
 } from "../src/config";
-import { runDaemonLoop } from "../src/daemon";
+import {
+	clearStatusSnapshot,
+	runDaemonLoop,
+	statusSnapshotPath,
+	stopDaemon,
+	writeDaemonLock,
+	writeStatusSnapshotAtomic,
+} from "../src/daemon";
 import { openDb } from "../src/db";
 import { createEvent, type AgentVoiceEvent } from "../src/events";
 import { resolvePaths } from "../src/paths";
@@ -701,6 +715,263 @@ describe("agent-voice daemon wall-clock pruning", () => {
 			} finally {
 				check.close();
 			}
+		});
+	});
+});
+
+describe("agent-voice daemon status snapshot publishing", () => {
+	function readSnapshot(paths: ReturnType<typeof resolvePaths>) {
+		return JSON.parse(readFileSync(statusSnapshotPath(paths), "utf8")) as {
+			version: number;
+			daemon: { state: string; running: boolean; pid: number | null };
+			queues: Record<JobStatus, number>;
+			config: { enabled: boolean };
+			ui: { state: string; attention: string[] };
+		};
+	}
+
+	test("publishes a running snapshot before the first iteration", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			// maxIterations:0 means the while body never runs — only site (a) fires.
+			const loop = await runDaemonLoop(paths, config(), {
+				maxIterations: 0,
+				pollIntervalMs: 0,
+				processorDeps: deps(),
+			});
+
+			expect(loop.iterations).toBe(0);
+			expect(loop.snapshotWrites).toBe(1);
+			expect(existsSync(statusSnapshotPath(paths))).toBe(true);
+			const snapshot = readSnapshot(paths);
+			expect(snapshot.daemon.running).toBe(true);
+			expect(snapshot.daemon.pid).toBe(process.pid);
+			expect(snapshot.ui.state).toBe("ready");
+		});
+	});
+
+	test("republishes queue counts after a job is processed", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			const db = openDb(paths.db);
+			try {
+				enqueue(db, createEvent({ agent: "claude", text: "Job." }));
+			} finally {
+				db.close();
+			}
+
+			const loop = await runDaemonLoop(paths, config(), {
+				maxIterations: 1,
+				pollIntervalMs: 0,
+				processorDeps: deps(),
+			});
+
+			expect(loop.processed).toBe(1);
+			// Site (a) pending + onClaimed processing + site (b) done = 3 writes.
+			expect(loop.snapshotWrites).toBe(3);
+			const snapshot = readSnapshot(paths);
+			expect(snapshot.queues.done).toBe(1);
+			expect(snapshot.queues.pending).toBe(0);
+		});
+	});
+
+	test("skips identical snapshot writes across idle iterations", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			const loop = await runDaemonLoop(paths, config(), {
+				maxIterations: 2,
+				pollIntervalMs: 0,
+				now: () => new Date("2026-06-18T00:00:00.000Z"),
+				waitForWork: async () => undefined,
+				processorDeps: deps(),
+			});
+
+			expect(loop.idle).toBe(2);
+			// Site (a) wrote the idle snapshot once; both idle iterations produce a
+			// byte-identical snapshot, so site (b) writes nothing more.
+			expect(loop.snapshotWrites).toBe(1);
+		});
+	});
+
+	test("survives status-write failures without crashing or poisoning the cache", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			// Make every snapshot write fail: a directory at the target path makes
+			// the temp->final rename throw.
+			mkdirSync(statusSnapshotPath(paths), { recursive: true });
+			const db = openDb(paths.db);
+			try {
+				enqueue(db, createEvent({ agent: "claude", text: "Job." }));
+			} finally {
+				db.close();
+			}
+
+			const spoken: string[] = [];
+			// Must not throw despite the write failures.
+			const loop = await runDaemonLoop(paths, config(), {
+				maxIterations: 1,
+				pollIntervalMs: 0,
+				processorDeps: deps({
+					speak: async (summary) => {
+						spoken.push(summary);
+					},
+				}),
+			});
+
+			// The job still processed (a cosmetic write failure must not stop work),
+			// and no write was counted as successful (cache only commits on success).
+			expect(loop.processed).toBe(1);
+			expect(spoken.length).toBe(1);
+			expect(loop.snapshotWrites).toBe(0);
+		});
+	});
+
+	test("publishes the in-flight processing state while a job runs", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			const db = openDb(paths.db);
+			try {
+				enqueue(db, createEvent({ agent: "claude", text: "Job." }));
+			} finally {
+				db.close();
+			}
+
+			const processingSeen: number[] = [];
+			await runDaemonLoop(paths, config(), {
+				maxIterations: 1,
+				pollIntervalMs: 0,
+				processorDeps: deps({
+					summarize: async () => {
+						// onClaimed publishes before summarize runs, so the on-disk
+						// snapshot should already show the claimed job as processing.
+						processingSeen.push(readSnapshot(paths).queues.processing);
+						return "Summary.";
+					},
+				}),
+			});
+
+			expect(processingSeen).toEqual([1]);
+			expect(readSnapshot(paths).queues.done).toBe(1);
+		});
+	});
+
+	test("republishes config changes picked up mid-loop", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			saveConfig(paths, config({ enabled: true }));
+			const first = createEvent({ agent: "claude", text: "First." });
+			const second = createEvent({ agent: "claude", text: "Second." });
+			const db = openDb(paths.db);
+			try {
+				enqueue(db, first);
+				enqueue(db, second);
+			} finally {
+				db.close();
+			}
+
+			const loop = await runDaemonLoop(paths, config({ enabled: true }), {
+				maxIterations: 2,
+				pollIntervalMs: 0,
+				processorDeps: deps({
+					summarize: async (event) => {
+						if (event.id === first.id) {
+							saveConfig(paths, config({ enabled: false }));
+						}
+						return "Summary.";
+					},
+				}),
+			});
+
+			const snapshot = readSnapshot(paths);
+			expect(snapshot.config.enabled).toBe(false);
+			expect(snapshot.ui.attention).toContain("system_paused");
+			// site (a) + at least one content-changing republish.
+			expect(loop.snapshotWrites).toBeGreaterThanOrEqual(2);
+		});
+	});
+
+	test("stopDaemon clears the published snapshot", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			writeDaemonLock(paths, 4242);
+			writeStatusSnapshotAtomic(paths, "{}\n");
+			expect(existsSync(statusSnapshotPath(paths))).toBe(true);
+
+			await stopDaemon(paths, {
+				isPidAlive: () => true,
+				killProcess: () => undefined,
+			});
+
+			expect(existsSync(statusSnapshotPath(paths))).toBe(false);
+		});
+	});
+
+	test("sweeps orphaned snapshot temp files on start", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			mkdirSync(paths.run, { recursive: true });
+			const orphan = `${statusSnapshotPath(paths)}.99999.tmp`;
+			writeFileSync(orphan, "stale", "utf8");
+
+			await runDaemonLoop(paths, config(), {
+				maxIterations: 0,
+				pollIntervalMs: 0,
+				processorDeps: deps(),
+			});
+
+			expect(existsSync(orphan)).toBe(false);
+		});
+	});
+
+	test("retries the identical write on the next tick after a failure", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			// Block writes by making the target a directory (rename fails); the
+			// waitForWork hook removes it before the second iteration.
+			mkdirSync(statusSnapshotPath(paths), { recursive: true });
+			let unblocked = false;
+			const loop = await runDaemonLoop(paths, config(), {
+				maxIterations: 2,
+				pollIntervalMs: 1000, // > 0 so the idle wait (and our hook) runs
+				now: () => new Date("2026-06-18T00:00:00.000Z"),
+				waitForWork: async () => {
+					if (!unblocked) {
+						unblocked = true;
+						rmSync(statusSnapshotPath(paths), { recursive: true, force: true });
+					}
+				},
+				processorDeps: deps(),
+			});
+
+			// Site (a) and iteration 1 failed without poisoning the cache, so the
+			// byte-identical idle payload is retried on iteration 2 and lands.
+			expect(loop.snapshotWrites).toBe(1);
+			expect(existsSync(statusSnapshotPath(paths))).toBe(true);
+			expect(readSnapshot(paths).daemon.running).toBe(true);
+		});
+	});
+
+	test("re-publishes an idle snapshot if the file is deleted externally", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			let deleted = false;
+			const loop = await runDaemonLoop(paths, config(), {
+				maxIterations: 2,
+				pollIntervalMs: 1000,
+				now: () => new Date("2026-06-18T00:00:00.000Z"),
+				waitForWork: async () => {
+					if (!deleted) {
+						deleted = true;
+						rmSync(statusSnapshotPath(paths), { force: true });
+					}
+				},
+				processorDeps: deps(),
+			});
+
+			// Site (a) wrote it; iteration 1 deduped (file present); after the
+			// external delete, iteration 2 re-publishes the byte-identical payload.
+			expect(loop.snapshotWrites).toBe(2);
+			expect(existsSync(statusSnapshotPath(paths))).toBe(true);
 		});
 	});
 });

@@ -1,12 +1,13 @@
 import type { AgentVoiceConfig } from "./config";
 import { loadConfig } from "./config";
-import {
-	getDaemonStatus,
-	type DaemonCliDeps,
-	type DaemonStatus,
-} from "./daemon";
+import { getDaemonStatus, type DaemonCliDeps } from "./daemon";
 import type { AgentVoicePaths } from "./paths";
 import type { JobStatus } from "./store";
+
+/** The config fields the status snapshot exposes (deriveUiState reads `enabled`). */
+export type StatusConfigView = Pick<AgentVoiceConfig, "enabled" | "agents">;
+/** The path fields the status snapshot exposes. */
+export type StatusPaths = { home: string; config: string; db: string };
 
 export interface AppStatusSnapshot {
 	version: 1;
@@ -16,8 +17,8 @@ export interface AppStatusSnapshot {
 		pid: number | null;
 	};
 	queues: Record<JobStatus, number>;
-	config: Pick<AgentVoiceConfig, "enabled" | "agents">;
-	paths: { home: string; config: string; db: string };
+	config: StatusConfigView;
+	paths: StatusPaths;
 	ui: {
 		state:
 			| "ready"
@@ -29,11 +30,45 @@ export interface AppStatusSnapshot {
 	};
 }
 
-function daemonState(
-	status: DaemonStatus,
+function deriveDaemonRunState(
+	running: boolean,
+	pid: number | null,
 ): AppStatusSnapshot["daemon"]["state"] {
-	if (status.running) return "running";
-	return status.pid ? "stale" : "stopped";
+	if (running) return "running";
+	return pid ? "stale" : "stopped";
+}
+
+export interface StatusSnapshotInput {
+	daemon: { running: boolean; pid: number | null };
+	queues: Record<JobStatus, number>;
+	config: StatusConfigView;
+	paths: StatusPaths;
+}
+
+/**
+ * Assemble an AppStatusSnapshot from already-known pieces, without touching the
+ * filesystem. The daemon loop uses this to publish its own status from the
+ * writable DB handle it already holds; `buildAppStatusSnapshot` uses it for the
+ * read-only spawn path so both share one UI-state derivation.
+ */
+export function composeStatusSnapshot(
+	input: StatusSnapshotInput,
+): AppStatusSnapshot {
+	const base: Omit<AppStatusSnapshot, "ui"> = {
+		version: 1,
+		daemon: {
+			state: deriveDaemonRunState(input.daemon.running, input.daemon.pid),
+			running: input.daemon.running,
+			pid: input.daemon.pid,
+		},
+		queues: input.queues,
+		// Pass the views straight through: callers that hold a full AgentVoiceConfig
+		// narrow to StatusConfigView at the boundary (buildAppStatusSnapshot,
+		// createStatusPublisher), so there is nothing extra to strip here.
+		config: input.config,
+		paths: input.paths,
+	};
+	return { ...base, ui: deriveUiState(base) };
 }
 
 function deriveUiState(
@@ -61,18 +96,12 @@ export function buildAppStatusSnapshot(
 ): AppStatusSnapshot {
 	const daemon = getDaemonStatus(paths, deps, { readOnly: true });
 	const config = loadConfig(paths, { createIfMissing: false });
-	const base: Omit<AppStatusSnapshot, "ui"> = {
-		version: 1,
-		daemon: {
-			state: daemonState(daemon),
-			running: daemon.running,
-			pid: daemon.pid,
-		},
+	return composeStatusSnapshot({
+		daemon: { running: daemon.running, pid: daemon.pid },
 		queues: daemon.queues,
 		config: { enabled: config.enabled, agents: config.agents },
 		paths: { home: paths.home, config: paths.config, db: paths.db },
-	};
-	return { ...base, ui: deriveUiState(base) };
+	});
 }
 
 export function formatAppStatusJson(snapshot: AppStatusSnapshot): string {

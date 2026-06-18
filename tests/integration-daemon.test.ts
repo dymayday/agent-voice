@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runCli } from "../src/cli";
-import { writeDaemonLock } from "../src/daemon";
+import { statusSnapshotPath, writeDaemonLock } from "../src/daemon";
 import { openDb } from "../src/db";
 import { createEvent } from "../src/events";
 import { resolvePaths } from "../src/paths";
@@ -56,6 +56,10 @@ describe("agent-voice daemon integration", () => {
 			expect(countByStatus(check).pending).toBe(0);
 			expect(countByStatus(check).done).toBe(2);
 			check.close();
+
+			// The daemon-command finally clears the published snapshot on exit so a
+			// stopped daemon leaves no stale running:true file behind.
+			expect(existsSync(statusSnapshotPath(paths))).toBe(false);
 		});
 	});
 
