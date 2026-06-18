@@ -1,21 +1,49 @@
-import { createHash } from "node:crypto";
-import {
-	accessSync,
-	chmodSync,
-	closeSync,
-	constants,
-	copyFileSync,
-	existsSync,
-	lstatSync,
-	mkdirSync,
-	openSync,
-	readFileSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
-import { delimiter, join, resolve } from "node:path";
+import { copyFileSync, existsSync } from "node:fs";
+import { delimiter, join } from "node:path";
 import { loadConfig, saveConfig, type AgentVoiceConfig } from "./config";
+import {
+	assertManagedRoot,
+	assertSafeManagedDirectoryTarget,
+	assertSafeOverwrite,
+	defaultResourceRoot,
+	ensureManagedDirectory,
+	kokoroHuggingFaceHome,
+	kokoroManagedBin,
+	kokoroManagedHome,
+	kokoroManagedPython,
+	kokoroManagedScript,
+	kokoroModelsHome,
+	kokoroSetupLockPath,
+	resourceRequirementsPath,
+	resourceScriptPath,
+} from "./kokoro/managed-paths";
+import {
+	DEFAULT_COMMAND_TIMEOUT_MS,
+	runChecked,
+} from "./kokoro/commands";
+import {
+	createReadableLineReader,
+	isKokoroAudioMessage,
+	readKokoroMessageBeforeDeadline,
+	type KokoroMessage,
+} from "./kokoro/protocol";
+import { acquireSetupLock } from "./kokoro/setup-lock";
+import {
+	resolveUvCommand,
+	resolveUvRelease,
+	runUvChecked,
+	type UvReleaseAsset,
+} from "./kokoro/uv-installer";
 import type { AgentVoicePaths } from "./paths";
+
+export {
+	kokoroManagedHome,
+	kokoroManagedPython,
+	kokoroManagedScript,
+	kokoroManagedUv,
+	kokoroSetupLockPath,
+} from "./kokoro/managed-paths";
+export type { UvReleaseAsset } from "./kokoro/uv-installer";
 
 export type KokoroSetupStepId =
 	| "prepare"
@@ -114,96 +142,13 @@ const STEP_TITLES: Record<KokoroSetupStepId, string> = {
 	config: "Saving Agent Voice config",
 };
 
-const DEFAULT_COMMAND_TIMEOUT_MS = 10 * 60 * 1000;
 const DEFAULT_SMOKE_TEST_TIMEOUT_MS = 60 * 1000;
 const KOKORO_REPO_ID = "hexgrad/Kokoro-82M";
 const SMOKE_TEST_TEXT = "Agent Voice Kokoro setup smoke test.";
-const MANAGED_UV_VERSION = "0.11.20";
 const KOKORO_WARNING_FILTERS = [
 	"ignore:dropout option adds dropout after all but last recurrent layer:UserWarning:torch.nn.modules.rnn",
 	"ignore::FutureWarning:torch.nn.utils.weight_norm",
 ];
-
-export interface UvReleaseAsset {
-	version: string;
-	target: string;
-	checksum: string;
-}
-
-const MANAGED_UV_RELEASES: Record<string, UvReleaseAsset> = {
-	"darwin-arm64": {
-		version: MANAGED_UV_VERSION,
-		target: "uv-aarch64-apple-darwin",
-		checksum:
-			"0a2b6a757d5693671a7ce0002554ae869604e1e69acb10313ac14d08374be01a",
-	},
-	"darwin-x64": {
-		version: MANAGED_UV_VERSION,
-		target: "uv-x86_64-apple-darwin",
-		checksum:
-			"bef01a86faab997f6022b45cfa29bfc5b090f2f72cd4a91d2ecefe641efdabe7",
-	},
-	"linux-arm64": {
-		version: MANAGED_UV_VERSION,
-		target: "uv-aarch64-unknown-linux-gnu",
-		checksum:
-			"c8b5b7f9c804b640da0bb66cddddf0a00ce971f64d8076622d70bd141bc80857",
-	},
-	"linux-x64": {
-		version: MANAGED_UV_VERSION,
-		target: "uv-x86_64-unknown-linux-gnu",
-		checksum:
-			"5de211d9278af365497d387e25316907b3b4a9f25b4476dd6dbf238d6f85cff3",
-	},
-};
-
-export function kokoroManagedHome(paths: AgentVoicePaths): string {
-	return join(paths.home, "kokoro");
-}
-
-export function kokoroManagedScript(paths: AgentVoicePaths): string {
-	return join(kokoroManagedHome(paths), "kokoro_tts_service.py");
-}
-
-export function kokoroManagedPython(paths: AgentVoicePaths): string {
-	return join(kokoroManagedHome(paths), ".venv", "bin", "python");
-}
-
-export function kokoroManagedUv(paths: AgentVoicePaths): string {
-	return join(kokoroManagedHome(paths), "bin", "uv");
-}
-
-function kokoroManagedBin(paths: AgentVoicePaths): string {
-	return join(kokoroManagedHome(paths), "bin");
-}
-
-export function kokoroSetupLockPath(paths: AgentVoicePaths): string {
-	return join(kokoroManagedHome(paths), "setup.lock");
-}
-
-function kokoroModelsHome(paths: AgentVoicePaths): string {
-	return join(kokoroManagedHome(paths), "models");
-}
-
-function kokoroHuggingFaceHome(paths: AgentVoicePaths): string {
-	return join(kokoroModelsHome(paths), "huggingface");
-}
-
-function defaultResourceRoot(): string {
-	return resolve(import.meta.dir, "..", "resources", "kokoro");
-}
-
-function resourcePath(root: string, ...parts: string[]): string {
-	return resolve(root, ...parts);
-}
-
-function resourceScriptPath(root: string): string {
-	return resourcePath(root, "kokoro_tts_service.py");
-}
-
-function resourceRequirementsPath(root: string): string {
-	return resourcePath(root, "requirements.txt");
-}
 
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
@@ -239,159 +184,6 @@ async function runStep<T>(
 		emitStep(emit, id, "failed", message);
 		throw error;
 	}
-}
-
-function assertManagedChild(paths: AgentVoicePaths, target: string): void {
-	const home = resolve(kokoroManagedHome(paths));
-	const resolved = resolve(target);
-	if (resolved !== home && !resolved.startsWith(`${home}/`)) {
-		throw new Error(`Refusing to write outside managed Kokoro home: ${target}`);
-	}
-}
-
-function lstatIfExists(path: string): ReturnType<typeof lstatSync> | undefined {
-	try {
-		return lstatSync(path);
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
-		throw error;
-	}
-}
-
-function assertExistingPathSafe(path: string): void {
-	const stat = lstatIfExists(path);
-	if (!stat) return;
-	if (stat.isSymbolicLink()) {
-		throw new Error(`Refusing to use unsafe managed path: ${path}`);
-	}
-}
-
-function assertManagedRoot(paths: AgentVoicePaths): void {
-	const managedHome = kokoroManagedHome(paths);
-	assertManagedChild(paths, managedHome);
-	const stat = lstatIfExists(managedHome);
-	if (stat) {
-		if (stat.isSymbolicLink() || !stat.isDirectory()) {
-			throw new Error(`Refusing to use unsafe managed path: ${managedHome}`);
-		}
-		return;
-	}
-	mkdirSync(managedHome, { recursive: true });
-}
-
-function assertSafeOverwrite(paths: AgentVoicePaths, target: string): void {
-	assertManagedChild(paths, target);
-	const stat = lstatIfExists(target);
-	if (!stat) return;
-	if (stat.isSymbolicLink() || !stat.isFile()) {
-		throw new Error(`Refusing to overwrite unsafe managed path: ${target}`);
-	}
-}
-
-function ensureManagedDirectory(paths: AgentVoicePaths, target: string): void {
-	assertManagedChild(paths, target);
-	assertExistingPathSafe(target);
-	const stat = lstatIfExists(target);
-	if (stat) {
-		if (!stat.isDirectory()) {
-			throw new Error(`Refusing to use unsafe managed path: ${target}`);
-		}
-		return;
-	}
-	mkdirSync(target, { recursive: true });
-}
-
-function assertSafeManagedDirectoryTarget(
-	paths: AgentVoicePaths,
-	target: string,
-): void {
-	assertManagedChild(paths, target);
-	const stat = lstatIfExists(target);
-	if (!stat) return;
-	if (stat.isSymbolicLink() || !stat.isDirectory()) {
-		throw new Error(`Refusing to use unsafe managed path: ${target}`);
-	}
-}
-
-function processExists(pid: number): boolean {
-	if (!Number.isInteger(pid) || pid <= 0) return false;
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch (error) {
-		const code = (error as NodeJS.ErrnoException).code;
-		if (code === "ESRCH") return false;
-		if (code === "EPERM") return true;
-		return true;
-	}
-}
-
-function removeStaleSetupLock(lockPath: string): boolean {
-	const stat = lstatIfExists(lockPath);
-	if (!stat || stat.isSymbolicLink() || !stat.isFile()) return false;
-
-	const pidText = readFileSync(lockPath, "utf8").trim();
-	if (!pidText) {
-		rmSync(lockPath, { force: true });
-		return true;
-	}
-
-	const pid = Number(pidText);
-	if (!Number.isInteger(pid) || processExists(pid)) return false;
-
-	rmSync(lockPath, { force: true });
-	return true;
-}
-
-function openSetupLock(lockPath: string): number {
-	try {
-		return openSync(lockPath, "wx");
-	} catch (error) {
-		const code = (error as NodeJS.ErrnoException).code;
-		if (code === "EEXIST") {
-			throw new Error(
-				"Kokoro setup is already running for this Agent Voice home",
-			);
-		}
-		throw error;
-	}
-}
-
-function acquireSetupLock(paths: AgentVoicePaths): () => void {
-	assertManagedRoot(paths);
-	const lockPath = kokoroSetupLockPath(paths);
-	assertManagedChild(paths, lockPath);
-	let fd: number;
-	try {
-		fd = openSetupLock(lockPath);
-	} catch (error) {
-		if (
-			error instanceof Error &&
-			error.message.includes("already running") &&
-			removeStaleSetupLock(lockPath)
-		) {
-			fd = openSetupLock(lockPath);
-		} else {
-			throw error;
-		}
-	}
-
-	let closed = false;
-	try {
-		writeFileSync(fd, `${process.pid}\n`, "utf8");
-	} catch (error) {
-		closeSync(fd);
-		rmSync(lockPath, { force: true });
-		throw error;
-	}
-
-	return () => {
-		if (!closed) {
-			closed = true;
-			closeSync(fd);
-		}
-		rmSync(lockPath, { force: true });
-	};
 }
 
 export function buildKokoroStatus(
@@ -497,80 +289,6 @@ async function run(request: {
 	}
 }
 
-interface KokoroServiceMessage {
-	status?: string;
-	error?: string;
-	audio?: unknown;
-	duration?: unknown;
-}
-
-function parseServiceLine(line: string): KokoroServiceMessage | null {
-	const trimmed = line.trim();
-	if (!trimmed) return null;
-	const parsed = JSON.parse(trimmed) as unknown;
-	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-		throw new Error(`Invalid Kokoro smoke-test response: ${trimmed}`);
-	}
-	return parsed as KokoroServiceMessage;
-}
-
-async function readServiceLine(
-	reader: ReadableStreamDefaultReader<Uint8Array>,
-	buffer: { value: string },
-	decoder: TextDecoder,
-): Promise<string | null> {
-	while (true) {
-		const newlineIndex = buffer.value.indexOf("\n");
-		if (newlineIndex !== -1) {
-			const line = buffer.value.slice(0, newlineIndex);
-			buffer.value = buffer.value.slice(newlineIndex + 1);
-			return line;
-		}
-
-		const chunk = await reader.read();
-		if (chunk.done) {
-			if (!buffer.value) return null;
-			const line = buffer.value;
-			buffer.value = "";
-			return line;
-		}
-		buffer.value += decoder.decode(chunk.value, { stream: true });
-	}
-}
-
-async function readServiceMessage(
-	reader: ReadableStreamDefaultReader<Uint8Array>,
-	buffer: { value: string },
-	decoder: TextDecoder,
-	timeoutMessage: string,
-): Promise<KokoroServiceMessage | null> {
-	let timeout: ReturnType<typeof setTimeout> | undefined;
-	try {
-		const line = await Promise.race([
-			readServiceLine(reader, buffer, decoder),
-			new Promise<never>((_resolve, reject) => {
-				timeout = setTimeout(
-					() => reject(new Error(timeoutMessage)),
-					DEFAULT_SMOKE_TEST_TIMEOUT_MS,
-				);
-			}),
-		]);
-		return line === null ? null : parseServiceLine(line);
-	} finally {
-		if (timeout) clearTimeout(timeout);
-	}
-}
-
-function isSmokeTestAudio(message: KokoroServiceMessage): boolean {
-	return (
-		typeof message.audio === "string" &&
-		message.audio.length > 0 &&
-		typeof message.duration === "number" &&
-		Number.isFinite(message.duration) &&
-		message.duration >= 0
-	);
-}
-
 export async function testKokoroService(
 	pythonPath: string,
 	scriptPath: string,
@@ -589,29 +307,21 @@ export async function testKokoroService(
 	}
 
 	const stderrText = streamToText(proc.stderr);
-	const reader = stdout.getReader();
-	const decoder = new TextDecoder();
-	const buffer = { value: "" };
+	const session = {
+		readLine: createReadableLineReader(stdout),
+		readStderr: async () => await stderrText,
+	};
 
 	try {
+		const readyDeadline = Date.now() + DEFAULT_SMOKE_TEST_TIMEOUT_MS;
 		while (true) {
-			const message = await readServiceMessage(
-				reader,
-				buffer,
-				decoder,
-				"Timed out waiting for Kokoro ready",
+			const message = await readKokoroMessageBeforeDeadline(
+				session,
+				readyDeadline,
+				"ready",
 			);
-			if (message === null) {
-				const stderr = (await stderrText).trim();
-				return {
-					ok: false,
-					error: stderr
-						? `Kokoro exited before ready: ${stderr}`
-						: "Kokoro exited before ready",
-				};
-			}
-			if (message.error) return { ok: false, error: message.error };
-			if (message.status === "ready") break;
+			if (message.kind === "error") return { ok: false, error: message.error };
+			if (message.kind === "status" && message.status === "ready") break;
 		}
 
 		const stdin = proc.stdin;
@@ -621,25 +331,18 @@ export async function testKokoroService(
 		stdin.write(`${JSON.stringify({ text: SMOKE_TEST_TEXT })}\n`);
 		stdin.end();
 
+		const audioDeadline = Date.now() + DEFAULT_SMOKE_TEST_TIMEOUT_MS;
 		while (true) {
-			const message = await readServiceMessage(
-				reader,
-				buffer,
-				decoder,
-				"Timed out waiting for Kokoro audio",
+			const message: KokoroMessage = await readKokoroMessageBeforeDeadline(
+				session,
+				audioDeadline,
+				"audio",
 			);
-			if (message === null) {
-				const stderr = (await stderrText).trim();
-				return {
-					ok: false,
-					error: stderr
-						? `Kokoro exited before audio: ${stderr}`
-						: "Kokoro exited before audio",
-				};
+			if (message.kind === "error") return { ok: false, error: message.error };
+			if (isKokoroAudioMessage(message, { requireDuration: true })) {
+				return { ok: true };
 			}
-			if (message.error) return { ok: false, error: message.error };
-			if (isSmokeTestAudio(message)) return { ok: true };
-			if (message.status) continue;
+			if (message.kind === "status") continue;
 			return {
 				ok: false,
 				error: "Invalid Kokoro smoke-test audio response",
@@ -648,11 +351,6 @@ export async function testKokoroService(
 	} catch (error) {
 		return { ok: false, error: errorMessage(error) };
 	} finally {
-		try {
-			reader.releaseLock();
-		} catch {
-			// Best effort cleanup only.
-		}
 		try {
 			const stdin = proc.stdin;
 			if (stdin && typeof stdin !== "number") stdin.end();
@@ -672,39 +370,6 @@ const defaultDeps: KokoroSetupDeps = {
 	run,
 	smokeTest: testKokoroService,
 };
-
-function emitLogs(
-	emit: (event: KokoroSetupEvent) => void,
-	stream: "stdout" | "stderr",
-	text: string | undefined,
-): void {
-	if (!text) return;
-	for (const line of text.split(/\r?\n/)) {
-		if (line.length > 0) emit({ type: "log", stream, message: line });
-	}
-}
-
-function commandDescription(cmd: string, args: string[]): string {
-	return [cmd, ...args].join(" ");
-}
-
-async function runChecked(
-	deps: KokoroSetupDeps,
-	emit: (event: KokoroSetupEvent) => void,
-	request: Parameters<KokoroSetupDeps["run"]>[0],
-): Promise<void> {
-	const outcome = await deps.run(request);
-	emitLogs(emit, "stdout", outcome.stdout);
-	emitLogs(emit, "stderr", outcome.stderr);
-	if (!outcome.ok) {
-		const details = (outcome.stderr || outcome.stdout || "").trim();
-		throw new Error(
-			`${commandDescription(request.cmd, request.args)} failed${
-				details ? `: ${details}` : ""
-			}`,
-		);
-	}
-}
 
 function kokoroPythonWarnings(): string {
 	const existing = process.env.PYTHONWARNINGS?.trim();
@@ -731,51 +396,6 @@ function kokoroChildEnv(paths: AgentVoicePaths): Record<string, string> {
 	};
 }
 
-function uvReleaseAsset(options: KokoroSetupOptions): UvReleaseAsset {
-	if (options.uvRelease) return options.uvRelease;
-	const key = `${process.platform}-${process.arch}`;
-	const release = MANAGED_UV_RELEASES[key];
-	if (!release) {
-		throw new Error(
-			`Automatic managed uv install is unsupported on ${process.platform}/${process.arch}. Install uv manually and rerun setup.`,
-		);
-	}
-	return release;
-}
-
-function uvArchiveName(release: UvReleaseAsset): string {
-	return `${release.target}.tar.gz`;
-}
-
-function uvArchiveUrl(release: UvReleaseAsset): string {
-	return `https://github.com/astral-sh/uv/releases/download/${release.version}/${uvArchiveName(release)}`;
-}
-
-function verifySha256(path: string, expected: string): void {
-	const actual = createHash("sha256").update(readFileSync(path)).digest("hex");
-	if (actual !== expected) {
-		throw new Error(
-			`Managed uv archive checksum mismatch: expected ${expected}, got ${actual}`,
-		);
-	}
-}
-
-function assertManagedUvExecutable(
-	paths: AgentVoicePaths,
-	target: string,
-): void {
-	assertManagedChild(paths, target);
-	const stat = lstatIfExists(target);
-	if (!stat || stat.isSymbolicLink() || !stat.isFile()) {
-		throw new Error(`Refusing to use unsafe managed path: ${target}`);
-	}
-	try {
-		accessSync(target, constants.X_OK);
-	} catch {
-		throw new Error(`Managed uv is not executable: ${target}`);
-	}
-}
-
 function hasManagedPython(paths: AgentVoicePaths): boolean {
 	return existsSync(kokoroManagedPython(paths));
 }
@@ -796,113 +416,6 @@ function preflightLocalSetupInputs(
 	}
 	assertSafeOverwrite(paths, scriptPath);
 	assertSafeManagedDirectoryTarget(paths, join(managedHome, ".venv"));
-}
-
-function existingManagedUv(paths: AgentVoicePaths): string | undefined {
-	const managedUv = kokoroManagedUv(paths);
-	const stat = lstatIfExists(managedUv);
-	if (!stat) return undefined;
-	assertManagedUvExecutable(paths, managedUv);
-	return managedUv;
-}
-
-async function validateManagedUv(
-	paths: AgentVoicePaths,
-	deps: KokoroSetupDeps,
-	emit: (event: KokoroSetupEvent) => void,
-): Promise<string | undefined> {
-	const managedUv = existingManagedUv(paths);
-	if (!managedUv) return undefined;
-	await runChecked(deps, emit, {
-		cmd: managedUv,
-		args: ["--version"],
-		timeoutMs: DEFAULT_COMMAND_TIMEOUT_MS,
-	});
-	return existingManagedUv(paths);
-}
-
-async function runUvChecked(
-	paths: AgentVoicePaths,
-	deps: KokoroSetupDeps,
-	emit: (event: KokoroSetupEvent) => void,
-	uvCommand: string,
-	request: Omit<Parameters<KokoroSetupDeps["run"]>[0], "cmd">,
-): Promise<void> {
-	const cmd = uvCommand === "uv" ? uvCommand : existingManagedUv(paths);
-	if (!cmd) {
-		throw new Error(`Managed uv is missing: ${kokoroManagedUv(paths)}`);
-	}
-	await runChecked(deps, emit, { ...request, cmd });
-}
-
-async function installManagedUv(
-	paths: AgentVoicePaths,
-	deps: KokoroSetupDeps,
-	emit: (event: KokoroSetupEvent) => void,
-	release: UvReleaseAsset,
-): Promise<string> {
-	const installDir = kokoroManagedBin(paths);
-	ensureManagedDirectory(paths, installDir);
-	const existing = await validateManagedUv(paths, deps, emit);
-	if (existing) return existing;
-
-	const stagingDir = join(
-		installDir,
-		`.uv-download-${process.pid}-${Date.now()}`,
-	);
-	assertManagedChild(paths, stagingDir);
-	mkdirSync(stagingDir, { recursive: true });
-
-	try {
-		const archiveName = uvArchiveName(release);
-		const archivePath = join(stagingDir, archiveName);
-		await runChecked(deps, emit, {
-			cmd: "curl",
-			args: [
-				"-LfS",
-				"--proto",
-				"=https",
-				"--tlsv1.2",
-				"-o",
-				archivePath,
-				uvArchiveUrl(release),
-			],
-			timeoutMs: DEFAULT_COMMAND_TIMEOUT_MS,
-		});
-		verifySha256(archivePath, release.checksum);
-
-		await runChecked(deps, emit, {
-			cmd: "tar",
-			args: ["-xzf", archivePath, "-C", stagingDir],
-			timeoutMs: DEFAULT_COMMAND_TIMEOUT_MS,
-		});
-
-		const extractedUv = join(stagingDir, release.target, "uv");
-		assertManagedUvExecutable(paths, extractedUv);
-		assertSafeOverwrite(paths, kokoroManagedUv(paths));
-		copyFileSync(extractedUv, kokoroManagedUv(paths));
-		chmodSync(kokoroManagedUv(paths), 0o755);
-	} finally {
-		rmSync(stagingDir, { recursive: true, force: true });
-	}
-
-	const installed = await validateManagedUv(paths, deps, emit);
-	if (!installed) {
-		throw new Error(
-			`Managed uv install did not create ${kokoroManagedUv(paths)}`,
-		);
-	}
-	return installed;
-}
-
-async function resolveUvCommand(
-	paths: AgentVoicePaths,
-	deps: KokoroSetupDeps,
-	emit: (event: KokoroSetupEvent) => void,
-	release: UvReleaseAsset,
-): Promise<string> {
-	if (await deps.commandExists("uv")) return "uv";
-	return await installManagedUv(paths, deps, emit, release);
 }
 
 function preloadCode(): string {
@@ -945,7 +458,7 @@ export async function runKokoroSetup(
 	const sourceScript = resourceScriptPath(resourceRoot);
 	const requirements = resourceRequirementsPath(resourceRoot);
 	const childEnv = kokoroChildEnv(paths);
-	const uvRelease = uvReleaseAsset(options);
+	const uvRelease = resolveUvRelease(options.uvRelease);
 	let uvCommand = "uv";
 	let releaseLock: (() => void) | undefined;
 

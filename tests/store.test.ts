@@ -201,22 +201,30 @@ describe("store: terminal transitions", () => {
 			const event = createEvent({ agent: "claude", text: "Do it." });
 			enqueue(db, event);
 			claimNextDue(db, defaultConfig, new Date());
-			markSpoken(db, event.id, "All done.", "codex-fast");
+			markSpoken(
+				db,
+				event.id,
+				"All done.",
+				"codex-fast",
+				new Date("2026-06-12T00:00:03.000Z"),
+			);
 			markDone(db, event.id, new Date("2026-06-12T00:00:05.000Z"));
 
 			const row = db
 				.query(
-					"SELECT status, summary, summarizer_used, finished_at FROM jobs WHERE id=?",
+					"SELECT status, summary, summarizer_used, spoken_at, finished_at FROM jobs WHERE id=?",
 				)
 				.get(event.id) as {
 				status: string;
 				summary: string;
 				summarizer_used: string;
+				spoken_at: string;
 				finished_at: string;
 			};
 			expect(row.status).toBe("done");
 			expect(row.summary).toBe("All done.");
 			expect(row.summarizer_used).toBe("codex-fast");
+			expect(row.spoken_at).toBe("2026-06-12T00:00:03.000Z");
 			expect(row.finished_at).toBe("2026-06-12T00:00:05.000Z");
 		} finally {
 			db.close();

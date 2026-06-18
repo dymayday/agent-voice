@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 
 export type AgentVoiceDb = Database;
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS jobs (
@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS jobs (
   finished_at     TEXT,
   summary         TEXT,
   summarizer_used TEXT,
+  spoken_at       TEXT,
   skip_reason     TEXT,
   last_error      TEXT,
   metadata        TEXT
@@ -33,6 +34,19 @@ CREATE INDEX IF NOT EXISTS idx_jobs_agent_created ON jobs(agent, created_at);
 CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value TEXT);
 `;
 
+function hasColumn(db: Database, table: string, column: string): boolean {
+	const rows = db.query(`PRAGMA table_info(${table})`).all() as Array<{
+		name: string;
+	}>;
+	return rows.some((row) => row.name === column);
+}
+
+function migrateSchema(db: Database): void {
+	if (!hasColumn(db, "jobs", "spoken_at")) {
+		db.query("ALTER TABLE jobs ADD COLUMN spoken_at TEXT").run();
+	}
+}
+
 export function openDb(location: string): Database {
 	const db = new Database(location, { create: true });
 	db.exec("PRAGMA journal_mode = WAL");
@@ -40,8 +54,9 @@ export function openDb(location: string): Database {
 	db.exec("PRAGMA synchronous = NORMAL");
 	db.exec("PRAGMA auto_vacuum = INCREMENTAL");
 	db.exec(SCHEMA_SQL);
+	migrateSchema(db);
 	db.query(
-		"INSERT INTO schema_meta(key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO NOTHING",
+		"INSERT INTO schema_meta(key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
 	).run(String(SCHEMA_VERSION));
 	return db;
 }

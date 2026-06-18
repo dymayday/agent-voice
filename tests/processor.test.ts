@@ -149,6 +149,36 @@ describe("processNextJob", () => {
 		});
 	});
 
+	test("does not treat an unspoken persisted summary as already spoken", async () => {
+		await withDb(async (db) => {
+			const event = createEvent({ agent: "claude", text: "Recovered." });
+			enqueue(db, event);
+			db.query(
+				"UPDATE jobs SET status='processing', attempts=1, last_attempt_at=?, summary=?, summarizer_used=? WHERE id=?",
+			).run(
+				"2026-01-01T00:00:00.000Z",
+				"Previously summarized.",
+				"heuristic",
+				event.id,
+			);
+			let speakCalls = 0;
+
+			const result = await processNextJob(
+				db,
+				defaultConfig,
+				deps({
+					speak: async () => {
+						speakCalls += 1;
+					},
+				}),
+				() => new Date("2026-01-01T00:05:00.000Z"),
+			);
+
+			expect(result.kind).toBe("processed");
+			expect(speakCalls).toBe(1);
+		});
+	});
+
 	test("still schedules a retry when summarization throws", async () => {
 		await withDb(async (db) => {
 			const event = createEvent({ agent: "pi", text: "Summarize me." });

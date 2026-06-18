@@ -431,12 +431,14 @@ describe("agent-voice daemon processor", () => {
 			const db = openDb(paths.db);
 			try {
 				enqueue(db, { ...event, createdAt: "2026-06-12T00:00:00.000Z" });
-				// Simulate a crash after speak: summary persisted, still processing+stale.
+				// Simulate a crash after speech was explicitly marked complete but
+				// before the terminal done transition was written.
 				db.query(
-					"UPDATE jobs SET status='processing', attempts=1, last_attempt_at=?, summary=? WHERE id=?",
+					"UPDATE jobs SET status='processing', attempts=1, last_attempt_at=?, summary=?, spoken_at=? WHERE id=?",
 				).run(
 					"2026-06-12T00:00:00.000Z",
 					"Claude already spoke this job.",
+					"2026-06-12T00:00:10.000Z",
 					event.id,
 				);
 				let speakCalls = 0;

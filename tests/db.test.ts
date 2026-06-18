@@ -13,6 +13,7 @@ describe("db layer", () => {
 			expect(names).toContain("status");
 			expect(names).toContain("summary");
 			expect(names).toContain("summarizer_used");
+			expect(names).toContain("spoken_at");
 			expect(getSchemaVersion(db)).toBe(SCHEMA_VERSION);
 		} finally {
 			db.close();

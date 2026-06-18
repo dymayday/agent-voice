@@ -14,6 +14,7 @@ export interface StoredJob extends QueueJob {
 	status: JobStatus;
 	summary?: string;
 	summarizerUsed?: string;
+	spokenAt?: string;
 }
 
 interface JobRow {
@@ -34,6 +35,7 @@ interface JobRow {
 	finished_at: string | null;
 	summary: string | null;
 	summarizer_used: string | null;
+	spoken_at: string | null;
 	skip_reason: string | null;
 	last_error: string | null;
 	metadata: string | null;
@@ -70,6 +72,7 @@ function rowToStoredJob(row: JobRow): StoredJob {
 		...(row.next_attempt_at ? { nextAttemptAt: row.next_attempt_at } : {}),
 		...(row.summary ? { summary: row.summary } : {}),
 		...(row.summarizer_used ? { summarizerUsed: row.summarizer_used } : {}),
+		...(row.spoken_at ? { spokenAt: row.spoken_at } : {}),
 		...(metadata ? { metadata } : {}),
 	};
 }
@@ -220,12 +223,14 @@ export function markSpoken(
 	id: string,
 	summary: string,
 	summarizerUsed: string | null,
+	now = new Date(),
 ): void {
 	db.query(
-		"UPDATE jobs SET summary=$summary, summarizer_used=$used WHERE id=$id",
+		"UPDATE jobs SET summary=$summary, summarizer_used=$used, spoken_at=$spoken_at WHERE id=$id",
 	).run({
 		$summary: summary,
 		$used: summarizerUsed,
+		$spoken_at: now.toISOString(),
 		$id: id,
 	});
 }

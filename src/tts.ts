@@ -1,12 +1,16 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentVoiceConfig } from "./config";
+import {
+	createReadableLineReader,
+	messageToAudio,
+	readKokoroMessageBeforeDeadline,
+	type KokoroProtocolSession,
+} from "./kokoro/protocol";
 import type { AgentVoicePaths } from "./paths";
 
-export interface KokoroSession {
+export interface KokoroSession extends KokoroProtocolSession {
 	writeLine(line: string): void;
-	readLine(): Promise<string | null>;
-	readStderr?(): Promise<string>;
 	dispose(): void;
 }
 
@@ -32,17 +36,10 @@ export interface PlayWavOptions {
 
 const DEFAULT_PLAYBACK_TIMEOUT_MS = 30_000;
 
-type KokoroMessage =
-	| { kind: "status"; status: string }
-	| { kind: "audio"; audio: string; duration?: number }
-	| { kind: "error"; error: string };
-
 class BunKokoroSession implements KokoroSession {
 	private readonly proc: ReturnType<typeof Bun.spawn>;
-	private readonly reader: ReadableStreamDefaultReader<Uint8Array>;
+	private readonly readStdoutLine: () => Promise<string | null>;
 	private readonly stderrText: Promise<string>;
-	private buffered = "";
-	private decoder = new TextDecoder();
 
 	constructor(config: AgentVoiceConfig) {
 		this.proc = Bun.spawn([config.tts.python, config.tts.kokoroScript], {
@@ -54,7 +51,7 @@ class BunKokoroSession implements KokoroSession {
 		if (!stdout || typeof stdout === "number") {
 			throw new Error("Kokoro stdout is not readable");
 		}
-		this.reader = stdout.getReader();
+		this.readStdoutLine = createReadableLineReader(stdout);
 		this.stderrText = streamToText(this.proc.stderr);
 	}
 
@@ -67,23 +64,7 @@ class BunKokoroSession implements KokoroSession {
 	}
 
 	async readLine(): Promise<string | null> {
-		while (true) {
-			const newlineIndex = this.buffered.indexOf("\n");
-			if (newlineIndex !== -1) {
-				const line = this.buffered.slice(0, newlineIndex);
-				this.buffered = this.buffered.slice(newlineIndex + 1);
-				return line;
-			}
-
-			const chunk = await this.reader.read();
-			if (chunk.done) {
-				if (this.buffered.length === 0) return null;
-				const line = this.buffered;
-				this.buffered = "";
-				return line;
-			}
-			this.buffered += this.decoder.decode(chunk.value, { stream: true });
-		}
+		return await this.readStdoutLine();
 	}
 
 	async readStderr(): Promise<string> {
@@ -91,11 +72,6 @@ class BunKokoroSession implements KokoroSession {
 	}
 
 	dispose(): void {
-		try {
-			this.reader.releaseLock();
-		} catch {
-			// Best-effort cleanup only.
-		}
 		try {
 			this.proc.kill();
 		} catch {
@@ -106,87 +82,6 @@ class BunKokoroSession implements KokoroSession {
 
 function defaultSessionFactory(config: AgentVoiceConfig): KokoroSessionFactory {
 	return () => new BunKokoroSession(config);
-}
-
-function parseKokoroLine(line: string): KokoroMessage {
-	const parsed = JSON.parse(line) as unknown;
-	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-		throw new Error("Invalid Kokoro response");
-	}
-	const record = parsed as Record<string, unknown>;
-	if (typeof record.error === "string" && record.error.trim().length > 0) {
-		return { kind: "error", error: record.error };
-	}
-	if (typeof record.audio === "string" && record.audio.length > 0) {
-		return {
-			kind: "audio",
-			audio: record.audio,
-			...(typeof record.duration === "number" ? { duration: record.duration } : {}),
-		};
-	}
-	if (typeof record.status === "string" && record.status.trim().length > 0) {
-		return { kind: "status", status: record.status };
-	}
-	throw new Error("Invalid Kokoro response");
-}
-
-function messageToAudio(message: KokoroMessage): Buffer | null {
-	if (message.kind !== "audio") return null;
-	const audio = Buffer.from(message.audio, "base64");
-	return audio.length > 0 ? audio : null;
-}
-
-async function readLineBeforeDeadline(
-	session: KokoroSession,
-	deadline: number,
-	phase: "ready" | "audio",
-): Promise<string | null> {
-	const remainingMs = deadline - Date.now();
-	if (remainingMs <= 0) {
-		throw new Error(`Timed out waiting for Kokoro ${phase}`);
-	}
-
-	let timeout: ReturnType<typeof setTimeout> | undefined;
-	try {
-		return await Promise.race([
-			session.readLine(),
-			new Promise<never>((_resolve, reject) => {
-				timeout = setTimeout(
-					() => reject(new Error(`Timed out waiting for Kokoro ${phase}`)),
-					remainingMs,
-				);
-			}),
-		]);
-	} finally {
-		if (timeout) clearTimeout(timeout);
-	}
-}
-
-async function readKokoroMessageBeforeDeadline(
-	session: KokoroSession,
-	deadline: number,
-	phase: "ready" | "audio",
-): Promise<KokoroMessage> {
-	while (true) {
-		const line = await readLineBeforeDeadline(session, deadline, phase);
-		if (line === null) throw new Error(await exitedBeforeMessage(session, phase));
-		if (line.trim().length === 0) continue;
-		return parseKokoroLine(line);
-	}
-}
-
-async function exitedBeforeMessage(
-	session: KokoroSession,
-	phase: "ready" | "audio",
-): Promise<string> {
-	if (!session.readStderr) return `Kokoro exited before ${phase}`;
-	try {
-		const stderr = (await session.readStderr()).trim();
-		if (stderr.length > 0) return `Kokoro exited before ${phase}: ${stderr}`;
-	} catch {
-		// Preserve the original protocol-level failure if stderr collection fails.
-	}
-	return `Kokoro exited before ${phase}`;
 }
 
 export class KokoroClient {
