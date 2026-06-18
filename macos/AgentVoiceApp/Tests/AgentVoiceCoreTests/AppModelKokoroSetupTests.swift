@@ -31,6 +31,24 @@ private let staleKokoroMissingPythonDoctorJSON = """
 }
 """
 
+private actor ThrowingProcessRunner: ProcessRunning {
+    private let error: Error
+    private(set) var requests: [ProcessRequest] = []
+
+    init(error: Error) {
+        self.error = error
+    }
+
+    func run(_ request: ProcessRequest) async throws -> ProcessResult {
+        requests.append(request)
+        throw error
+    }
+
+    func capturedRequests() -> [ProcessRequest] {
+        requests
+    }
+}
+
 @MainActor
 final class AppModelKokoroSetupTests: XCTestCase {
     func testInstallKokoroUpdatesSetupStateAndRefreshes() async throws {
@@ -220,6 +238,28 @@ final class AppModelKokoroSetupTests: XCTestCase {
         XCTAssertTrue(model.shouldPromptForKokoroSetup)
     }
 
+    func testRefreshDoesNotPromptForKokoroSetupWhenCliExecutableIsMissing() async throws {
+        let missingCLI = NSError(
+            domain: NSCocoaErrorDomain,
+            code: CocoaError.Code.fileNoSuchFile.rawValue,
+            userInfo: [NSFilePathErrorKey: "/repo/dist/Agent Voice.app/Contents/Resources/agent-voice/bin/agent-voice"]
+        )
+        let runner = ThrowingProcessRunner(error: missingCLI)
+        let cli = AgentVoiceCLI(
+            executableURL: URL(fileURLWithPath: "/repo/dist/Agent Voice.app/Contents/Resources/agent-voice/bin/agent-voice"),
+            runner: runner
+        )
+        let model = AppModel(cli: cli)
+
+        await model.refresh()
+
+        XCTAssertFalse(model.shouldPromptForKokoroSetup)
+        XCTAssertNil(model.kokoroSetupDetectionError)
+        XCTAssertTrue(model.cliDetectionError?.contains("agent-voice") == true)
+        XCTAssertTrue(model.lastError?.contains("doctor") == true)
+        XCTAssertTrue(model.lastError?.contains("config") == true)
+    }
+
     func testRefreshDoesNotResetSucceededKokoroSetupWhenConfigRefreshFails() async throws {
         let streamingRunner = RecordingStreamingRunner(lines: [
             #"{"type":"complete","ok":true}"#
@@ -246,9 +286,9 @@ final class AppModelKokoroSetupTests: XCTestCase {
         await model.refresh()
 
         XCTAssertEqual(model.kokoroSetup.phase, .succeeded)
-        XCTAssertTrue(model.shouldPromptForKokoroSetup)
-        XCTAssertTrue(model.kokoroSetupDetectionError?.contains("config") == true)
-        XCTAssertTrue(model.kokoroSetupDiagnostics().contains("Kokoro setup detection error: config"))
+        XCTAssertFalse(model.shouldPromptForKokoroSetup)
+        XCTAssertNil(model.kokoroSetupDetectionError)
+        XCTAssertNil(model.cliDetectionError)
         XCTAssertTrue(model.lastError?.contains("config") == true)
     }
 
@@ -278,8 +318,9 @@ final class AppModelKokoroSetupTests: XCTestCase {
         await model.refresh()
 
         XCTAssertEqual(model.kokoroSetup.phase, .succeeded)
-        XCTAssertTrue(model.shouldPromptForKokoroSetup)
-        XCTAssertTrue(model.kokoroSetupDiagnostics().contains("Kokoro setup detection error: doctor"))
+        XCTAssertFalse(model.shouldPromptForKokoroSetup)
+        XCTAssertNil(model.kokoroSetupDetectionError)
+        XCTAssertNil(model.cliDetectionError)
         XCTAssertTrue(model.lastError?.contains("doctor") == true)
     }
 

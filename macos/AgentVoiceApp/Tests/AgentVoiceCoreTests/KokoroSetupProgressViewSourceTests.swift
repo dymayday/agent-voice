@@ -87,6 +87,13 @@ final class KokoroSetupProgressViewSourceTests: XCTestCase {
         XCTAssertTrue(source.contains("Setup detection needs attention"))
     }
 
+    func testProgressViewSurfacesCliDetectionErrorsSeparately() throws {
+        let source = try appSource("KokoroSetupProgressView.swift")
+
+        XCTAssertTrue(source.contains("model.cliDetectionError"))
+        XCTAssertTrue(source.contains("Agent Voice CLI unavailable"))
+    }
+
     func testCopyDiagnosticsReportsPasteboardFailures() throws {
         let source = try appSource("KokoroSetupProgressView.swift")
         let copyDiagnostics = try functionBody(named: "copyDiagnostics", in: source)
