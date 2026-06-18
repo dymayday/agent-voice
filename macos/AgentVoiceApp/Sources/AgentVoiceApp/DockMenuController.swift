@@ -142,42 +142,32 @@ final class AgentVoiceDockMenuDelegate: NSObject, NSApplicationDelegate {
     // backgrounded window would otherwise keep polling. Occlusion drives a hard
     // suspend; activation drives the focused/unfocused cadence.
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Handlers hop through Task { @MainActor } to reach the main-actor model:
-        // MainActor.assumeIsolated would be synchronous but is macOS 14+, and this
-        // target deploys to macOS 13. Ordering across the hops is benign — each
-        // visibility handler reads NSApp.occlusionState live (not a captured value)
-        // and setHostActive is a last-writer-wins cadence flag.
-        let center = NotificationCenter.default
-        center.addObserver(
-            forName: NSApplication.didChangeOcclusionStateNotification,
-            object: NSApp,
-            queue: .main
-        ) { _ in
-            Task { @MainActor in Self.syncHostVisibility() }
+        observeOnMain(NSApplication.didChangeOcclusionStateNotification) {
+            Self.syncHostVisibility()
         }
-        center.addObserver(
-            forName: NSApplication.didBecomeActiveNotification,
-            object: NSApp,
-            queue: .main
-        ) { _ in
-            Task { @MainActor in
-                Self.model?.setHostActive(true)
-                // Re-seed visibility in case an occlusion change was missed while
-                // the app was inactive.
-                Self.syncHostVisibility()
-            }
+        observeOnMain(NSApplication.didBecomeActiveNotification) {
+            Self.model?.setHostActive(true)
+            // Re-seed visibility in case an occlusion change was missed while inactive.
+            Self.syncHostVisibility()
         }
-        center.addObserver(
-            forName: NSApplication.didResignActiveNotification,
-            object: NSApp,
-            queue: .main
-        ) { _ in
-            Task { @MainActor in Self.model?.setHostActive(false) }
+        observeOnMain(NSApplication.didResignActiveNotification) {
+            Self.model?.setHostActive(false)
         }
         // Seed initial visibility and focus so a launch that is occluded or not
         // frontmost (login item, `open -g`) starts in the right state.
         Self.syncHostVisibility()
         Self.model?.setHostActive(NSApp.isActive)
+    }
+
+    /// Observe an NSApp notification and run `body` on the main actor. The
+    /// Task { @MainActor } hop reaches the main-actor model: MainActor.assumeIsolated
+    /// would be synchronous but is macOS 14+, and this target deploys to macOS 13.
+    /// Ordering across hops is benign — syncHostVisibility reads occlusion state
+    /// live and setHostActive is a last-writer-wins cadence flag.
+    private func observeOnMain(_ name: Notification.Name, _ body: @escaping @MainActor () -> Void) {
+        NotificationCenter.default.addObserver(forName: name, object: NSApp, queue: .main) { _ in
+            Task { @MainActor in body() }
+        }
     }
 
     private static func syncHostVisibility() {

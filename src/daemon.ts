@@ -144,6 +144,57 @@ export function sweepStaleSnapshotTemps(paths: AgentVoicePaths): void {
 	}
 }
 
+export interface StatusPublisher {
+	/** Publish the running daemon's status for the given config (best-effort). */
+	publish(config: AgentVoiceConfig): void;
+	/** Number of writes that actually hit disk (for diagnostics/tests). */
+	readonly writes: number;
+}
+
+/**
+ * Publishes the daemon's status to run/status.json for in-process GUI reads.
+ * Owns the policy so the loop doesn't have to:
+ *  - dedup: skip byte-identical writes, but re-publish if the file vanished;
+ *  - best-effort: a cosmetic status write must NEVER crash the job-processing
+ *    daemon, so write failures are swallowed;
+ *  - write-then-commit: the dedup cache only advances after a successful write,
+ *    so a failed write is retried next tick instead of being silently dropped.
+ */
+export function createStatusPublisher(
+	paths: AgentVoicePaths,
+	db: Database,
+): StatusPublisher {
+	let lastJson: string | null = null;
+	let writes = 0;
+	return {
+		get writes() {
+			return writes;
+		},
+		publish(config: AgentVoiceConfig): void {
+			const json = formatAppStatusJson(
+				composeStatusSnapshot({
+					daemon: { running: true, pid: process.pid },
+					queues: countByStatus(db),
+					config: { enabled: config.enabled, agents: config.agents },
+					paths: { home: paths.home, config: paths.config, db: paths.db },
+				}),
+			);
+			if (json === lastJson && existsSync(statusSnapshotPath(paths))) return;
+			try {
+				writeStatusSnapshotAtomic(paths, json);
+				lastJson = json;
+				writes += 1;
+			} catch (error) {
+				console.warn(
+					`[agent-voice] failed to publish status snapshot: ${
+						error instanceof Error ? error.message : String(error)
+					}`,
+				);
+			}
+		},
+	};
+}
+
 function defaultIsPidAlive(pid: number): boolean {
 	try {
 		process.kill(pid, 0);
@@ -388,46 +439,13 @@ export async function runDaemonLoop(
 	try {
 		const clock = deps.now ?? (() => new Date());
 		let lastPruneMs = clock().getTime();
-		// Clear any temp files orphaned by a previously-crashed daemon (B13).
+		// Clear temp files orphaned by a previously-crashed daemon (B13), then
+		// publish "running" promptly so the GUI sees it before the first wait. The
+		// publisher owns the dedup/best-effort/self-heal policy; the loop just
+		// announces state transitions.
 		sweepStaleSnapshotTemps(paths);
-		// Publish the daemon's status to run/status.json so the GUI can read it
-		// in-process instead of spawning the CLI. We are the running daemon, so
-		// daemon.running is always true here. The byte-identical guard skips the
-		// write when nothing changed, so a steady-idle daemon writes once and
-		// then stays quiet (the file is legitimately old but valid).
-		let lastSnapshotJson: string | null = null;
-		const publishSnapshot = (cfg: AgentVoiceConfig): void => {
-			const json = formatAppStatusJson(
-				composeStatusSnapshot({
-					daemon: { running: true, pid: process.pid },
-					queues: countByStatus(db),
-					config: { enabled: cfg.enabled, agents: cfg.agents },
-					paths: { home: paths.home, config: paths.config, db: paths.db },
-				}),
-			);
-			// Skip only when both the content AND the on-disk file are unchanged;
-			// re-publish if the file was removed out from under us (B12).
-			if (json === lastSnapshotJson && existsSync(statusSnapshotPath(paths))) {
-				return;
-			}
-			// Best-effort: a cosmetic status write must NEVER crash the daemon that
-			// processes jobs. Write first, then commit the dedup cache only on
-			// success so a failed write is retried next tick instead of being
-			// silently suppressed (B1).
-			try {
-				writeStatusSnapshotAtomic(paths, json);
-				lastSnapshotJson = json;
-				summary.snapshotWrites += 1;
-			} catch (error) {
-				console.warn(
-					`[agent-voice] failed to publish status snapshot: ${
-						error instanceof Error ? error.message : String(error)
-					}`,
-				);
-			}
-		};
-		// Site (a): announce "running" promptly, before the first wait.
-		publishSnapshot(currentDaemonConfig(paths, configCache));
+		const publisher = createStatusPublisher(paths, db);
+		publisher.publish(currentDaemonConfig(paths, configCache));
 		while (summary.iterations < maxIterations && !hasIntentionalStop(paths)) {
 			const currentConfig = currentDaemonConfig(paths, configCache);
 			const procDeps = await getProcessorDeps(currentConfig);
@@ -439,7 +457,7 @@ export async function runDaemonLoop(
 				// Publish the in-flight "processing" state as soon as the job is
 				// claimed, so the GUI sees queues.processing>0 for the job's
 				// duration instead of jumping pending -> done (B5).
-				() => publishSnapshot(currentConfig),
+				() => publisher.publish(currentConfig),
 			);
 			summary.iterations += 1;
 			if (result.kind === "processed") summary.processed += 1;
@@ -457,10 +475,10 @@ export async function runDaemonLoop(
 				runMaintenance(db);
 				lastPruneMs = nowMs;
 			}
-			// Site (b): publish the post-iteration state (covers processed/failed/
-			// retry/idle and config hot-reload) BEFORE the daemon parks on the idle
-			// wait, so the GUI sees fresh state even while the daemon sleeps.
-			publishSnapshot(currentConfig);
+			// Publish the post-iteration state (covers processed/failed/retry/idle
+			// and config hot-reload) BEFORE the daemon parks on the idle wait, so
+			// the GUI sees fresh state even while the daemon sleeps.
+			publisher.publish(currentConfig);
 			if (result.kind === "idle") {
 				// Single-writer invariant: an idle daemon has nothing in `processing`
 				// that it owns, so no pending job it claimed can go stale mid-wait.
@@ -487,6 +505,7 @@ export async function runDaemonLoop(
 				if (waitMs > 0) await waitForWork(waitMs);
 			}
 		}
+		summary.snapshotWrites = publisher.writes;
 	} finally {
 		db.close();
 	}
