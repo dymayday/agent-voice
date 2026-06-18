@@ -5,6 +5,7 @@ import {
 	openSync,
 	closeSync,
 	readFileSync,
+	renameSync,
 	rmSync,
 	statSync,
 	writeFileSync,
@@ -26,6 +27,7 @@ import {
 	runMaintenance,
 	type JobStatus,
 } from "./store";
+import { composeStatusSnapshot, formatAppStatusJson } from "./status";
 
 export interface DetachedDaemonRequest {
 	command: string;
@@ -95,6 +97,31 @@ export function clearDaemonLock(paths: AgentVoicePaths): void {
 
 export function clearIntentionalStop(paths: AgentVoicePaths): void {
 	rmSync(intentionalStopPath(paths), { force: true });
+}
+
+export function statusSnapshotPath(paths: AgentVoicePaths): string {
+	return join(paths.run, "status.json");
+}
+
+/**
+ * Publish the daemon's status JSON for in-process GUI reads (so the GUI does not
+ * have to spawn the CLI to learn queue/daemon state). Write-temp-then-rename
+ * keeps every concurrent read a complete document; the temp lives in the same
+ * directory as the target so the rename stays on one filesystem (atomic).
+ */
+export function writeStatusSnapshotAtomic(
+	paths: AgentVoicePaths,
+	json: string,
+): void {
+	ensureRunDir(paths);
+	const finalPath = statusSnapshotPath(paths);
+	const tmpPath = `${finalPath}.${process.pid}.tmp`;
+	writeFileSync(tmpPath, json, "utf8");
+	renameSync(tmpPath, finalPath);
+}
+
+export function clearStatusSnapshot(paths: AgentVoicePaths): void {
+	rmSync(statusSnapshotPath(paths), { force: true });
 }
 
 function defaultIsPidAlive(pid: number): boolean {
@@ -282,6 +309,7 @@ export interface DaemonLoopResult {
 	idle: number;
 	retryScheduled: number;
 	failed: number;
+	snapshotWrites: number;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -309,6 +337,7 @@ export async function runDaemonLoop(
 		idle: 0,
 		retryScheduled: 0,
 		failed: 0,
+		snapshotWrites: 0,
 	};
 	const maxIterations = deps.maxIterations ?? Number.POSITIVE_INFINITY;
 	// `pollIntervalMs` is repurposed as the idle-wait safety-net cap.
@@ -339,6 +368,28 @@ export async function runDaemonLoop(
 	try {
 		const clock = deps.now ?? (() => new Date());
 		let lastPruneMs = clock().getTime();
+		// Publish the daemon's status to run/status.json so the GUI can read it
+		// in-process instead of spawning the CLI. We are the running daemon, so
+		// daemon.running is always true here. The byte-identical guard skips the
+		// write when nothing changed, so a steady-idle daemon writes once and
+		// then stays quiet (the file is legitimately old but valid).
+		let lastSnapshotJson: string | null = null;
+		const publishSnapshot = (cfg: AgentVoiceConfig): void => {
+			const json = formatAppStatusJson(
+				composeStatusSnapshot({
+					daemon: { running: true, pid: process.pid },
+					queues: countByStatus(db),
+					config: { enabled: cfg.enabled, agents: cfg.agents },
+					paths: { home: paths.home, config: paths.config, db: paths.db },
+				}),
+			);
+			if (json === lastSnapshotJson) return;
+			lastSnapshotJson = json;
+			writeStatusSnapshotAtomic(paths, json);
+			summary.snapshotWrites += 1;
+		};
+		// Site (a): announce "running" promptly, before the first wait.
+		publishSnapshot(currentDaemonConfig(paths, configCache));
 		while (summary.iterations < maxIterations && !hasIntentionalStop(paths)) {
 			const currentConfig = currentDaemonConfig(paths, configCache);
 			const procDeps = await getProcessorDeps(currentConfig);
@@ -359,6 +410,10 @@ export async function runDaemonLoop(
 				runMaintenance(db);
 				lastPruneMs = nowMs;
 			}
+			// Site (b): publish the post-iteration state (covers processed/failed/
+			// retry/idle and config hot-reload) BEFORE the daemon parks on the idle
+			// wait, so the GUI sees fresh state even while the daemon sleeps.
+			publishSnapshot(currentConfig);
 			if (result.kind === "idle") {
 				// Single-writer invariant: an idle daemon has nothing in `processing`
 				// that it owns, so no pending job it claimed can go stale mid-wait.

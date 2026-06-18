@@ -212,6 +212,93 @@ final class AppModelTests: XCTestCase {
         XCTAssertFalse(model.isAutoRefreshRunning)
     }
 
+    func testHostVisibilityFalseCancelsLoopButKeepsSubscribers() async throws {
+        let runner = RecordingRunner(results: refreshResults(cycles: 4))
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+        let model = AppModel(cli: cli)
+
+        model.startAutoRefresh(everyNanoseconds: 1_000_000)
+        XCTAssertTrue(model.isAutoRefreshRunning)
+
+        model.setHostVisibility(false)
+        XCTAssertEqual(model.autoRefreshSubscriberCount, 1, "Occlusion must not drop the subscriber")
+        XCTAssertFalse(model.isAutoRefreshRunning, "An occluded app must not poll")
+    }
+
+    func testHostVisibilityIsIdempotent() async throws {
+        let runner = RecordingRunner(results: refreshResults(cycles: 4))
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+        let model = AppModel(cli: cli)
+
+        model.startAutoRefresh(everyNanoseconds: 1_000_000)
+        model.setHostVisibility(true)  // already visible — no-op
+        XCTAssertTrue(model.isAutoRefreshRunning)
+
+        model.setHostVisibility(false)
+        model.setHostVisibility(false)  // repeated — still just paused
+        XCTAssertFalse(model.isAutoRefreshRunning)
+        XCTAssertEqual(model.autoRefreshSubscriberCount, 1)
+    }
+
+    func testStartAutoRefreshWhileHiddenDoesNotRun() async throws {
+        let runner = RecordingRunner(results: refreshResults(cycles: 2))
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+        let model = AppModel(cli: cli)
+
+        model.setHostVisibility(false)
+        model.startAutoRefresh(everyNanoseconds: 1_000_000)
+
+        XCTAssertEqual(model.autoRefreshSubscriberCount, 1)
+        XCTAssertFalse(model.isAutoRefreshRunning)
+
+        try await Task.sleep(nanoseconds: 50_000_000)
+        let requests = await runner.capturedRequests()
+        XCTAssertTrue(requests.isEmpty, "A hidden surface must not trigger any refresh")
+    }
+
+    func testRevealPerformsImmediateRefresh() async throws {
+        let runner = RecordingRunner(results: refreshResults(cycles: 2))
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+        let model = AppModel(cli: cli)
+
+        model.setHostVisibility(false)
+        // Long interval so only the immediate tick-0 refresh fires within the wait.
+        model.startAutoRefresh(everyNanoseconds: 1_000_000_000)
+        XCTAssertFalse(model.isAutoRefreshRunning)
+
+        model.setHostVisibility(true)
+        XCTAssertTrue(model.isAutoRefreshRunning)
+
+        try await waitForRequestCount(4, runner: runner)
+        model.stopAutoRefresh()
+
+        let requests = await runner.capturedRequests()
+        XCTAssertEqual(Array(requests.prefix(4)).map(\.arguments), [
+            ["status", "--json"],
+            ["history", "--json", "--limit", "10"],
+            ["doctor", "--json"],
+            ["config", "get"]
+        ])
+    }
+
+    func testSetHostActiveDoesNotRestartLoop() async throws {
+        let runner = RecordingRunner(results: refreshResults(cycles: 4))
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+        let model = AppModel(cli: cli)
+
+        model.startAutoRefresh(everyNanoseconds: 1_000_000_000)
+        XCTAssertTrue(model.isAutoRefreshRunning)
+
+        model.setHostActive(false)
+        XCTAssertTrue(model.isAutoRefreshRunning, "Losing focus backs off cadence but keeps the loop")
+
+        model.setHostActive(true)
+        XCTAssertTrue(model.isAutoRefreshRunning)
+
+        model.stopAutoRefresh()
+        XCTAssertFalse(model.isAutoRefreshRunning)
+    }
+
     func testAutoRefreshImmediatelyRefreshesWhenFirstSurfaceAppears() async throws {
         let runner = RecordingRunner(results: refreshResults(cycles: 1))
         let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)

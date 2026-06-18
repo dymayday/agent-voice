@@ -4,6 +4,7 @@ import {
 } from "./adapters/claude";
 import {
 	clearDaemonLock,
+	clearStatusSnapshot,
 	enterForegroundDaemon,
 	formatDaemonStatus,
 	getDaemonStatus,
@@ -732,6 +733,9 @@ export async function runCli(
 				);
 			} finally {
 				clearDaemonLock(paths);
+				// Remove the published snapshot so a stopped daemon leaves no stale
+				// "running" file; the GUI then falls back to spawning the CLI.
+				clearStatusSnapshot(paths);
 			}
 		} catch (error) {
 			return result(

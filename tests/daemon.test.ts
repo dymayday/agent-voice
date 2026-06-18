@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -7,7 +13,7 @@ import {
 	saveConfig,
 	type AgentVoiceConfig,
 } from "../src/config";
-import { runDaemonLoop } from "../src/daemon";
+import { runDaemonLoop, statusSnapshotPath } from "../src/daemon";
 import { openDb } from "../src/db";
 import { createEvent, type AgentVoiceEvent } from "../src/events";
 import { resolvePaths } from "../src/paths";
@@ -701,6 +707,80 @@ describe("agent-voice daemon wall-clock pruning", () => {
 			} finally {
 				check.close();
 			}
+		});
+	});
+});
+
+describe("agent-voice daemon status snapshot publishing", () => {
+	function readSnapshot(paths: ReturnType<typeof resolvePaths>) {
+		return JSON.parse(readFileSync(statusSnapshotPath(paths), "utf8")) as {
+			version: number;
+			daemon: { state: string; running: boolean; pid: number | null };
+			queues: Record<JobStatus, number>;
+			ui: { state: string; attention: string[] };
+		};
+	}
+
+	test("publishes a running snapshot before the first iteration", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			// maxIterations:0 means the while body never runs — only site (a) fires.
+			const loop = await runDaemonLoop(paths, config(), {
+				maxIterations: 0,
+				pollIntervalMs: 0,
+				processorDeps: deps(),
+			});
+
+			expect(loop.iterations).toBe(0);
+			expect(loop.snapshotWrites).toBe(1);
+			expect(existsSync(statusSnapshotPath(paths))).toBe(true);
+			const snapshot = readSnapshot(paths);
+			expect(snapshot.daemon.running).toBe(true);
+			expect(snapshot.daemon.pid).toBe(process.pid);
+			expect(snapshot.ui.state).toBe("ready");
+		});
+	});
+
+	test("republishes queue counts after a job is processed", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			const db = openDb(paths.db);
+			try {
+				enqueue(db, createEvent({ agent: "claude", text: "Job." }));
+			} finally {
+				db.close();
+			}
+
+			const loop = await runDaemonLoop(paths, config(), {
+				maxIterations: 1,
+				pollIntervalMs: 0,
+				processorDeps: deps(),
+			});
+
+			expect(loop.processed).toBe(1);
+			// Site (a) wrote the pending snapshot; site (b) wrote the done snapshot.
+			expect(loop.snapshotWrites).toBe(2);
+			const snapshot = readSnapshot(paths);
+			expect(snapshot.queues.done).toBe(1);
+			expect(snapshot.queues.pending).toBe(0);
+		});
+	});
+
+	test("skips identical snapshot writes across idle iterations", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			const loop = await runDaemonLoop(paths, config(), {
+				maxIterations: 2,
+				pollIntervalMs: 0,
+				now: () => new Date("2026-06-18T00:00:00.000Z"),
+				waitForWork: async () => undefined,
+				processorDeps: deps(),
+			});
+
+			expect(loop.idle).toBe(2);
+			// Site (a) wrote the idle snapshot once; both idle iterations produce a
+			// byte-identical snapshot, so site (b) writes nothing more.
+			expect(loop.snapshotWrites).toBe(1);
 		});
 	});
 });

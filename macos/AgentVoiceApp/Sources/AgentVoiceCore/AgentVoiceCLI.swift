@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 public struct ProcessRequest: Equatable, Sendable {
@@ -74,24 +75,68 @@ public struct AgentVoiceCLI: Sendable {
     public let baseEnvironment: [String: String]
     public let runner: any ProcessRunning
     public let streamingRunner: any ProcessStreaming
+    /// When true, `status()` first tries the daemon-published `run/status.json`
+    /// and only spawns the CLI as a fallback. Defaults to false so unit tests
+    /// (which assert on spawned requests via an injected runner) keep spawning;
+    /// production wires it on at the single AppModel construction site.
+    public let readsStatusSnapshot: Bool
 
     public init(
         executableURL: URL,
         agentVoiceHome: URL? = nil,
+        readsStatusSnapshot: Bool = false,
         baseEnvironment: [String: String] = ProcessInfo.processInfo.environment,
         runner: any ProcessRunning = FoundationProcessRunner(),
         streamingRunner: any ProcessStreaming = FoundationStreamingProcessRunner()
     ) {
         self.executableURL = executableURL
         self.agentVoiceHome = agentVoiceHome
+        self.readsStatusSnapshot = readsStatusSnapshot
         self.baseEnvironment = baseEnvironment
         self.runner = runner
         self.streamingRunner = streamingRunner
     }
 
     public func status() async throws -> AgentVoiceStatusSnapshot {
+        if readsStatusSnapshot, let snapshot = readTrustedStatusSnapshot() {
+            return snapshot
+        }
+        return try await spawnStatus()
+    }
+
+    private func spawnStatus() async throws -> AgentVoiceStatusSnapshot {
         let result = try await run(["status", "--json"])
         return try JSONDecoder().decode(AgentVoiceStatusSnapshot.self, from: Data(result.stdout.utf8))
+    }
+
+    /// Read the daemon-published status snapshot (run/status.json) so the GUI
+    /// avoids spawning the CLI on every refresh. The file is trusted only when it
+    /// reports a running daemon whose pid is still alive; otherwise we fall back
+    /// to the authoritative spawn path (identical to the previous behavior for a
+    /// stopped/stale/crashed daemon). The file's age is intentionally NOT a
+    /// freshness signal: a steady-idle daemon writes only on change, so a valid
+    /// snapshot can be arbitrarily old — a live writing daemon is the guarantee.
+    private func readTrustedStatusSnapshot() -> AgentVoiceStatusSnapshot? {
+        let url = effectiveAgentVoiceHome()
+            .appendingPathComponent("run", isDirectory: true)
+            .appendingPathComponent("status.json")
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        guard let snapshot = try? JSONDecoder().decode(AgentVoiceStatusSnapshot.self, from: data) else {
+            return nil
+        }
+        guard snapshot.daemon.running,
+              let pid = snapshot.daemon.pid,
+              AgentVoiceCLI.isProcessAlive(pid)
+        else {
+            return nil
+        }
+        return snapshot
+    }
+
+    private static func isProcessAlive(_ pid: Int) -> Bool {
+        guard pid > 0, pid <= Int(Int32.max) else { return false }
+        if kill(pid_t(pid), 0) == 0 { return true }
+        return errno == EPERM  // alive but owned by another user
     }
 
     public func doctor() async throws -> DoctorReport {

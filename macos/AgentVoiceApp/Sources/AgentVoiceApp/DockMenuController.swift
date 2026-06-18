@@ -137,6 +137,46 @@ final class AgentVoiceDockMenuDelegate: NSObject, NSApplicationDelegate {
         return menu
     }
 
+    // Gate the GUI's auto-refresh loop on real app visibility/focus. `onAppear`/
+    // `onDisappear` only fire on window open/close, so an open-but-occluded or
+    // backgrounded window would otherwise keep polling. Occlusion drives a hard
+    // suspend; activation drives the focused/unfocused cadence.
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        let center = NotificationCenter.default
+        center.addObserver(
+            forName: NSApplication.didChangeOcclusionStateNotification,
+            object: NSApp,
+            queue: .main
+        ) { _ in
+            Task { @MainActor in Self.syncHostVisibility() }
+        }
+        center.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: NSApp,
+            queue: .main
+        ) { _ in
+            Task { @MainActor in
+                Self.model?.setHostActive(true)
+                // Re-seed visibility in case an occlusion change was missed while
+                // the app was inactive.
+                Self.syncHostVisibility()
+            }
+        }
+        center.addObserver(
+            forName: NSApplication.didResignActiveNotification,
+            object: NSApp,
+            queue: .main
+        ) { _ in
+            Task { @MainActor in Self.model?.setHostActive(false) }
+        }
+        // Seed the initial visibility so a launch-time occluded window is gated.
+        Self.syncHostVisibility()
+    }
+
+    private static func syncHostVisibility() {
+        model?.setHostVisibility(NSApp.occlusionState.contains(.visible))
+    }
+
     @objc private func openDashboardFromDockMenu(_ sender: NSMenuItem) {
         Self.openDashboardWindow?()
     }
