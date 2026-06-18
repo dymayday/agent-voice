@@ -320,7 +320,9 @@ export async function runDaemonLoop(
 	const pruneIntervalMs = deps.pruneIntervalMs ?? DEFAULT_PRUNE_INTERVAL_MS;
 	const configCache: DaemonConfigCache = { config, mtimeMs: null };
 	let activeProcessorDeps: ProcessorDeps | null = null;
-	async function getProcessorDeps(currentConfig: AgentVoiceConfig): Promise<ProcessorDeps> {
+	async function getProcessorDeps(
+		currentConfig: AgentVoiceConfig,
+	): Promise<ProcessorDeps> {
 		const nextDeps = processorDepsForConfig(deps, currentConfig);
 		if (nextDeps !== activeProcessorDeps) {
 			activeProcessorDeps = nextDeps;
