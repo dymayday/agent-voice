@@ -15,6 +15,24 @@ function makeExecutable(path: string, content: string): void {
 	writeFileSync(path, content, { mode: 0o755 });
 }
 
+function runFindBun(env: Record<string, string | undefined>) {
+	return Bun.spawnSync({
+		cmd: ["bash", "-c", ". bin/lib/find-bun.sh; find_agent_voice_bun"],
+		env,
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+}
+
+function withTempHome<T>(fn: (home: string) => T): T {
+	const home = mkdtempSync(join(tmpdir(), "agent-voice-shim-test-"));
+	try {
+		return fn(home);
+	} finally {
+		rmSync(home, { recursive: true, force: true });
+	}
+}
+
 function withFakeNvmBun<T>(fn: (home: string) => T): T {
 	const home = mkdtempSync(join(tmpdir(), "agent-voice-shim-test-"));
 	try {
@@ -48,12 +66,14 @@ describe("agent-voice bin shim", () => {
 		}
 	});
 
-	test("macOS bundle script copies the shared Bun lookup helper", () => {
+	test("macOS bundle script copies the shared Bun lookup helper and writes a pinned Bun path", () => {
 		const source = readFileSync("scripts/build-macos-app.sh", "utf8");
 		expect(source).toContain(
 			'mkdir -p "$MACOS_DIR" "$RESOURCES_DIR" "$CLI_DIR/bin" "$CLI_DIR/bin/lib"',
 		);
 		expect(source).toContain('cp -R "$ROOT_DIR/bin/lib/." "$CLI_DIR/bin/lib/"');
+		expect(source).toContain('PINNED_BUN_BIN="$(find_agent_voice_bun)"');
+		expect(source).toContain('"$CLI_DIR/bin/.bun-path"');
 	});
 
 	test("macOS bundle script exposes cache cleaning and retries stale Swift caches", () => {
@@ -72,6 +92,58 @@ describe("agent-voice bin shim", () => {
 		expect(packageJson.scripts["clean:cache"]).toBe(
 			"bash scripts/build-macos-app.sh clean-cache",
 		);
+	});
+
+	test("Bun lookup uses pinned path file before HOME or PATH lookup", () => {
+		withTempHome((home) => {
+			const pinnedDir = join(home, "pinned", "bin");
+			mkdirSync(pinnedDir, { recursive: true });
+			const pinnedBun = join(pinnedDir, "bun");
+			makeExecutable(pinnedBun, "#!/usr/bin/env bash\n");
+			const pinnedPathFile = join(home, "pinned-bun-path");
+			writeFileSync(pinnedPathFile, `${pinnedBun}\n`);
+
+			const result = runFindBun({
+				HOME: home,
+				PATH: "/usr/bin:/bin:/usr/sbin:/sbin",
+				AGENT_VOICE_BUN_PATH_FILE: pinnedPathFile,
+			});
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stderr.toString()).toBe("");
+			expect(result.stdout.toString().trim()).toBe(pinnedBun);
+		});
+	});
+
+	test("Bun lookup reuses a cached path with a GUI-like PATH", () => {
+		withTempHome((home) => {
+			const cachedDir = join(home, "cached", "bin");
+			mkdirSync(cachedDir, { recursive: true });
+			const cachedBun = join(cachedDir, "bun");
+			makeExecutable(cachedBun, "#!/usr/bin/env bash\n");
+			const agentVoiceHome = join(home, ".agent-voice");
+			mkdirSync(join(agentVoiceHome, "cache"), { recursive: true });
+			writeFileSync(
+				join(agentVoiceHome, "cache", "bun-path"),
+				`${cachedBun}\n`,
+			);
+
+			const result = runFindBun({
+				HOME: home,
+				PATH: "/usr/bin:/bin:/usr/sbin:/sbin",
+				AGENT_VOICE_HOME: agentVoiceHome,
+			});
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stderr.toString()).toBe("");
+			expect(result.stdout.toString().trim()).toBe(cachedBun);
+		});
+	});
+
+	test("Bun lookup avoids recursive NVM filesystem scans", () => {
+		const helper = readFileSync("bin/lib/find-bun.sh", "utf8");
+		expect(helper).not.toContain('find "$HOME/.nvm/versions/node"');
+		expect(helper).not.toContain('find "$HOME/.nvm/versions/node"');
 	});
 
 	test("finds nvm-installed bun when launched with a GUI-like PATH", () => {

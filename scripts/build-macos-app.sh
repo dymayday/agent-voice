@@ -79,6 +79,12 @@ if [[ "$CLEAN_CACHE_BEFORE_BUILD" -eq 1 ]]; then
 	clean_build_cache
 fi
 
+. "$ROOT_DIR/bin/lib/find-bun.sh"
+PINNED_BUN_BIN="$(find_agent_voice_bun)" || PINNED_BUN_BIN=""
+if [[ -z "$PINNED_BUN_BIN" ]]; then
+	printf '%s\n' "Warning: Bun was not found while building; bundled app will use runtime Bun lookup fallback." >&2
+fi
+
 set +e
 BUILD_OUTPUT="$(run_release_build 2>&1)"
 BUILD_STATUS=$?
@@ -110,6 +116,9 @@ cp "$PACKAGE_DIR/Resources/AppIcon.icns" "$RESOURCES_DIR/AppIcon.icns"
 
 install -m 755 "$ROOT_DIR/bin/agent-voice" "$CLI_DIR/bin/agent-voice"
 cp -R "$ROOT_DIR/bin/lib/." "$CLI_DIR/bin/lib/"
+if [[ -n "$PINNED_BUN_BIN" ]]; then
+	printf '%s\n' "$PINNED_BUN_BIN" >"$CLI_DIR/bin/.bun-path"
+fi
 cp -R "$ROOT_DIR/src" "$CLI_DIR/src"
 mkdir -p "$CLI_DIR/resources"
 cp -R "$ROOT_DIR/resources/kokoro" "$CLI_DIR/resources/kokoro"
