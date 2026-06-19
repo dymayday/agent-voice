@@ -127,4 +127,29 @@ if [[ -f "$ROOT_DIR/bun.lock" ]]; then
 	cp "$ROOT_DIR/bun.lock" "$CLI_DIR/bun.lock"
 fi
 
+# Stamp a per-build id next to the bundled CLI. The daemon captures it at
+# startup and reports it in status.json; the app compares it against its own
+# bundle's id and restarts the daemon on a mismatch. The build epoch makes every
+# build unique, so ANY rebuild — even on the same commit — is detected and the
+# stale in-memory daemon gets reloaded.
+BUILD_EPOCH="$(date -u +%s)"
+BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+PKG_VERSION="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$ROOT_DIR/package.json" | head -1)"
+if GIT_COMMIT="$(git -C "$ROOT_DIR" rev-parse --short=12 HEAD 2>/dev/null)"; then
+	if [[ -n "$(git -C "$ROOT_DIR" status --porcelain 2>/dev/null)" ]]; then
+		GIT_COMMIT="${GIT_COMMIT}-dirty"
+	fi
+else
+	GIT_COMMIT="nogit"
+fi
+BUILD_ID="${GIT_COMMIT}+${BUILD_EPOCH}"
+cat >"$CLI_DIR/build-info.json" <<EOF
+{
+  "buildId": "${BUILD_ID}",
+  "commit": "${GIT_COMMIT}",
+  "version": "${PKG_VERSION}",
+  "builtAt": "${BUILT_AT}"
+}
+EOF
+
 echo "$APP_DIR"

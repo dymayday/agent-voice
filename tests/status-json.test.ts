@@ -29,6 +29,7 @@ type JsonStatus = {
 		agents: Record<string, { enabled: boolean; mode: string }>;
 	};
 	install: Record<string, string>;
+	buildId: string | null;
 	paths: { home: string; config: string; db: string };
 	ui: { state: string; attention: string[] };
 };
@@ -231,6 +232,21 @@ describe("agent-voice status --json", () => {
 			expect(parsed.install.pi).toBe("not_installed");
 			expect(parsed.install.codex).toBe("unsupported");
 			expect(parsed.install.opencode).toBe("unsupported");
+		});
+	});
+
+	test("status --json includes a buildId field (null in the source tree)", async () => {
+		await withTempHome(async (home) => {
+			const result = await runCli(["status", "--json"], {
+				env: { AGENT_VOICE_HOME: home, HOME: home },
+				daemonDeps: { isPidAlive: () => false },
+			});
+
+			const parsed = JSON.parse(result.stdout) as JsonStatus;
+			// The key is always present so the Swift side can decode it; running from
+			// the source tree (no build step) it is null.
+			expect("buildId" in parsed).toBe(true);
+			expect(parsed.buildId).toBeNull();
 		});
 	});
 });

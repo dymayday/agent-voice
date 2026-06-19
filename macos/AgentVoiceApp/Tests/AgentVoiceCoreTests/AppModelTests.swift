@@ -6,13 +6,17 @@ func statusJSON(
     done: Int = 1,
     failed: Int = 0,
     skipped: Int = 0,
-    attention: [String] = []
+    attention: [String] = [],
+    buildId: String? = nil
 ) -> String {
     let attentionJSON = attention.map { "\"\($0)\"" }.joined(separator: ",")
+    // Emit the buildId line only when provided so existing fixtures stay
+    // byte-identical (and decode to a nil buildId, suppressing auto-restart).
+    let buildIdJSON = buildId.map { "  \"buildId\": \"\($0)\",\n" } ?? ""
     return """
     {
       "version": 1,
-      "daemon": { "state": "running", "running": true, "pid": 123 },
+    \(buildIdJSON)  "daemon": { "state": "running", "running": true, "pid": 123 },
       "queues": { "pending": 0, "processing": 0, "done": \(done), "failed": \(failed), "skipped": \(skipped) },
       "config": { "enabled": true, "agents": { "pi": { "enabled": true, "mode": "native" } } },
       "paths": { "home": "/tmp/av", "config": "/tmp/av/config.json", "db": "/tmp/av/queue.db" },

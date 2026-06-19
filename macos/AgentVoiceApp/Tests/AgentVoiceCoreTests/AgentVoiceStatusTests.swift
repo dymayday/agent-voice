@@ -31,6 +31,43 @@ final class AgentVoiceStatusTests: XCTestCase {
         XCTAssertEqual(snapshot.config.agents["opencode"]?.enabled, false)
     }
 
+    func testDecodesBuildIdWhenPresent() throws {
+        let data = Data("""
+        {
+          "version": 1,
+          "buildId": "c2d0a4e1c476+1781891118",
+          "daemon": { "state": "running", "running": true, "pid": 1 },
+          "queues": { "pending": 0, "processing": 0, "done": 0, "failed": 0, "skipped": 0 },
+          "config": { "enabled": true, "agents": {} },
+          "paths": { "home": "/h", "config": "/h/c.json", "db": "/h/q.db" },
+          "ui": { "state": "ready", "attention": [] }
+        }
+        """.utf8)
+
+        let snapshot = try JSONDecoder().decode(AgentVoiceStatusSnapshot.self, from: data)
+
+        XCTAssertEqual(snapshot.buildId, "c2d0a4e1c476+1781891118")
+    }
+
+    func testDecodesSnapshotWithoutBuildIdAsNil() throws {
+        // A daemon predating the build-id field omits it; decoding must yield nil
+        // so the app simply skips the version-skew restart (graceful degradation).
+        let data = Data("""
+        {
+          "version": 1,
+          "daemon": { "state": "running", "running": true, "pid": 1 },
+          "queues": { "pending": 0, "processing": 0, "done": 0, "failed": 0, "skipped": 0 },
+          "config": { "enabled": true, "agents": {} },
+          "paths": { "home": "/h", "config": "/h/c.json", "db": "/h/q.db" },
+          "ui": { "state": "ready", "attention": [] }
+        }
+        """.utf8)
+
+        let snapshot = try JSONDecoder().decode(AgentVoiceStatusSnapshot.self, from: data)
+
+        XCTAssertNil(snapshot.buildId)
+    }
+
     func testDisplayStateLabels() {
         XCTAssertEqual(AgentVoiceUIState.ready.displayName, "Ready")
         XCTAssertEqual(AgentVoiceUIState.daemonStopped.displayName, "Daemon Stopped")

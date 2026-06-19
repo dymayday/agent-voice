@@ -5,6 +5,7 @@ import type { AgentVoicePaths } from "./paths";
 import type { JobStatus } from "./store";
 import type { AgentInstallState, InstallEnv } from "./install";
 import { detectAgentInstallStates } from "./install";
+import { readBuildId } from "./build-info";
 
 /** The config fields the status snapshot exposes (deriveUiState reads `enabled`). */
 export type StatusConfigView = Pick<AgentVoiceConfig, "enabled" | "agents">;
@@ -13,6 +14,14 @@ export type StatusPaths = { home: string; config: string; db: string };
 
 export interface AppStatusSnapshot {
 	version: 1;
+	/**
+	 * Build id the code producing this snapshot was started with, or `null` when
+	 * unstamped (dev / source tree). The daemon captures this once at startup, so
+	 * a long-running daemon keeps reporting its original build id even after the
+	 * bundle on disk is rebuilt — that skew is exactly what the app uses to detect
+	 * a stale daemon and restart it.
+	 */
+	buildId: string | null;
 	daemon: {
 		state: "running" | "stale" | "stopped";
 		running: boolean;
@@ -47,6 +56,7 @@ export interface StatusSnapshotInput {
 	config: StatusConfigView;
 	install: Record<AgentName, AgentInstallState>;
 	paths: StatusPaths;
+	buildId: string | null;
 }
 
 /**
@@ -60,6 +70,7 @@ export function composeStatusSnapshot(
 ): AppStatusSnapshot {
 	const base: Omit<AppStatusSnapshot, "ui"> = {
 		version: 1,
+		buildId: input.buildId,
 		daemon: {
 			state: deriveDaemonRunState(input.daemon.running, input.daemon.pid),
 			running: input.daemon.running,
@@ -108,6 +119,9 @@ export function buildAppStatusSnapshot(
 		config: { enabled: config.enabled, agents: config.agents },
 		install: detectAgentInstallStates(env),
 		paths: { home: paths.home, config: paths.config, db: paths.db },
+		// Read fresh: this read-only spawn path runs in a brand-new process, so the
+		// build id always reflects the current on-disk build (never stale).
+		buildId: readBuildId(),
 	});
 }
 

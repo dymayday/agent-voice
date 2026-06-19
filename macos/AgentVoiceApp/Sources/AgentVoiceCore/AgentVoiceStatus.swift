@@ -28,6 +28,12 @@ public typealias AgentInstallMap = [String: InstallState]
 
 public struct AgentVoiceStatusSnapshot: Codable, Equatable, Sendable {
     public let version: Int
+    /// Build id the daemon that produced this snapshot was started with, or
+    /// `nil` when unstamped (dev / source tree) or emitted by a daemon predating
+    /// this field. The app compares it against its own bundle's build id to
+    /// detect — and restart — a daemon still running an older bundle. Optional so
+    /// synthesized decoding maps a missing key to `nil` (graceful version skew).
+    public let buildId: String?
     public let daemon: DaemonStatus
     public let queues: QueueCounts
     public let config: ConfigSummary
@@ -37,6 +43,7 @@ public struct AgentVoiceStatusSnapshot: Codable, Equatable, Sendable {
 
     public init(
         version: Int,
+        buildId: String? = nil,
         daemon: DaemonStatus,
         queues: QueueCounts,
         config: ConfigSummary,
@@ -45,6 +52,7 @@ public struct AgentVoiceStatusSnapshot: Codable, Equatable, Sendable {
         ui: UIStatus
     ) {
         self.version = version
+        self.buildId = buildId
         self.daemon = daemon
         self.queues = queues
         self.config = config

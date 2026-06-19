@@ -15,6 +15,7 @@ import { dirname, join } from "node:path";
 import { loadConfig, type AgentVoiceConfig, type AgentName } from "./config";
 import type { AgentVoicePaths } from "./paths";
 import { detectAgentInstallStates, type AgentInstallState, type InstallEnv } from "./install";
+import { readBuildId } from "./build-info";
 import {
 	processNextJob,
 	type ProcessNextJobResult,
@@ -167,6 +168,11 @@ export function createStatusPublisher(
 	paths: AgentVoicePaths,
 	db: Database,
 	env: InstallEnv,
+	// Captured once, here, at daemon startup — NOT re-read per publish. This is
+	// the whole mechanism: a daemon launched from an older bundle keeps reporting
+	// that bundle's id even after the on-disk bundle is rebuilt, letting the app
+	// spot the skew and restart it.
+	buildId: string | null = readBuildId(),
 ): StatusPublisher {
 	let lastJson: string | null = null;
 	let lastWarnedError: string | null = null;
@@ -187,6 +193,7 @@ export function createStatusPublisher(
 						config: { enabled: config.enabled, agents: config.agents },
 						install: detectAgentInstallStates(env),
 						paths: { home: paths.home, config: paths.config, db: paths.db },
+						buildId,
 					}),
 				);
 				// Skip when content AND the on-disk file are unchanged; re-publish if

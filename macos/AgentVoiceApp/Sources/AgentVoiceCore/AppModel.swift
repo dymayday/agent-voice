@@ -50,6 +50,14 @@ public final class AppModel: ObservableObject {
     private var lastStatusError: String?
     private var lastDiagnosticsError: String?
     private var lastActionError: String?
+    // The app bundle's own build id (nil for dev / unstamped builds). Compared to
+    // each refreshed snapshot's buildId to spot a daemon still running an older
+    // bundle after an app update.
+    private let appBuildId: String?
+    // The stale daemon build id we last issued a restart for: guards the
+    // version-skew restart to at most once per distinct stale daemon, so a failed
+    // restart or overlapping refresh never spins into a loop.
+    private var lastRestartedForBuildId: String?
 
     public static let kokoroVoicePresets = [
         "af_heart",
@@ -66,9 +74,10 @@ public final class AppModel: ObservableObject {
 
     public let cli: AgentVoiceCLI
 
-    public init(cli: AgentVoiceCLI? = nil) {
+    public init(cli: AgentVoiceCLI? = nil, appBuildId: String? = nil) {
         if let cli {
             self.cli = cli
+            self.appBuildId = appBuildId
         } else {
             let settings = AppSettings.defaultSettings()
             self.cli = AgentVoiceCLI(
@@ -76,6 +85,7 @@ public final class AppModel: ObservableObject {
                 agentVoiceHome: settings.agentVoiceHome,
                 readsStatusSnapshot: true
             )
+            self.appBuildId = appBuildId ?? settings.appBuildId
         }
     }
 
@@ -106,6 +116,9 @@ extension AppModel {
             let snapshot = try await cli.status()
             status = snapshot
             refreshedStatus = snapshot
+            if let restartError = await restartDaemonIfBuildSkew(snapshot) {
+                errors.append(restartError)
+            }
         } catch {
             errors.append("status: \(String(describing: error))")
         }
@@ -122,6 +135,46 @@ extension AppModel {
         }
 
         lastStatusError = errors.isEmpty ? nil : errors.joined(separator: "\n")
+    }
+
+    /// Restart the daemon when the freshly-read snapshot reports a build id that
+    /// differs from this app bundle's — i.e. the daemon is still running an older
+    /// bundle (it captured its build id at startup and never reloads). Returns an
+    /// error string to surface, or nil on success / when no restart is warranted.
+    private func restartDaemonIfBuildSkew(_ snapshot: AgentVoiceStatusSnapshot) async -> String? {
+        guard Self.shouldRestartStaleDaemon(
+            appBuildId: appBuildId,
+            snapshot: snapshot,
+            alreadyRestartedForBuildId: lastRestartedForBuildId
+        ) else { return nil }
+        // Record the target before awaiting: a restart fires at most once per
+        // distinct stale daemon build id, even if it fails or refreshes overlap.
+        lastRestartedForBuildId = snapshot.buildId
+        do {
+            try await cli.stopDaemon()
+            try await cli.startDaemon()
+            return nil
+        } catch {
+            return "daemon-restart: \(String(describing: error))"
+        }
+    }
+
+    /// Pure predicate (no I/O) for the version-skew restart, so the decision is
+    /// unit-testable in isolation: restart only a *running* daemon whose known
+    /// build id differs from the app's, and only once per distinct stale id.
+    nonisolated static func shouldRestartStaleDaemon(
+        appBuildId: String?,
+        snapshot: AgentVoiceStatusSnapshot?,
+        alreadyRestartedForBuildId: String?
+    ) -> Bool {
+        guard let appBuildId,
+              let snapshot,
+              snapshot.daemon.running,
+              let daemonBuildId = snapshot.buildId,
+              daemonBuildId != appBuildId,
+              alreadyRestartedForBuildId != daemonBuildId
+        else { return false }
+        return true
     }
 
     private func refreshDiagnosticsSection() async {

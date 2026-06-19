@@ -65,11 +65,14 @@ describe("composeStatusSnapshot", () => {
 			config: { enabled: true, agents: emptyAgents },
 			install: sampleInstall,
 			paths: { home: "/h", config: "/h/config.json", db: "/h/queue.db" },
+			buildId: "build-aaa+1",
 		});
 		expect(snapshot.version).toBe(1);
 		expect(snapshot.daemon).toEqual({ state: "running", running: true, pid: 4321 });
 		expect(snapshot.ui.state).toBe("processing");
 		expect(snapshot.ui.attention).toEqual([]);
+		// buildId passes straight through the composer.
+		expect(snapshot.buildId).toBe("build-aaa+1");
 	});
 
 	test("derives stale vs stopped from pid when not running", () => {
@@ -79,6 +82,7 @@ describe("composeStatusSnapshot", () => {
 			config: { enabled: true, agents: emptyAgents },
 			install: sampleInstall,
 			paths: { home: "/h", config: "/h/config.json", db: "/h/queue.db" },
+			buildId: null,
 		});
 		expect(stale.daemon.state).toBe("stale");
 		expect(stale.ui.attention).toContain("stale_daemon_lock");
@@ -89,6 +93,7 @@ describe("composeStatusSnapshot", () => {
 			config: { enabled: true, agents: emptyAgents },
 			install: sampleInstall,
 			paths: { home: "/h", config: "/h/config.json", db: "/h/queue.db" },
+			buildId: null,
 		});
 		expect(stopped.daemon.state).toBe("stopped");
 		expect(stopped.ui.state).toBe("daemon_stopped");
@@ -137,6 +142,30 @@ describe("composeStatusSnapshot", () => {
 		});
 	});
 
+	test("the daemon publisher reports the build id captured at startup", async () => {
+		await withTempHome((home) => {
+			const env = {
+				HOME: home,
+				AGENT_VOICE_HOME: join(home, ".agent-voice"),
+				AGENT_VOICE_EXECUTABLE: "/repo/bin/agent-voice",
+			};
+			const paths = resolvePaths(env);
+			const config = loadConfig(paths, { createIfMissing: true });
+			const db = openDb(paths.db);
+			try {
+				// Inject the startup build id explicitly; a long-running daemon keeps
+				// reporting this even after the on-disk bundle is rebuilt.
+				createStatusPublisher(paths, db, env, "startup-build+1").publish(config);
+				const snapshot = JSON.parse(
+					readFileSync(statusSnapshotPath(paths), "utf8"),
+				) as { buildId: string | null };
+				expect(snapshot.buildId).toBe("startup-build+1");
+			} finally {
+				db.close();
+			}
+		});
+	});
+
 	test("both snapshot producers report the same install map", async () => {
 		await withTempHome((home) => {
 			const env = {
@@ -175,6 +204,7 @@ describe("writeStatusSnapshotAtomic / clearStatusSnapshot", () => {
 					config: { enabled: true, agents: emptyAgents },
 					install: sampleInstall,
 					paths: { home: paths.home, config: paths.config, db: paths.db },
+					buildId: null,
 				}),
 			);
 			writeStatusSnapshotAtomic(paths, json);
