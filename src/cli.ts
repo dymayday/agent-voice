@@ -507,7 +507,7 @@ export async function runCli(
 		}
 		return result(
 			0,
-			`${JSON.stringify(buildDoctorReport(paths, io.daemonDeps), null, 2)}\n`,
+			`${JSON.stringify(buildDoctorReport(paths, io.daemonDeps, io.env ?? process.env), null, 2)}\n`,
 		);
 	}
 
