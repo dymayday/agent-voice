@@ -128,6 +128,32 @@ describe("composeStatusSnapshot", () => {
 			}
 		});
 	});
+
+	test("both snapshot producers report the same install map", async () => {
+		await withTempHome((home) => {
+			const env = {
+				HOME: home,
+				AGENT_VOICE_HOME: join(home, ".agent-voice"),
+				AGENT_VOICE_EXECUTABLE: "/repo/bin/agent-voice",
+			};
+			const paths = resolvePaths(env);
+			installPi(env);
+
+			const built = buildAppStatusSnapshot(paths, { isPidAlive: () => false }, env);
+
+			const config = loadConfig(paths, { createIfMissing: true });
+			const db = openDb(paths.db);
+			try {
+				createStatusPublisher(paths, db, env).publish(config);
+				const published = JSON.parse(
+					readFileSync(statusSnapshotPath(paths), "utf8"),
+				);
+				expect(built.install).toEqual(published.install);
+			} finally {
+				db.close();
+			}
+		});
+	});
 });
 
 describe("writeStatusSnapshotAtomic / clearStatusSnapshot", () => {
