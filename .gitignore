@@ -5,6 +5,7 @@ dist/
 .worktrees/
 .superpowers/
 .ralph/
+graphify-out/cost.json
 
 __pycache__/
 *.pyc
