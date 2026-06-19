@@ -1,8 +1,21 @@
+public enum InstallState: String, Codable, Equatable, Sendable {
+    case installed
+    case notInstalled = "not_installed"
+    case unsupported
+    case unknown
+
+    public init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = InstallState(rawValue: raw) ?? .unknown
+    }
+}
+
 public struct AgentVoiceStatusSnapshot: Codable, Equatable, Sendable {
     public let version: Int
     public let daemon: DaemonStatus
     public let queues: QueueCounts
     public let config: ConfigSummary
+    public let install: [String: InstallState]?
     public let paths: PathSummary
     public let ui: UIStatus
 
@@ -11,6 +24,7 @@ public struct AgentVoiceStatusSnapshot: Codable, Equatable, Sendable {
         daemon: DaemonStatus,
         queues: QueueCounts,
         config: ConfigSummary,
+        install: [String: InstallState]? = nil,
         paths: PathSummary,
         ui: UIStatus
     ) {
@@ -18,6 +32,7 @@ public struct AgentVoiceStatusSnapshot: Codable, Equatable, Sendable {
         self.daemon = daemon
         self.queues = queues
         self.config = config
+        self.install = install
         self.paths = paths
         self.ui = ui
     }
