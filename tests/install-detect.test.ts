@@ -77,17 +77,61 @@ describe("detectAgentInstallStates", () => {
 		});
 	});
 
-	test("claude is not_installed with no settings, no stop hook, or malformed JSON", () => {
+	test("claude is installed via the legacy args-array stop hook format", () => {
+		withTempHome((env) => {
+			writeFile(
+				claudeSettingsPath(env),
+				JSON.stringify({
+					hooks: {
+						Stop: [
+							{
+								hooks: [
+									{
+										type: "command",
+										args: [
+											"enqueue",
+											"--format",
+											"claude-stop-hook",
+											"--agent",
+											"claude",
+										],
+									},
+								],
+							},
+						],
+					},
+				}),
+			);
+			expect(detectAgentInstallStates(env).claude).toBe("installed");
+		});
+	});
+
+	test("claude is not_installed when settings parse but hold no stop hook", () => {
 		withTempHome((env) => {
 			expect(detectAgentInstallStates(env).claude).toBe("not_installed");
 			writeFile(claudeSettingsPath(env), JSON.stringify({ hooks: { Stop: [] } }));
 			expect(detectAgentInstallStates(env).claude).toBe("not_installed");
-			writeFile(claudeSettingsPath(env), "{ not valid json");
-			expect(detectAgentInstallStates(env).claude).toBe("not_installed");
 		});
 	});
 
-	test("avoids the marker constant drifting", () => {
-		expect(AGENT_VOICE_EXTENSION_MARKER.length).toBeGreaterThan(0);
+	test("claude is unknown when settings.json cannot be parsed", () => {
+		withTempHome((env) => {
+			writeFile(claudeSettingsPath(env), "{ not valid json");
+			expect(detectAgentInstallStates(env).claude).toBe("unknown");
+		});
+	});
+
+	test("installable agents are unknown when the check cannot run (HOME unset)", () => {
+		const states = detectAgentInstallStates({});
+		expect(states.claude).toBe("unknown");
+		expect(states.pi).toBe("unknown");
+		expect(states.codex).toBe("unsupported");
+		expect(states.opencode).toBe("unsupported");
+	});
+
+	test("the extension marker constant matches the published wire value", () => {
+		expect(AGENT_VOICE_EXTENSION_MARKER).toBe(
+			"agent-voice pi extension managed by agent-voice",
+		);
 	});
 });

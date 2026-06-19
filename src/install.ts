@@ -224,49 +224,83 @@ export function uninstallPi(env: InstallEnv): InstallResult {
 	return { message: `uninstalled Pi hook from ${target}` };
 }
 
-export type AgentInstallState = "installed" | "not_installed" | "unsupported";
+/**
+ * Three-way install state for a single agent's hook.
+ *
+ * Wire contract: these exact strings are serialized into the status snapshot's
+ * `install` map and decoded by the macOS app's `InstallState` enum
+ * (macos/AgentVoiceApp/Sources/AgentVoiceCore/AgentVoiceStatus.swift) — keep the
+ * raw values in sync with the Swift `rawValue`s.
+ *
+ * - "installed" / "not_installed": the file was read and the answer is known.
+ * - "unsupported": no install path exists yet (codex, opencode).
+ * - "unknown": the check itself could not complete (HOME unset, permission
+ *   denied, corrupt settings, transient I/O). The app renders this as a neutral
+ *   "Checking…" badge with no install button — never as "Not installed", which
+ *   would offer an Install action that would itself fail.
+ */
+export type AgentInstallState =
+	| "installed"
+	| "not_installed"
+	| "unsupported"
+	| "unknown";
 
-function isPiHookInstalled(env: InstallEnv): boolean {
+function piHookState(env: InstallEnv): AgentInstallState {
+	let target: string;
 	try {
-		const target = piExtensionPath(env);
-		if (!existsSync(target)) return false;
-		return readFileSync(target, "utf8").includes(AGENT_VOICE_EXTENSION_MARKER);
+		target = piExtensionPath(env);
 	} catch {
-		return false;
+		return "unknown"; // cannot resolve the path (e.g. HOME unset)
+	}
+	if (!existsSync(target)) return "not_installed";
+	try {
+		return readFileSync(target, "utf8").includes(AGENT_VOICE_EXTENSION_MARKER)
+			? "installed"
+			: "not_installed";
+	} catch {
+		return "unknown"; // the file exists but could not be read
 	}
 }
 
-function isClaudeHookInstalled(env: InstallEnv): boolean {
+function claudeHookState(env: InstallEnv): AgentInstallState {
+	let target: string;
 	try {
-		const target = claudeSettingsPath(env);
-		if (!existsSync(target)) return false;
-		const parsed: unknown = JSON.parse(readFileSync(target, "utf8"));
-		if (!isRecord(parsed) || !isRecord(parsed.hooks)) return false;
-		const stop = parsed.hooks.Stop;
-		if (!Array.isArray(stop)) return false;
-		for (const group of stop) {
-			for (const hook of hookHandlers(group) ?? []) {
-				if (isAgentVoiceClaudeStopHook(hook)) return true;
-			}
-		}
-		return false;
+		target = claudeSettingsPath(env);
 	} catch {
-		return false;
+		return "unknown"; // cannot resolve the path (e.g. HOME unset)
 	}
+	if (!existsSync(target)) return "not_installed";
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(readFileSync(target, "utf8"));
+	} catch {
+		return "unknown"; // settings.json is unreadable or not valid JSON
+	}
+	// The file parsed cleanly, so absence of our hook is a definitive negative.
+	if (!isRecord(parsed) || !isRecord(parsed.hooks)) return "not_installed";
+	const stop = parsed.hooks.Stop;
+	if (!Array.isArray(stop)) return "not_installed";
+	for (const group of stop) {
+		for (const hook of hookHandlers(group) ?? []) {
+			if (isAgentVoiceClaudeStopHook(hook)) return "installed";
+		}
+	}
+	return "not_installed";
 }
 
 /**
  * Read-only, best-effort detection of which agent hooks are currently installed.
- * Never throws: any FS/parse failure for an installable agent resolves to
- * "not_installed". codex/opencode have no install path yet → "unsupported".
+ * Never throws. A completed read yields "installed"/"not_installed"; a check
+ * that cannot complete yields "unknown" (see {@link AgentInstallState}).
+ * codex/opencode have no install path yet → "unsupported".
  */
 export function detectAgentInstallStates(
 	env: InstallEnv,
 ): Record<AgentName, AgentInstallState> {
 	return {
-		claude: isClaudeHookInstalled(env) ? "installed" : "not_installed",
+		claude: claudeHookState(env),
 		codex: "unsupported",
-		pi: isPiHookInstalled(env) ? "installed" : "not_installed",
+		pi: piHookState(env),
 		opencode: "unsupported",
 	};
 }

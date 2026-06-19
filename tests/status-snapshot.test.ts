@@ -47,7 +47,15 @@ const zeroQueues = {
 // for these unit tests. Typed to satisfy the strict AgentName-keyed record.
 const emptyAgents = {} as AgentVoiceConfig["agents"];
 
-const noInstall = {} as Record<AgentName, AgentInstallState>;
+// composeStatusSnapshot also passes `install` through untouched. Use a real,
+// total AgentName-keyed map (not a cast) so the fixture cannot drift into an
+// illegal partial state.
+const sampleInstall: Record<AgentName, AgentInstallState> = {
+	claude: "unknown",
+	codex: "unsupported",
+	pi: "unknown",
+	opencode: "unsupported",
+};
 
 describe("composeStatusSnapshot", () => {
 	test("derives a running daemon snapshot from explicit inputs", () => {
@@ -55,7 +63,7 @@ describe("composeStatusSnapshot", () => {
 			daemon: { running: true, pid: 4321 },
 			queues: { ...zeroQueues, processing: 1 },
 			config: { enabled: true, agents: emptyAgents },
-			install: noInstall,
+			install: sampleInstall,
 			paths: { home: "/h", config: "/h/config.json", db: "/h/queue.db" },
 		});
 		expect(snapshot.version).toBe(1);
@@ -69,7 +77,7 @@ describe("composeStatusSnapshot", () => {
 			daemon: { running: false, pid: 99 },
 			queues: zeroQueues,
 			config: { enabled: true, agents: emptyAgents },
-			install: noInstall,
+			install: sampleInstall,
 			paths: { home: "/h", config: "/h/config.json", db: "/h/queue.db" },
 		});
 		expect(stale.daemon.state).toBe("stale");
@@ -79,7 +87,7 @@ describe("composeStatusSnapshot", () => {
 			daemon: { running: false, pid: null },
 			queues: zeroQueues,
 			config: { enabled: true, agents: emptyAgents },
-			install: noInstall,
+			install: sampleInstall,
 			paths: { home: "/h", config: "/h/config.json", db: "/h/queue.db" },
 		});
 		expect(stopped.daemon.state).toBe("stopped");
@@ -165,7 +173,7 @@ describe("writeStatusSnapshotAtomic / clearStatusSnapshot", () => {
 					daemon: { running: true, pid: 7 },
 					queues: zeroQueues,
 					config: { enabled: true, agents: emptyAgents },
-					install: noInstall,
+					install: sampleInstall,
 					paths: { home: paths.home, config: paths.config, db: paths.db },
 				}),
 			);
