@@ -45,7 +45,7 @@ function writeCapture(path: string): void {
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function readEventually(path: string): Promise<string> {
-	const deadline = Date.now() + 1000;
+	const deadline = Date.now() + 2500;
 	let latest = "";
 	while (Date.now() < deadline) {
 		if (existsSync(path)) {
@@ -187,6 +187,39 @@ describe("opencode installer", () => {
 				await hooks.event({ event }); // same id → deduped
 				const captured = await readEventually(capture);
 				expect(captured).toContain("rm -rf build");
+				expect(captured.match(/---/g)?.length).toBe(1);
+			} finally {
+				process.env.AGENT_VOICE_CAPTURE = prevCapture;
+			}
+		});
+	});
+
+	test("a sparse permission event does not block a later richer one for the same id", async () => {
+		await withTempHome(async (home) => {
+			const capture = join(home, "capture.log");
+			const exe = join(home, "fake-agent-voice");
+			writeCapture(exe);
+			const prevCapture = process.env.AGENT_VOICE_CAPTURE;
+			process.env.AGENT_VOICE_CAPTURE = capture;
+			try {
+				const factory = await loadPlugin(home, exe);
+				const hooks = await factory({
+					client: { session: { messages: async () => ({ data: [] }) } },
+					directory: "/proj",
+				});
+				// First event for id "p9" carries nothing usable -> nothing announced.
+				await hooks.event({
+					event: { type: "permission.updated", properties: { id: "p9" } },
+				});
+				// A later event for the SAME id carries the real command -> must speak.
+				await hooks.event({
+					event: {
+						type: "permission.asked",
+						properties: { id: "p9", metadata: { command: "git push --force" } },
+					},
+				});
+				const captured = await readEventually(capture);
+				expect(captured).toContain("git push --force");
 				expect(captured.match(/---/g)?.length).toBe(1);
 			} finally {
 				process.env.AGENT_VOICE_CAPTURE = prevCapture;

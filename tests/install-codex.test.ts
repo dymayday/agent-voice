@@ -125,13 +125,53 @@ describe("codex installer", () => {
 		});
 	});
 
-	test("codexHooksDisabled detects an explicit features.hooks = false", () => {
+	function writeCodexConfig(env: CodexEnv, contents: string): void {
+		const config = codexConfigPath(env);
+		mkdirSync(dirname(config), { recursive: true });
+		writeFileSync(config, contents, "utf8");
+	}
+
+	test("codexHooksDisabled is false when config.toml is absent (hooks default on)", () => {
 		withTempHome((env) => {
 			expect(codexHooksDisabled(env)).toBe(false);
-			const config = codexConfigPath(env);
-			mkdirSync(dirname(config), { recursive: true });
-			writeFileSync(config, "[features]\nhooks = false\n", "utf8");
+		});
+	});
+
+	test("codexHooksDisabled detects the [features] table form", () => {
+		withTempHome((env) => {
+			writeCodexConfig(env, "[features]\nhooks = false\n");
 			expect(codexHooksDisabled(env)).toBe(true);
+		});
+	});
+
+	test("codexHooksDisabled detects the dotted-key form", () => {
+		withTempHome((env) => {
+			writeCodexConfig(env, 'model = "gpt-5"\nfeatures.hooks = false\n');
+			expect(codexHooksDisabled(env)).toBe(true);
+		});
+	});
+
+	test("codexHooksDisabled ignores hooks = false under an unrelated table", () => {
+		withTempHome((env) => {
+			writeCodexConfig(env, "[some_tool]\nhooks = false\n");
+			expect(codexHooksDisabled(env)).toBe(false);
+		});
+	});
+
+	test("codexHooksDisabled is false when hooks are enabled", () => {
+		withTempHome((env) => {
+			writeCodexConfig(env, "[features]\nhooks = true\n");
+			expect(codexHooksDisabled(env)).toBe(false);
+		});
+	});
+
+	test("codexHooksDisabled only scans the [features] section, not a later table", () => {
+		withTempHome((env) => {
+			writeCodexConfig(
+				env,
+				"[features]\nhooks = true\n\n[some_tool]\nhooks = false\n",
+			);
+			expect(codexHooksDisabled(env)).toBe(false);
 		});
 	});
 });

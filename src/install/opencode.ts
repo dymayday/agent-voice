@@ -115,9 +115,13 @@ export const AgentVoice = async ({ client, directory }) => ({
         const props = event.properties || {};
         const key = props.id;
         if (key && announcedPermissions.has(key)) return;
-        if (key) announcedPermissions.add(key);
         const text = permissionText(props);
-        if (text) enqueue(text, directory);
+        // Mark seen only once we actually have something to say: a sparse first
+        // event for an id (no usable text) must not block a later richer event
+        // for the same id from being announced.
+        if (!text) return;
+        if (key) announcedPermissions.add(key);
+        enqueue(text, directory);
       }
     } catch (error) {
       logFailure("opencode handler failed: " + (error instanceof Error ? error.message : String(error)));

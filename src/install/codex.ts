@@ -177,6 +177,14 @@ export function codexHookState(env: InstallEnv): AgentInstallState {
  * Best-effort, read-only check for an explicit `features.hooks = false` in
  * ~/.codex/config.toml. Returns true only when hooks are clearly disabled; a
  * missing/unreadable config (hooks default on) returns false. Never writes.
+ *
+ * This is a lightweight TOML scan (no parser dependency), but it is
+ * structure-aware enough to avoid the two failure modes of a naive whole-file
+ * match: it recognizes the dotted-key form `features.hooks = false`, and it only
+ * honors a bare `hooks = false` when it sits inside the `[features]` table — a
+ * `hooks = false` under any other table is ignored. It does not handle the
+ * inline-table form (`features = { hooks = false }`), which is vanishingly rare
+ * in hand-written Codex configs.
  */
 export function codexHooksDisabled(env: InstallEnv): boolean {
 	let target: string;
@@ -192,5 +200,19 @@ export function codexHooksDisabled(env: InstallEnv): boolean {
 	} catch {
 		return false;
 	}
-	return /(^|\n)\s*hooks\s*=\s*false\b/.test(text);
+
+	// Dotted-key form, valid anywhere at the top level.
+	if (/(^|\n)[ \t]*features\.hooks[ \t]*=[ \t]*false\b/.test(text)) return true;
+
+	// `[features]` table form: only honor `hooks = false` until the next table
+	// header so an unrelated `[other]` table's `hooks = false` never matches.
+	const header = /(^|\n)[ \t]*\[features\][ \t]*(?=\r?\n|$)/.exec(text);
+	if (header) {
+		const after = text.slice(header.index + header[0].length);
+		const nextTable = after.search(/\n[ \t]*\[/);
+		const section = nextTable === -1 ? after : after.slice(0, nextTable);
+		if (/(^|\n)[ \t]*hooks[ \t]*=[ \t]*false\b/.test(section)) return true;
+	}
+
+	return false;
 }
