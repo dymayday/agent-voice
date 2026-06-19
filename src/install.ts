@@ -6,6 +6,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
+import type { AgentName } from "./config";
 
 export const AGENT_VOICE_EXTENSION_MARKER =
 	"agent-voice pi extension managed by agent-voice";
@@ -221,6 +222,53 @@ export function uninstallPi(env: InstallEnv): InstallResult {
 	assertOwnedIfPresent(target, "remove");
 	rmSync(target, { force: true });
 	return { message: `uninstalled Pi hook from ${target}` };
+}
+
+export type AgentInstallState = "installed" | "not_installed" | "unsupported";
+
+function isPiHookInstalled(env: InstallEnv): boolean {
+	try {
+		const target = piExtensionPath(env);
+		if (!existsSync(target)) return false;
+		return readFileSync(target, "utf8").includes(AGENT_VOICE_EXTENSION_MARKER);
+	} catch {
+		return false;
+	}
+}
+
+function isClaudeHookInstalled(env: InstallEnv): boolean {
+	try {
+		const target = claudeSettingsPath(env);
+		if (!existsSync(target)) return false;
+		const parsed: unknown = JSON.parse(readFileSync(target, "utf8"));
+		if (!isRecord(parsed) || !isRecord(parsed.hooks)) return false;
+		const stop = parsed.hooks.Stop;
+		if (!Array.isArray(stop)) return false;
+		for (const group of stop) {
+			for (const hook of hookHandlers(group) ?? []) {
+				if (isAgentVoiceClaudeStopHook(hook)) return true;
+			}
+		}
+		return false;
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Read-only, best-effort detection of which agent hooks are currently installed.
+ * Never throws: any FS/parse failure for an installable agent resolves to
+ * "not_installed". codex/opencode have no install path yet → "unsupported".
+ */
+export function detectAgentInstallStates(
+	env: InstallEnv,
+): Record<AgentName, AgentInstallState> {
+	return {
+		claude: isClaudeHookInstalled(env) ? "installed" : "not_installed",
+		codex: "unsupported",
+		pi: isPiHookInstalled(env) ? "installed" : "not_installed",
+		opencode: "unsupported",
+	};
 }
 
 function shellQuote(value: string): string {
