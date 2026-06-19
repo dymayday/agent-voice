@@ -12,8 +12,9 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
-import { loadConfig, type AgentVoiceConfig } from "./config";
+import { loadConfig, type AgentVoiceConfig, type AgentName } from "./config";
 import type { AgentVoicePaths } from "./paths";
+import type { AgentInstallState } from "./install";
 import {
 	processNextJob,
 	type ProcessNextJobResult,
@@ -181,6 +182,7 @@ export function createStatusPublisher(
 						daemon: { running: true, pid: process.pid },
 						queues: countByStatus(db),
 						config: { enabled: config.enabled, agents: config.agents },
+						install: {} as Record<AgentName, AgentInstallState>,
 						paths: { home: paths.home, config: paths.config, db: paths.db },
 					}),
 				);

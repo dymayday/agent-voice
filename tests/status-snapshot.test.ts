@@ -8,13 +8,14 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { loadConfig, type AgentVoiceConfig } from "../src/config";
+import { loadConfig, type AgentVoiceConfig, type AgentName } from "../src/config";
 import {
 	clearStatusSnapshot,
 	statusSnapshotPath,
 	writeStatusSnapshotAtomic,
 } from "../src/daemon";
 import { resolvePaths } from "../src/paths";
+import { type AgentInstallState, installPi } from "../src/install";
 import {
 	buildAppStatusSnapshot,
 	composeStatusSnapshot,
@@ -44,12 +45,15 @@ const zeroQueues = {
 // for these unit tests. Typed to satisfy the strict AgentName-keyed record.
 const emptyAgents = {} as AgentVoiceConfig["agents"];
 
+const noInstall = {} as Record<AgentName, AgentInstallState>;
+
 describe("composeStatusSnapshot", () => {
 	test("derives a running daemon snapshot from explicit inputs", () => {
 		const snapshot = composeStatusSnapshot({
 			daemon: { running: true, pid: 4321 },
 			queues: { ...zeroQueues, processing: 1 },
 			config: { enabled: true, agents: emptyAgents },
+			install: noInstall,
 			paths: { home: "/h", config: "/h/config.json", db: "/h/queue.db" },
 		});
 		expect(snapshot.version).toBe(1);
@@ -63,6 +67,7 @@ describe("composeStatusSnapshot", () => {
 			daemon: { running: false, pid: 99 },
 			queues: zeroQueues,
 			config: { enabled: true, agents: emptyAgents },
+			install: noInstall,
 			paths: { home: "/h", config: "/h/config.json", db: "/h/queue.db" },
 		});
 		expect(stale.daemon.state).toBe("stale");
@@ -72,25 +77,28 @@ describe("composeStatusSnapshot", () => {
 			daemon: { running: false, pid: null },
 			queues: zeroQueues,
 			config: { enabled: true, agents: emptyAgents },
+			install: noInstall,
 			paths: { home: "/h", config: "/h/config.json", db: "/h/queue.db" },
 		});
 		expect(stopped.daemon.state).toBe("stopped");
 		expect(stopped.ui.state).toBe("daemon_stopped");
 	});
 
-	test("buildAppStatusSnapshot delegates to composeStatusSnapshot (byte-identical)", async () => {
-		await withTempHome(async (home) => {
-			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
-			// No daemon, no db file: getDaemonStatus(readOnly) -> stopped + zero queues.
-			const built = buildAppStatusSnapshot(paths, { isPidAlive: () => false });
-			const config = loadConfig(paths, { createIfMissing: false });
-			const composed = composeStatusSnapshot({
-				daemon: { running: false, pid: null },
-				queues: zeroQueues,
-				config: { enabled: config.enabled, agents: config.agents },
-				paths: { home: paths.home, config: paths.config, db: paths.db },
-			});
-			expect(formatAppStatusJson(composed)).toBe(formatAppStatusJson(built));
+	test("buildAppStatusSnapshot reports detected install state", async () => {
+		await withTempHome((home) => {
+			const env = {
+				HOME: home,
+				AGENT_VOICE_HOME: join(home, ".agent-voice"),
+				AGENT_VOICE_EXECUTABLE: "/repo/bin/agent-voice",
+			};
+			const paths = resolvePaths(env);
+			installPi(env);
+
+			const built = buildAppStatusSnapshot(paths, { isPidAlive: () => false }, env);
+
+			expect(built.install.pi).toBe("installed");
+			expect(built.install.claude).toBe("not_installed");
+			expect(built.install.codex).toBe("unsupported");
 		});
 	});
 });
@@ -104,6 +112,7 @@ describe("writeStatusSnapshotAtomic / clearStatusSnapshot", () => {
 					daemon: { running: true, pid: 7 },
 					queues: zeroQueues,
 					config: { enabled: true, agents: emptyAgents },
+					install: noInstall,
 					paths: { home: paths.home, config: paths.config, db: paths.db },
 				}),
 			);

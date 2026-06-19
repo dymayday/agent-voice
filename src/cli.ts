@@ -653,7 +653,9 @@ export async function runCli(
 		if (args.includes("--json")) {
 			return result(
 				0,
-				formatAppStatusJson(buildAppStatusSnapshot(paths, io.daemonDeps)),
+				formatAppStatusJson(
+					buildAppStatusSnapshot(paths, io.daemonDeps, io.env ?? process.env),
+				),
 			);
 		}
 		return result(0, formatDaemonStatus(getDaemonStatus(paths, io.daemonDeps)));
