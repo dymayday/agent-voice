@@ -60,4 +60,36 @@ final class DashboardViewSourceTests: XCTestCase {
         XCTAssertTrue(source.contains("model.history == nil"))
         XCTAssertTrue(source.contains("History unavailable"))
     }
+
+    func testAgentCardShowsAppCheckedInstallState() throws {
+        let source = try dashboardViewSource()
+        let section = try propertyBody(named: "agentGridSection", in: source)
+
+        // Install state drives the badge, read from the app-checked snapshot map.
+        XCTAssertTrue(section.contains("model.status?.install?[name]"))
+        XCTAssertTrue(section.contains("?? .unknown"))
+
+        // Three real states + the unknown fallback, each with its own label.
+        XCTAssertTrue(source.contains("Label(\"Installed\", systemImage: \"checkmark.circle.fill\")"))
+        XCTAssertTrue(source.contains("Label(\"Not installed\", systemImage: \"xmark.circle\")"))
+        XCTAssertTrue(source.contains("Label(\"Not available yet\", systemImage: \"clock\")"))
+        XCTAssertTrue(source.contains("Label(\"Checking…\", systemImage: \"circle.dotted\")"))
+
+        // "Voice disabled" only surfaces when installed but config-disabled.
+        XCTAssertTrue(section.contains("== .installed && agent?.enabled == false"))
+        XCTAssertTrue(source.contains("Text(\"Voice disabled\")"))
+    }
+
+    func testAgentCardGatesInstallButtonsOnState() throws {
+        let source = try dashboardViewSource()
+        let controls = try functionBody(named: "agentHookControls", in: source)
+
+        XCTAssertTrue(controls.contains("case .notInstalled:"))
+        XCTAssertTrue(controls.contains("Button(\"Install \\(name.capitalized) Hook\")"))
+        XCTAssertTrue(controls.contains("case .installed:"))
+        XCTAssertTrue(controls.contains("Button(\"Uninstall \\(name.capitalized) Hook\", role: .destructive)"))
+        XCTAssertTrue(controls.contains("Hook install coming later"))
+        XCTAssertTrue(controls.contains("model.installAgentHook(name)"))
+        XCTAssertTrue(controls.contains("model.uninstallAgentHook(name)"))
+    }
 }
