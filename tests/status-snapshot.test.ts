@@ -11,9 +11,11 @@ import { describe, expect, test } from "bun:test";
 import { loadConfig, type AgentVoiceConfig, type AgentName } from "../src/config";
 import {
 	clearStatusSnapshot,
+	createStatusPublisher,
 	statusSnapshotPath,
 	writeStatusSnapshotAtomic,
 } from "../src/daemon";
+import { openDb } from "../src/db";
 import { resolvePaths } from "../src/paths";
 import { type AgentInstallState, installPi } from "../src/install";
 import {
@@ -99,6 +101,31 @@ describe("composeStatusSnapshot", () => {
 			expect(built.install.pi).toBe("installed");
 			expect(built.install.claude).toBe("not_installed");
 			expect(built.install.codex).toBe("unsupported");
+		});
+	});
+
+	test("the daemon publisher writes detected install state to status.json", async () => {
+		await withTempHome((home) => {
+			const env = {
+				HOME: home,
+				AGENT_VOICE_HOME: join(home, ".agent-voice"),
+				AGENT_VOICE_EXECUTABLE: "/repo/bin/agent-voice",
+			};
+			const paths = resolvePaths(env);
+			installPi(env);
+			const config = loadConfig(paths, { createIfMissing: true });
+			const db = openDb(paths.db);
+			try {
+				const publisher = createStatusPublisher(paths, db, env);
+				publisher.publish(config);
+				const snapshot = JSON.parse(
+					readFileSync(statusSnapshotPath(paths), "utf8"),
+				) as { install: Record<string, string> };
+				expect(snapshot.install.pi).toBe("installed");
+				expect(snapshot.install.opencode).toBe("unsupported");
+			} finally {
+				db.close();
+			}
 		});
 	});
 });

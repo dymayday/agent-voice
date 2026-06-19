@@ -14,7 +14,7 @@ import {
 import { dirname, join } from "node:path";
 import { loadConfig, type AgentVoiceConfig, type AgentName } from "./config";
 import type { AgentVoicePaths } from "./paths";
-import type { AgentInstallState } from "./install";
+import { detectAgentInstallStates, type AgentInstallState, type InstallEnv } from "./install";
 import {
 	processNextJob,
 	type ProcessNextJobResult,
@@ -54,6 +54,8 @@ export interface DaemonCliDeps {
 	pruneEveryIterations?: number;
 	pruneIntervalMs?: number;
 	waitForWork?: (timeoutMs: number) => Promise<void>;
+	/** Install-detection env (HOME etc). Defaults to process.env in the loop. */
+	env?: InstallEnv;
 }
 
 export interface DaemonStatus {
@@ -164,6 +166,7 @@ export interface StatusPublisher {
 export function createStatusPublisher(
 	paths: AgentVoicePaths,
 	db: Database,
+	env: InstallEnv,
 ): StatusPublisher {
 	let lastJson: string | null = null;
 	let lastWarnedError: string | null = null;
@@ -182,7 +185,7 @@ export function createStatusPublisher(
 						daemon: { running: true, pid: process.pid },
 						queues: countByStatus(db),
 						config: { enabled: config.enabled, agents: config.agents },
-						install: {} as Record<AgentName, AgentInstallState>,
+						install: detectAgentInstallStates(env),
 						paths: { home: paths.home, config: paths.config, db: paths.db },
 					}),
 				);
@@ -462,7 +465,7 @@ export async function runDaemonLoop(
 		// publisher owns the dedup/best-effort/self-heal policy; the loop just
 		// announces state transitions.
 		sweepStaleSnapshotTemps(paths);
-		const publisher = createStatusPublisher(paths, db);
+		const publisher = createStatusPublisher(paths, db, deps.env ?? (process.env as InstallEnv));
 		publisher.publish(currentDaemonConfig(paths, configCache));
 		while (summary.iterations < maxIterations && !hasIntentionalStop(paths)) {
 			const currentConfig = currentDaemonConfig(paths, configCache);
