@@ -43,7 +43,8 @@ Then use the waveform menu-bar icon:
 1. Open **Setup**.
 2. Run **Voice Test**.
 3. Start the daemon.
-4. Install a **Pi** or **Claude** hook if you want automatic summaries.
+4. Install a **Pi**, **Claude**, **Codex**, or **OpenCode** hook if you want
+   automatic summaries.
 5. Open **Dashboard** for queue, history, diagnostics, voice, summarizer, and
    repair controls.
 
@@ -122,7 +123,7 @@ queue architecture. From the app you can:
 - Clear pending/processing jobs or failed terminal jobs.
 - Change Kokoro voice, summarizer mode, summarizer thinking, and summarizer
   model.
-- Install/uninstall Pi and Claude hooks.
+- Install/uninstall Pi, Claude, Codex, and OpenCode hooks.
 - Copy a diagnostic snapshot.
 
 The app bundle includes the CLI under `Contents/Resources/agent-voice/`, but
@@ -202,7 +203,12 @@ AGENT_VOICE_EXECUTABLE=/path/to/agent-voice \
   pinned, checksummed release archive under Agent Voice Home and may need
   network access. Unsupported platforms should install `uv` manually or use a
   manual script override.
-- Only Pi and Claude hook installers are available today.
+- Pi, Claude, Codex, and OpenCode hook installers are available. Codex installs
+  an agent-voice-owned `~/.codex/hooks.json` (`Stop` + `PermissionRequest`) and
+  relies on Codex's default-on `features.hooks`; `doctor` warns if a user has set
+  `features.hooks = false`. OpenCode installs a plugin at
+  `~/.config/opencode/plugin/agent-voice.ts`; turn completions are reliable while
+  tool-approval announcements are best-effort across OpenCode versions.
 
 ## Development
 

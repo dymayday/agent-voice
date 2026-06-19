@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { loadConfig } from "./config";
 import { getDaemonStatus, type DaemonCliDeps } from "./daemon";
+import { codexHookState, codexHooksDisabled, type InstallEnv } from "./install";
 import { buildKokoroStatus } from "./kokoro-setup";
 import type { AgentVoicePaths } from "./paths";
 
@@ -29,6 +30,7 @@ function executableExists(commandOrPath: string): boolean {
 export function buildDoctorReport(
 	paths: AgentVoicePaths,
 	deps: DaemonCliDeps = {},
+	env: InstallEnv = process.env as InstallEnv,
 ): DoctorReport {
 	const checks: DoctorCheck[] = [];
 	const configExists = existsSync(paths.config);
@@ -124,6 +126,24 @@ export function buildDoctorReport(
 			? {}
 			: { action: "Open dashboard failed jobs" }),
 	});
+
+	// Our Codex hooks.json only fires when Codex's hooks feature is enabled. If
+	// the user installed the hook but disabled features.hooks in config.toml,
+	// surface it — we never edit their TOML.
+	if (codexHookState(env) === "installed") {
+		const disabled = codexHooksDisabled(env);
+		checks.push({
+			id: "codex.hooks.enabled",
+			ok: !disabled,
+			severity: disabled ? "warning" : "info",
+			message: disabled
+				? "Codex hooks are disabled (features.hooks = false); the Codex voice hook will not fire"
+				: "Codex hooks are enabled",
+			...(disabled
+				? { action: "Set features.hooks = true in ~/.codex/config.toml" }
+				: {}),
+		});
+	}
 
 	return { version: 1, checks };
 }

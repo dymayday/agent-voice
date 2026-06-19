@@ -1,31 +1,56 @@
-import {
-	existsSync,
-	mkdirSync,
-	readFileSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import type { AgentName } from "./config";
+import {
+	AGENT_VOICE_CLAUDE_QUESTION_STATUS_MESSAGE,
+	AGENT_VOICE_CLAUDE_STATUS_MESSAGE,
+	AGENT_VOICE_EXTENSION_MARKER,
+	type AgentInstallState,
+	type InstallEnv,
+	type InstallResult,
+	type JsonRecord,
+	agentVoiceHome,
+	assertOwnedIfPresent,
+	clone,
+	currentAgentVoiceExecutable,
+	homeDir,
+	isRecord,
+	sameJson,
+	shellQuote,
+	writeJsonObjectIfChanged,
+} from "./install/shared";
+import {
+	codexHookState,
+	codexHooksDisabled,
+	codexHooksPath,
+	installCodex,
+	uninstallCodex,
+} from "./install/codex";
+import {
+	buildOpencodePluginSource,
+	installOpencode,
+	opencodeHookState,
+	opencodePluginPath,
+	uninstallOpencode,
+} from "./install/opencode";
 
-export const AGENT_VOICE_EXTENSION_MARKER =
-	"agent-voice pi extension managed by agent-voice";
-
-export const AGENT_VOICE_CLAUDE_STATUS_MESSAGE =
-	"Agent Voice: queue Claude turn summary";
-
-export const AGENT_VOICE_CLAUDE_QUESTION_STATUS_MESSAGE =
-	"Agent Voice: queue Claude question";
-
-export interface InstallEnv {
-	HOME?: string;
-	AGENT_VOICE_HOME?: string;
-	AGENT_VOICE_EXECUTABLE?: string;
-}
-
-export interface InstallResult {
-	message: string;
-}
+// Re-export the install surface consumed across the app and tests.
+export type { AgentInstallState, InstallEnv, InstallResult };
+export {
+	AGENT_VOICE_CLAUDE_QUESTION_STATUS_MESSAGE,
+	AGENT_VOICE_CLAUDE_STATUS_MESSAGE,
+	AGENT_VOICE_EXTENSION_MARKER,
+	codexHookState,
+	codexHooksDisabled,
+	codexHooksPath,
+	installCodex,
+	uninstallCodex,
+	buildOpencodePluginSource,
+	installOpencode,
+	opencodeHookState,
+	opencodePluginPath,
+	uninstallOpencode,
+};
 
 export interface ClaudeInstallOptions {
 	suspendExistingStopHooks?: boolean;
@@ -34,8 +59,6 @@ export interface ClaudeInstallOptions {
 export interface ClaudeUninstallOptions {
 	restoreSuspendedHooks?: boolean;
 }
-
-type JsonRecord = Record<string, unknown>;
 
 interface SuspendedClaudeStopHookEntry {
 	groupIndex: number;
@@ -49,27 +72,6 @@ interface SuspendedClaudeStopHooksBackup {
 	createdAt: string;
 	settingsPath: string;
 	entries: SuspendedClaudeStopHookEntry[];
-}
-
-function isRecord(value: unknown): value is JsonRecord {
-	return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function clone<T>(value: T): T {
-	return JSON.parse(JSON.stringify(value)) as T;
-}
-
-function sameJson(left: unknown, right: unknown): boolean {
-	return JSON.stringify(left) === JSON.stringify(right);
-}
-
-function homeDir(env: InstallEnv): string {
-	if (!env.HOME) throw new Error("HOME is required for install");
-	return env.HOME;
-}
-
-function agentVoiceHome(env: InstallEnv): string {
-	return resolve(env.AGENT_VOICE_HOME ?? join(homeDir(env), ".agent-voice"));
 }
 
 export function piExtensionPath(env: InstallEnv): string {
@@ -86,23 +88,6 @@ export function claudeSuspendedStopHooksPath(env: InstallEnv): string {
 		"install",
 		"claude-suspended-stop-hooks.json",
 	);
-}
-
-function rootFromEntrypoint(entrypoint: string): string | null {
-	const resolved = resolve(entrypoint);
-	const file = basename(resolved);
-	const parent = basename(dirname(resolved));
-	if (file === "index.ts" && parent === "src")
-		return dirname(dirname(resolved));
-	if (file === "agent-voice" && parent === "bin")
-		return dirname(dirname(resolved));
-	return null;
-}
-
-function currentAgentVoiceExecutable(env: InstallEnv): string {
-	if (env.AGENT_VOICE_EXECUTABLE) return resolve(env.AGENT_VOICE_EXECUTABLE);
-	const root = process.argv[1] ? rootFromEntrypoint(process.argv[1]) : null;
-	return join(root ?? process.cwd(), "bin", "agent-voice");
 }
 
 function buildTextExtractor(): string {
@@ -194,20 +179,6 @@ export default function (pi: ExtensionAPI) {
 `;
 }
 
-function assertOwnedIfPresent(
-	path: string,
-	action: "overwrite" | "remove",
-): void {
-	if (!existsSync(path)) return;
-	const existing = readFileSync(path, "utf8");
-	if (!existing.includes(AGENT_VOICE_EXTENSION_MARKER)) {
-		const verb = action === "overwrite" ? "overwrite" : "remove";
-		throw new Error(
-			`refusing to ${verb} ${path}; file is not owned by agent-voice`,
-		);
-	}
-}
-
 export function installPi(env: InstallEnv): InstallResult {
 	const target = piExtensionPath(env);
 	assertOwnedIfPresent(target, "overwrite");
@@ -223,27 +194,6 @@ export function uninstallPi(env: InstallEnv): InstallResult {
 	rmSync(target, { force: true });
 	return { message: `uninstalled Pi hook from ${target}` };
 }
-
-/**
- * Three-way install state for a single agent's hook.
- *
- * Wire contract: these exact strings are serialized into the status snapshot's
- * `install` map and decoded by the macOS app's `InstallState` enum
- * (macos/AgentVoiceApp/Sources/AgentVoiceCore/AgentVoiceStatus.swift) — keep the
- * raw values in sync with the Swift `rawValue`s.
- *
- * - "installed" / "not_installed": the file was read and the answer is known.
- * - "unsupported": no install path exists yet (codex, opencode).
- * - "unknown": the check itself could not complete (HOME unset, permission
- *   denied, corrupt settings, transient I/O). The app renders this as a neutral
- *   "Checking…" badge with no install button — never as "Not installed", which
- *   would offer an Install action that would itself fail.
- */
-export type AgentInstallState =
-	| "installed"
-	| "not_installed"
-	| "unsupported"
-	| "unknown";
 
 function piHookState(env: InstallEnv): AgentInstallState {
 	let target: string;
@@ -292,21 +242,16 @@ function claudeHookState(env: InstallEnv): AgentInstallState {
  * Read-only, best-effort detection of which agent hooks are currently installed.
  * Never throws. A completed read yields "installed"/"not_installed"; a check
  * that cannot complete yields "unknown" (see {@link AgentInstallState}).
- * codex/opencode have no install path yet → "unsupported".
  */
 export function detectAgentInstallStates(
 	env: InstallEnv,
 ): Record<AgentName, AgentInstallState> {
 	return {
 		claude: claudeHookState(env),
-		codex: "unsupported",
+		codex: codexHookState(env),
 		pi: piHookState(env),
-		opencode: "unsupported",
+		opencode: opencodeHookState(env),
 	};
-}
-
-function shellQuote(value: string): string {
-	return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
 function buildClaudeStopHook(env: InstallEnv): JsonRecord {
@@ -402,24 +347,6 @@ function loadClaudeSettings(target: string): {
 		);
 	}
 	return { settings: parsed, original };
-}
-
-function backupExistingSettings(target: string, original: string): void {
-	const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-	writeFileSync(`${target}.agent-voice-backup-${stamp}`, original, "utf8");
-}
-
-function writeClaudeSettingsIfChanged(
-	target: string,
-	settings: JsonRecord,
-	original: string | null,
-): boolean {
-	const next = `${JSON.stringify(settings, null, 2)}\n`;
-	if (next === original) return false;
-	mkdirSync(dirname(target), { recursive: true });
-	if (original !== null) backupExistingSettings(target, original);
-	writeFileSync(target, next, "utf8");
-	return true;
 }
 
 function ensureHooks(settings: JsonRecord): JsonRecord {
@@ -669,7 +596,7 @@ export function installClaude(
 		hooks: [buildClaudeQuestionHook(env)],
 	});
 
-	writeClaudeSettingsIfChanged(target, settings, original);
+	writeJsonObjectIfChanged(target, settings, original);
 	const suspendedMessage =
 		suspendedEntries.length > 0
 			? `; suspended ${suspendedEntries.length} existing Claude Stop hook(s)`
@@ -697,7 +624,7 @@ export function uninstallClaude(
 		? removeAgentVoiceClaudeQuestionHooks(hooks.PreToolUse)
 		: 0;
 
-	writeClaudeSettingsIfChanged(target, settings, original);
+	writeJsonObjectIfChanged(target, settings, original);
 	if (backup) rmSync(claudeSuspendedStopHooksPath(env), { force: true });
 
 	if (removed === 0 && removedQuestionHooks === 0 && restored === 0) {

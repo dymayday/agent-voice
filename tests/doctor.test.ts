@@ -212,4 +212,64 @@ describe("agent-voice doctor --json", () => {
 			expect(result.stderr).toContain("doctor currently requires --json");
 		});
 	});
+
+	test("no codex.hooks.enabled check when the codex hook is not installed", async () => {
+		await withTempHome(async (home) => {
+			const result = await runCli(["doctor", "--json"], {
+				env: { AGENT_VOICE_HOME: home, HOME: home },
+				daemonDeps: { isPidAlive: () => false },
+			});
+			const parsed = JSON.parse(result.stdout) as {
+				checks: { id: string }[];
+			};
+			expect(
+				parsed.checks.some((check) => check.id === "codex.hooks.enabled"),
+			).toBe(false);
+		});
+	});
+
+	test("codex.hooks.enabled warns when features.hooks = false with the hook installed", async () => {
+		await withTempHome(async (home) => {
+			const env = { AGENT_VOICE_HOME: join(home, ".agent-voice"), HOME: home };
+			expect(
+				(await runCli(["install", "--agents", "codex"], { env })).exitCode,
+			).toBe(0);
+			writeFileSync(
+				join(home, ".codex", "config.toml"),
+				"[features]\nhooks = false\n",
+				"utf8",
+			);
+
+			const result = await runCli(["doctor", "--json"], {
+				env,
+				daemonDeps: { isPidAlive: () => false },
+			});
+			const parsed = JSON.parse(result.stdout) as {
+				checks: { id: string; ok: boolean; severity: string }[];
+			};
+			expect(
+				parsed.checks.find((item) => item.id === "codex.hooks.enabled"),
+			).toMatchObject({ ok: false, severity: "warning" });
+		});
+	});
+
+	test("codex.hooks.enabled passes when hooks are enabled (no config.toml)", async () => {
+		await withTempHome(async (home) => {
+			const env = { AGENT_VOICE_HOME: join(home, ".agent-voice"), HOME: home };
+			expect(
+				(await runCli(["install", "--agents", "codex"], { env })).exitCode,
+			).toBe(0);
+
+			const result = await runCli(["doctor", "--json"], {
+				env,
+				daemonDeps: { isPidAlive: () => false },
+			});
+			const parsed = JSON.parse(result.stdout) as {
+				checks: { id: string; ok: boolean }[];
+			};
+			expect(
+				parsed.checks.find((item) => item.id === "codex.hooks.enabled"),
+			).toMatchObject({ ok: true });
+		});
+	});
 });

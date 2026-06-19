@@ -12,9 +12,9 @@ final class AgentVoiceStatusTests: XCTestCase {
             "enabled": true,
             "agents": {
               "claude": { "enabled": true, "mode": "native" },
-              "codex": { "enabled": true, "mode": "wrapper-required-native-optional" },
+              "codex": { "enabled": true, "mode": "native" },
               "pi": { "enabled": true, "mode": "native" },
-              "opencode": { "enabled": false, "mode": "wrapper-required-native-optional" }
+              "opencode": { "enabled": false, "mode": "native" }
             }
           },
           "paths": { "home": "/tmp/agent-voice", "config": "/tmp/agent-voice/config.json", "db": "/tmp/agent-voice/queue.db" },

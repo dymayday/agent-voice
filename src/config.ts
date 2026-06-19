@@ -52,9 +52,9 @@ export const defaultConfig: AgentVoiceConfig = {
 	enabled: true,
 	agents: {
 		claude: { enabled: true, mode: "native" },
-		codex: { enabled: true, mode: "wrapper-required-native-optional" },
+		codex: { enabled: true, mode: "native" },
 		pi: { enabled: true, mode: "native" },
-		opencode: { enabled: true, mode: "wrapper-required-native-optional" },
+		opencode: { enabled: true, mode: "native" },
 	},
 	speakPolicy: "every_turn",
 	ignoreCwdPatterns: [],
