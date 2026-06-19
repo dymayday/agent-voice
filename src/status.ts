@@ -1,8 +1,10 @@
-import type { AgentVoiceConfig } from "./config";
+import type { AgentVoiceConfig, AgentName } from "./config";
 import { loadConfig } from "./config";
 import { getDaemonStatus, type DaemonCliDeps } from "./daemon";
 import type { AgentVoicePaths } from "./paths";
 import type { JobStatus } from "./store";
+import type { AgentInstallState, InstallEnv } from "./install";
+import { detectAgentInstallStates } from "./install";
 
 /** The config fields the status snapshot exposes (deriveUiState reads `enabled`). */
 export type StatusConfigView = Pick<AgentVoiceConfig, "enabled" | "agents">;
@@ -18,6 +20,7 @@ export interface AppStatusSnapshot {
 	};
 	queues: Record<JobStatus, number>;
 	config: StatusConfigView;
+	install: Record<AgentName, AgentInstallState>;
 	paths: StatusPaths;
 	ui: {
 		state:
@@ -42,6 +45,7 @@ export interface StatusSnapshotInput {
 	daemon: { running: boolean; pid: number | null };
 	queues: Record<JobStatus, number>;
 	config: StatusConfigView;
+	install: Record<AgentName, AgentInstallState>;
 	paths: StatusPaths;
 }
 
@@ -66,6 +70,7 @@ export function composeStatusSnapshot(
 		// narrow to StatusConfigView at the boundary (buildAppStatusSnapshot,
 		// createStatusPublisher), so there is nothing extra to strip here.
 		config: input.config,
+		install: input.install,
 		paths: input.paths,
 	};
 	return { ...base, ui: deriveUiState(base) };
@@ -93,6 +98,7 @@ function deriveUiState(
 export function buildAppStatusSnapshot(
 	paths: AgentVoicePaths,
 	deps: DaemonCliDeps = {},
+	env: InstallEnv = process.env as InstallEnv,
 ): AppStatusSnapshot {
 	const daemon = getDaemonStatus(paths, deps, { readOnly: true });
 	const config = loadConfig(paths, { createIfMissing: false });
@@ -100,6 +106,7 @@ export function buildAppStatusSnapshot(
 		daemon: { running: daemon.running, pid: daemon.pid },
 		queues: daemon.queues,
 		config: { enabled: config.enabled, agents: config.agents },
+		install: detectAgentInstallStates(env),
 		paths: { home: paths.home, config: paths.config, db: paths.db },
 	});
 }

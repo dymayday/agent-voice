@@ -60,4 +60,38 @@ final class DashboardViewSourceTests: XCTestCase {
         XCTAssertTrue(source.contains("model.history == nil"))
         XCTAssertTrue(source.contains("History unavailable"))
     }
+
+    func testAgentCardShowsAppCheckedInstallState() throws {
+        let source = try dashboardViewSource()
+        let section = try propertyBody(named: "agentGridSection", in: source)
+        let badge = try functionBody(named: "installBadge", in: source)
+
+        // Install state drives the badge, read from the app-checked snapshot map.
+        XCTAssertTrue(section.contains("model.status?.install?[name]"))
+        XCTAssertTrue(section.contains("?? .unknown"))
+
+        // Three real states + the unknown fallback, each with its own label —
+        // asserted against the badge builder so an unrelated string can't pass.
+        XCTAssertTrue(badge.contains("Label(\"Installed\", systemImage: \"checkmark.circle.fill\")"))
+        XCTAssertTrue(badge.contains("Label(\"Not installed\", systemImage: \"xmark.circle\")"))
+        XCTAssertTrue(badge.contains("Label(\"Not available yet\", systemImage: \"clock\")"))
+        XCTAssertTrue(badge.contains("Label(\"Checking…\", systemImage: \"circle.dotted\")"))
+
+        // "Voice disabled" only surfaces when installed but config-disabled.
+        XCTAssertTrue(section.contains("== .installed && agent?.enabled == false"))
+        XCTAssertTrue(section.contains("Text(\"Voice disabled\")"))
+    }
+
+    func testAgentCardGatesInstallButtonsOnState() throws {
+        let source = try dashboardViewSource()
+        let controls = try functionBody(named: "agentHookControls", in: source)
+
+        XCTAssertTrue(controls.contains("case .notInstalled:"))
+        XCTAssertTrue(controls.contains("Button(\"Install \\(name.capitalized) Hook\")"))
+        XCTAssertTrue(controls.contains("case .installed:"))
+        XCTAssertTrue(controls.contains("Button(\"Uninstall \\(name.capitalized) Hook\", role: .destructive)"))
+        XCTAssertTrue(controls.contains("Hook install coming later"))
+        XCTAssertTrue(controls.contains("model.installAgentHook(name)"))
+        XCTAssertTrue(controls.contains("model.uninstallAgentHook(name)"))
+    }
 }

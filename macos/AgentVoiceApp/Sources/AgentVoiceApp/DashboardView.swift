@@ -487,34 +487,21 @@ private extension DashboardView {
                 ) {
                     ForEach(agents.keys.sorted(), id: \.self) { name in
                         let agent = agents[name]
-                        let isEnabled = agent?.enabled == true
+                        let installState = model.status?.install?[name] ?? .unknown
                         VStack(alignment: .leading, spacing: 8) {
                             Text(name.capitalized)
                                 .font(.headline)
                                 .accessibilityAddTraits(.isHeader)
-                            Label(
-                                isEnabled ? "Enabled" : "Disabled",
-                                systemImage: isEnabled ? "checkmark.circle.fill" : "pause.circle"
-                            )
-                            .foregroundStyle(isEnabled ? .green : .secondary)
-                            Text(agent?.mode ?? "Mode unavailable")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            if name == "pi" || name == "claude" {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Button("Install \(name.capitalized) Hook") {
-                                        Task { await model.installAgentHook(name) }
-                                    }
-                                    Button("Uninstall \(name.capitalized) Hook", role: .destructive) {
-                                        Task { await model.uninstallAgentHook(name) }
-                                    }
-                                }
-                                .font(.caption)
-                            } else {
-                                Text("Hook install coming later")
+                            installBadge(installState)
+                            if installState == .installed && agent?.enabled == false {
+                                Text("Voice disabled")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
+                            Text(agent?.mode ?? "Mode unavailable")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            agentHookControls(name: name, state: installState)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(12)
@@ -523,6 +510,46 @@ private extension DashboardView {
                     }
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func installBadge(_ state: InstallState) -> some View {
+        switch state {
+        case .installed:
+            Label("Installed", systemImage: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+        case .notInstalled:
+            Label("Not installed", systemImage: "xmark.circle")
+                .foregroundStyle(.orange)
+        case .unsupported:
+            Label("Not available yet", systemImage: "clock")
+                .foregroundStyle(.secondary)
+        case .unknown:
+            Label("Checking…", systemImage: "circle.dotted")
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private func agentHookControls(name: String, state: InstallState) -> some View {
+        switch state {
+        case .notInstalled:
+            Button("Install \(name.capitalized) Hook") {
+                Task { await model.installAgentHook(name) }
+            }
+            .font(.caption)
+        case .installed:
+            Button("Uninstall \(name.capitalized) Hook", role: .destructive) {
+                Task { await model.uninstallAgentHook(name) }
+            }
+            .font(.caption)
+        case .unsupported:
+            Text("Hook install coming later")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        case .unknown:
+            EmptyView()
         }
     }
 

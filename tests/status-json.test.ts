@@ -28,6 +28,7 @@ type JsonStatus = {
 		enabled: boolean;
 		agents: Record<string, { enabled: boolean; mode: string }>;
 	};
+	install: Record<string, string>;
 	paths: { home: string; config: string; db: string };
 	ui: { state: string; attention: string[] };
 };
@@ -208,5 +209,28 @@ describe("agent-voice status --json", () => {
 		} finally {
 			rmSync(parent, { recursive: true, force: true });
 		}
+	});
+
+	test("status --json includes the install map for all four agents", async () => {
+		await withTempHome(async (home) => {
+			const result = await runCli(["status", "--json"], {
+				env: { AGENT_VOICE_HOME: home, HOME: home },
+				daemonDeps: { isPidAlive: () => false },
+			});
+
+			const parsed = JSON.parse(result.stdout) as JsonStatus;
+			expect(Object.keys(parsed.install).sort()).toEqual([
+				"claude",
+				"codex",
+				"opencode",
+				"pi",
+			]);
+			// The temp HOME holds no agent config, so installable agents read as
+			// absent (definitively not_installed), not as an indeterminate state.
+			expect(parsed.install.claude).toBe("not_installed");
+			expect(parsed.install.pi).toBe("not_installed");
+			expect(parsed.install.codex).toBe("unsupported");
+			expect(parsed.install.opencode).toBe("unsupported");
+		});
 	});
 });
