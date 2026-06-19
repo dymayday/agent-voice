@@ -226,12 +226,12 @@ describe("agent-voice status --json", () => {
 				"opencode",
 				"pi",
 			]);
-			// The temp HOME holds no agent config, so installable agents read as
+			// The temp HOME holds no agent config, so all four agents read as
 			// absent (definitively not_installed), not as an indeterminate state.
 			expect(parsed.install.claude).toBe("not_installed");
 			expect(parsed.install.pi).toBe("not_installed");
-			expect(parsed.install.codex).toBe("unsupported");
-			expect(parsed.install.opencode).toBe("unsupported");
+			expect(parsed.install.codex).toBe("not_installed");
+			expect(parsed.install.opencode).toBe("not_installed");
 		});
 	});
 

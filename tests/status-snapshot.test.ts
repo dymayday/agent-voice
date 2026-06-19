@@ -113,7 +113,7 @@ describe("composeStatusSnapshot", () => {
 
 			expect(built.install.pi).toBe("installed");
 			expect(built.install.claude).toBe("not_installed");
-			expect(built.install.codex).toBe("unsupported");
+			expect(built.install.codex).toBe("not_installed");
 		});
 	});
 
@@ -135,7 +135,7 @@ describe("composeStatusSnapshot", () => {
 					readFileSync(statusSnapshotPath(paths), "utf8"),
 				) as { install: Record<string, string> };
 				expect(snapshot.install.pi).toBe("installed");
-				expect(snapshot.install.opencode).toBe("unsupported");
+				expect(snapshot.install.opencode).toBe("not_installed");
 			} finally {
 				db.close();
 			}

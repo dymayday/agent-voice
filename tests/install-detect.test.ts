@@ -25,11 +25,44 @@ function writeFile(path: string, contents: string): void {
 }
 
 describe("detectAgentInstallStates", () => {
-	test("codex and opencode are always unsupported", () => {
+	test("codex and opencode are not_installed in an empty home", () => {
 		withTempHome((env) => {
 			const states = detectAgentInstallStates(env);
-			expect(states.codex).toBe("unsupported");
-			expect(states.opencode).toBe("unsupported");
+			expect(states.codex).toBe("not_installed");
+			expect(states.opencode).toBe("not_installed");
+		});
+	});
+
+	test("codex is installed when hooks.json holds our hook", () => {
+		withTempHome((env) => {
+			writeFile(
+				join(env.HOME, ".codex", "hooks.json"),
+				JSON.stringify({
+					Stop: [
+						{
+							hooks: [
+								{
+									type: "command",
+									command:
+										"agent-voice enqueue --format codex-stop-hook --agent codex",
+									statusMessage: "Agent Voice: queue Codex turn summary",
+								},
+							],
+						},
+					],
+				}),
+			);
+			expect(detectAgentInstallStates(env).codex).toBe("installed");
+		});
+	});
+
+	test("opencode is installed when our marked plugin exists", () => {
+		withTempHome((env) => {
+			writeFile(
+				join(env.HOME, ".config", "opencode", "plugin", "agent-voice.ts"),
+				"// agent-voice opencode plugin managed by agent-voice\n",
+			);
+			expect(detectAgentInstallStates(env).opencode).toBe("installed");
 		});
 	});
 
@@ -121,12 +154,12 @@ describe("detectAgentInstallStates", () => {
 		});
 	});
 
-	test("installable agents are unknown when the check cannot run (HOME unset)", () => {
+	test("all agents are unknown when the check cannot run (HOME unset)", () => {
 		const states = detectAgentInstallStates({});
 		expect(states.claude).toBe("unknown");
 		expect(states.pi).toBe("unknown");
-		expect(states.codex).toBe("unsupported");
-		expect(states.opencode).toBe("unsupported");
+		expect(states.codex).toBe("unknown");
+		expect(states.opencode).toBe("unknown");
 	});
 
 	test("the extension marker constant matches the published wire value", () => {
