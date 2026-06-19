@@ -2,6 +2,7 @@ import {
 	extractClaudeQuestion,
 	extractClaudeStopHook,
 } from "./adapters/claude";
+import { extractCodexPermission, extractCodexStop } from "./adapters/codex";
 import {
 	clearDaemonLock,
 	clearStatusSnapshot,
@@ -38,8 +39,12 @@ import {
 } from "./history";
 import {
 	installClaude,
+	installCodex,
+	installOpencode,
 	installPi,
 	uninstallClaude,
+	uninstallCodex,
+	uninstallOpencode,
 	uninstallPi,
 } from "./install";
 import { resolvePaths } from "./paths";
@@ -70,8 +75,8 @@ export interface CliResult {
 const HELP = `agent-voice - speak one-line summaries of coding-agent turns
 
 Usage:
-  agent-voice install --agents pi|claude [--suspend-existing-stop-hooks]
-  agent-voice uninstall --agents pi|claude [--keep-suspended-hooks]
+  agent-voice install --agents pi|claude|codex|opencode [--suspend-existing-stop-hooks]
+  agent-voice uninstall --agents pi|claude|codex|opencode [--keep-suspended-hooks]
   agent-voice start
   agent-voice stop
   agent-voice status [--json]
@@ -84,6 +89,8 @@ Usage:
   agent-voice enqueue --format event-json
   agent-voice enqueue --format claude-stop-hook --agent claude
   agent-voice enqueue --format claude-pretooluse-hook --agent claude
+  agent-voice enqueue --format codex-stop-hook --agent codex
+  agent-voice enqueue --format codex-permission-hook --agent codex
   agent-voice test "Claude finished editing the auth module."
   agent-voice enable claude
   agent-voice disable codex
@@ -155,7 +162,7 @@ interface ClaudeHookPayloadContext {
 	sessionId?: string;
 }
 
-function parseClaudeHookPayload(
+function parseHookPayload(
 	input: string,
 	format: string,
 ): ClaudeHookPayloadContext | CliResult {
@@ -285,8 +292,17 @@ export async function runCli(
 	args: string[],
 	io: CliIo = {},
 ): Promise<CliResult> {
-	const [command] = args;
 	const paths = resolvePaths(io.env ?? process.env);
+
+	// voice-codex / voice-opencode bins are thin aliases for enqueuing raw text
+	// under the matching agent. The primary hook paths call `enqueue` directly,
+	// so these stay convenience entrypoints rather than the install target.
+	if (args[0] === "voice-codex" || args[0] === "voice-opencode") {
+		const aliasAgent = args[0] === "voice-codex" ? "codex" : "opencode";
+		args = ["enqueue", "--format", "text", "--agent", aliasAgent, ...args.slice(1)];
+	}
+
+	const [command] = args;
 
 	if (
 		!command ||
@@ -299,19 +315,29 @@ export async function runCli(
 
 	if (command === "install" || command === "uninstall") {
 		const agents = parseAgentsOption(args);
-		if (agents.length !== 1 || !["pi", "claude"].includes(agents[0])) {
+		if (
+			agents.length !== 1 ||
+			!["pi", "claude", "codex", "opencode"].includes(agents[0])
+		) {
 			return result(
 				2,
 				"",
-				`${command} currently supports only pi and claude\n`,
+				`${command} supports one of: pi, claude, codex, opencode\n`,
 			);
 		}
 
 		try {
 			const env = io.env ?? process.env;
+			const agent = agents[0];
 			let outcome;
-			if (agents[0] === "pi") {
+			if (agent === "pi") {
 				outcome = command === "install" ? installPi(env) : uninstallPi(env);
+			} else if (agent === "codex") {
+				outcome =
+					command === "install" ? installCodex(env) : uninstallCodex(env);
+			} else if (agent === "opencode") {
+				outcome =
+					command === "install" ? installOpencode(env) : uninstallOpencode(env);
 			} else {
 				outcome =
 					command === "install"
@@ -580,7 +606,7 @@ export async function runCli(
 						"--format claude-stop-hook requires --agent claude\n",
 					);
 				}
-				const hookPayload = parseClaudeHookPayload(stdin, format);
+				const hookPayload = parseHookPayload(stdin, format);
 				if (isCliResult(hookPayload)) return hookPayload;
 				const extracted = extractClaudeStopHook(hookPayload.payload);
 				const config = loadConfigForEnqueue(paths);
@@ -600,7 +626,7 @@ export async function runCli(
 						"--format claude-pretooluse-hook requires --agent claude\n",
 					);
 				}
-				const hookPayload = parseClaudeHookPayload(stdin, format);
+				const hookPayload = parseHookPayload(stdin, format);
 				if (isCliResult(hookPayload)) return hookPayload;
 				const question = extractClaudeQuestion(hookPayload.payload);
 				// Only AskUserQuestion tool calls carry a question worth speaking.
@@ -615,12 +641,63 @@ export async function runCli(
 					metadata: { format: "claude-pretooluse-hook", kind: "question" },
 					maxInputChars: config.summarizer.maxInputChars,
 				});
+			} else if (format === "codex-stop-hook") {
+				if (agentOption !== "codex") {
+					return result(
+						2,
+						"",
+						"--format codex-stop-hook requires --agent codex\n",
+					);
+				}
+				const hookPayload = parseHookPayload(stdin, format);
+				if (isCliResult(hookPayload)) return hookPayload;
+				const extracted = extractCodexStop(hookPayload.payload);
+				const config = loadConfigForEnqueue(paths);
+				event = createEvent({
+					agent: "codex",
+					text: truncateInput(extracted.text, config.summarizer.maxInputChars),
+					...(cwd || hookPayload.payloadCwd
+						? { cwd: cwd ?? hookPayload.payloadCwd }
+						: {}),
+					...(hookPayload.sessionId
+						? { sessionId: hookPayload.sessionId }
+						: {}),
+					metadata: { format: "codex-stop-hook", generic: extracted.generic },
+				});
+			} else if (format === "codex-permission-hook") {
+				if (agentOption !== "codex") {
+					return result(
+						2,
+						"",
+						"--format codex-permission-hook requires --agent codex\n",
+					);
+				}
+				const hookPayload = parseHookPayload(stdin, format);
+				if (isCliResult(hookPayload)) return hookPayload;
+				const permission = extractCodexPermission(hookPayload.payload);
+				// Only a real approval request carries a tool worth speaking.
+				if (!permission) return result(0, "");
+				const config = loadConfigForEnqueue(paths);
+				event = createEvent({
+					agent: "codex",
+					text: truncateInput(permission.text, config.summarizer.maxInputChars),
+					...(cwd || hookPayload.payloadCwd
+						? { cwd: cwd ?? hookPayload.payloadCwd }
+						: {}),
+					...(hookPayload.sessionId
+						? { sessionId: hookPayload.sessionId }
+						: {}),
+					metadata: { format: "codex-permission-hook", kind: "question" },
+				});
 			} else {
 				return result(2, "", `Unsupported enqueue format: ${format}\n`);
 			}
 		} catch (error) {
 			return result(
-				format === "claude-stop-hook" || format === "claude-pretooluse-hook"
+				format === "claude-stop-hook" ||
+					format === "claude-pretooluse-hook" ||
+					format === "codex-stop-hook" ||
+					format === "codex-permission-hook"
 					? 0
 					: 2,
 				"",

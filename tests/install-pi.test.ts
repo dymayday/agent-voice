@@ -816,22 +816,31 @@ await handlers.agent_end({
 		});
 	});
 
-	test("install and uninstall reject unsupported agents in this slice", async () => {
+	test("install and uninstall accept codex and opencode", async () => {
 		await withTempHome(async (home) => {
 			const env = envFor(home);
-			const install = await runCli(["install", "--agents", "codex"], {
-				env,
-			});
-			const uninstall = await runCli(["uninstall", "--agents", "opencode"], {
-				env,
-			});
+			expect(
+				(await runCli(["install", "--agents", "codex"], { env })).exitCode,
+			).toBe(0);
+			expect(
+				(await runCli(["install", "--agents", "opencode"], { env })).exitCode,
+			).toBe(0);
+			expect(
+				(await runCli(["uninstall", "--agents", "codex"], { env })).exitCode,
+			).toBe(0);
+			expect(
+				(await runCli(["uninstall", "--agents", "opencode"], { env })).exitCode,
+			).toBe(0);
+		});
+	});
 
-			expect(install.exitCode).toBe(2);
-			expect(install.stderr).toContain("currently supports only pi and claude");
-			expect(uninstall.exitCode).toBe(2);
-			expect(uninstall.stderr).toContain(
-				"currently supports only pi and claude",
-			);
+	test("install rejects an unknown agent", async () => {
+		await withTempHome(async (home) => {
+			const result = await runCli(["install", "--agents", "bogus"], {
+				env: envFor(home),
+			});
+			expect(result.exitCode).toBe(2);
+			expect(result.stderr).toContain("pi, claude, codex, opencode");
 		});
 	});
 });
