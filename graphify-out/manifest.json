@@ -35,9 +35,9 @@
     "semantic_hash": "855295957fca9a6fe63e8f7842ed886b"
   },
   "/Users/meidhy/junk/repo/agent-voice/macos/AgentVoiceApp/Sources/AgentVoiceApp/AgentVoiceApp.swift": {
-    "mtime": 1781726492.0972736,
-    "ast_hash": "9298c855d5dc8229a80a4153a9d020a0",
-    "semantic_hash": "9298c855d5dc8229a80a4153a9d020a0"
+    "mtime": 1781941085.5971804,
+    "ast_hash": "1a19cd48fda0a9db047a2127fec64a0c",
+    "semantic_hash": "1a19cd48fda0a9db047a2127fec64a0c"
   },
   "/Users/meidhy/junk/repo/agent-voice/macos/AgentVoiceApp/Sources/AgentVoiceApp/AttentionDetailView.swift": {
     "mtime": 1781707402.2141244,
@@ -45,9 +45,9 @@
     "semantic_hash": "765150be8327b380f9a0314b9d284e7d"
   },
   "/Users/meidhy/junk/repo/agent-voice/macos/AgentVoiceApp/Sources/AgentVoiceApp/DashboardView.swift": {
-    "mtime": 1781940422.2325969,
-    "ast_hash": "6cb17e41cacc2b2da840488c42ec973d",
-    "semantic_hash": "6cb17e41cacc2b2da840488c42ec973d"
+    "mtime": 1781941085.5976152,
+    "ast_hash": "3930a17800f0fa5510c854ffa901891e",
+    "semantic_hash": "3930a17800f0fa5510c854ffa901891e"
   },
   "/Users/meidhy/junk/repo/agent-voice/macos/AgentVoiceApp/Sources/AgentVoiceApp/DockMenuController.swift": {
     "mtime": 1781792751.2729056,
@@ -100,9 +100,9 @@
     "semantic_hash": "d7c56ecc1650e20e871df39a89f022fa"
   },
   "/Users/meidhy/junk/repo/agent-voice/macos/AgentVoiceApp/Sources/AgentVoiceCore/AppModel.swift": {
-    "mtime": 1781940422.2341118,
-    "ast_hash": "414faa8a0cf9e368024f246706795c1a",
-    "semantic_hash": "414faa8a0cf9e368024f246706795c1a"
+    "mtime": 1781944135.143069,
+    "ast_hash": "8452baf766dd207c982c44ecd7d20acb",
+    "semantic_hash": "8452baf766dd207c982c44ecd7d20acb"
   },
   "/Users/meidhy/junk/repo/agent-voice/macos/AgentVoiceApp/Sources/AgentVoiceCore/AppSettings.swift": {
     "mtime": 1781891323.8904736,
@@ -130,9 +130,9 @@
     "semantic_hash": "f30e2e8c7da6d1343a8107e0fb48af4d"
   },
   "/Users/meidhy/junk/repo/agent-voice/macos/AgentVoiceApp/Tests/AgentVoiceCoreTests/AgentVoiceAppSourceTests.swift": {
-    "mtime": 1781770236.267898,
-    "ast_hash": "9e552fac18c9b7bbf1d22130d8f06962",
-    "semantic_hash": "9e552fac18c9b7bbf1d22130d8f06962"
+    "mtime": 1781941085.598582,
+    "ast_hash": "9503453af796b79f03ed9dccde466bb4",
+    "semantic_hash": "9503453af796b79f03ed9dccde466bb4"
   },
   "/Users/meidhy/junk/repo/agent-voice/macos/AgentVoiceApp/Tests/AgentVoiceCoreTests/AgentVoiceCLISnapshotTests.swift": {
     "mtime": 1781792751.2743998,
@@ -190,9 +190,9 @@
     "semantic_hash": "8a82588af165b6657f14d3cb0017928c"
   },
   "/Users/meidhy/junk/repo/agent-voice/macos/AgentVoiceApp/Tests/AgentVoiceCoreTests/DashboardViewSourceTests.swift": {
-    "mtime": 1781940422.2351193,
-    "ast_hash": "460faf5b386629be4c280c277415e1c8",
-    "semantic_hash": "460faf5b386629be4c280c277415e1c8"
+    "mtime": 1781941085.5989323,
+    "ast_hash": "33cecfe4bc6cfb436b0ee88e17196030",
+    "semantic_hash": "33cecfe4bc6cfb436b0ee88e17196030"
   },
   "/Users/meidhy/junk/repo/agent-voice/macos/AgentVoiceApp/Tests/AgentVoiceCoreTests/DockMenuSourceTests.swift": {
     "mtime": 1781792751.274977,
@@ -255,9 +255,9 @@
     "semantic_hash": "e855baf4e2957173c2e285e4ebd79603"
   },
   "/Users/meidhy/junk/repo/agent-voice/src/config.ts": {
-    "mtime": 1781940422.236582,
-    "ast_hash": "b358c5260904c30ad62f2c9265b06553",
-    "semantic_hash": "b358c5260904c30ad62f2c9265b06553"
+    "mtime": 1781944135.143816,
+    "ast_hash": "13f1b902adc8b40c329011633e84ef92",
+    "semantic_hash": "13f1b902adc8b40c329011633e84ef92"
   },
   "/Users/meidhy/junk/repo/agent-voice/src/daemon-wait.ts": {
     "mtime": 1781771594.582107,
@@ -365,9 +365,9 @@
     "semantic_hash": "09bd1a95777b39d311dec7e4f03e9fa0"
   },
   "/Users/meidhy/junk/repo/agent-voice/src/summarizers.ts": {
-    "mtime": 1781940422.236709,
-    "ast_hash": "90f36eae3346446df814c81e7912210f",
-    "semantic_hash": "90f36eae3346446df814c81e7912210f"
+    "mtime": 1781944135.1441865,
+    "ast_hash": "97affbf2d23268b140cc3012d8636e8c",
+    "semantic_hash": "97affbf2d23268b140cc3012d8636e8c"
   },
   "/Users/meidhy/junk/repo/agent-voice/src/tts.ts": {
     "mtime": 1781758027.8105676,
@@ -395,9 +395,9 @@
     "semantic_hash": "cbd7f1f4446d608f397d9e9cb5bf210c"
   },
   "/Users/meidhy/junk/repo/agent-voice/tests/config.test.ts": {
-    "mtime": 1781940422.2371957,
-    "ast_hash": "12efd73e5e2a97c50f03cd23089eaef8",
-    "semantic_hash": "12efd73e5e2a97c50f03cd23089eaef8"
+    "mtime": 1781944135.1444745,
+    "ast_hash": "930d0cbbe3d79f296e4d4fd336b49e97",
+    "semantic_hash": "930d0cbbe3d79f296e4d4fd336b49e97"
   },
   "/Users/meidhy/junk/repo/agent-voice/tests/daemon-cli.test.ts": {
     "mtime": 1781760858.085118,
@@ -515,9 +515,9 @@
     "semantic_hash": "f73368bc37ca128bd1c0e95ee4dc5c01"
   },
   "/Users/meidhy/junk/repo/agent-voice/tests/summarizers.test.ts": {
-    "mtime": 1781940422.2374828,
-    "ast_hash": "daf930e95bdb2434391f333935122248",
-    "semantic_hash": "daf930e95bdb2434391f333935122248"
+    "mtime": 1781944135.1448114,
+    "ast_hash": "1e0e5330b205dd13dd9eadbe84969408",
+    "semantic_hash": "1e0e5330b205dd13dd9eadbe84969408"
   },
   "/Users/meidhy/junk/repo/agent-voice/tests/tts.test.ts": {
     "mtime": 1781707402.2253299,
@@ -690,8 +690,23 @@
     "semantic_hash": "997713d2a3e438be3f56268bf413c783"
   },
   "/Users/meidhy/junk/repo/agent-voice/macos/AgentVoiceApp/Tests/AgentVoiceCoreTests/SummarizerPromptStyleCatalogTests.swift": {
-    "mtime": 1781940422.2359805,
-    "ast_hash": "30d80170f9837668846e3b05beb96c10",
-    "semantic_hash": "30d80170f9837668846e3b05beb96c10"
+    "mtime": 1781944135.1435184,
+    "ast_hash": "8e74aec9e76675f52fb88362c8a56932",
+    "semantic_hash": "8e74aec9e76675f52fb88362c8a56932"
+  },
+  "/Users/meidhy/junk/repo/agent-voice/macos/AgentVoiceApp/Sources/AgentVoiceApp/HistoryView.swift": {
+    "mtime": 1781941085.5978186,
+    "ast_hash": "809e5958e8d33a73129d710ac680111d",
+    "semantic_hash": "809e5958e8d33a73129d710ac680111d"
+  },
+  "/Users/meidhy/junk/repo/agent-voice/macos/AgentVoiceApp/Tests/AgentVoiceCoreTests/AppModelHistoryFocusTests.swift": {
+    "mtime": 1781941085.5987098,
+    "ast_hash": "b02882fae08e94b797f60f4c432a49d3",
+    "semantic_hash": "b02882fae08e94b797f60f4c432a49d3"
+  },
+  "/Users/meidhy/junk/repo/agent-voice/macos/AgentVoiceApp/Tests/AgentVoiceCoreTests/HistoryViewSourceTests.swift": {
+    "mtime": 1781941085.5990736,
+    "ast_hash": "3badd81af2f0989056c5c840b80d66b9",
+    "semantic_hash": "3badd81af2f0989056c5c840b80d66b9"
   }
 }
