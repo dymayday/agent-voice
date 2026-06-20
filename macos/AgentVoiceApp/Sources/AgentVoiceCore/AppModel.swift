@@ -110,7 +110,7 @@ public final class AppModel: ObservableObject {
               example: "I wired up the fee split and it's green."),
         .init(id: "adaptive", name: "Adaptive",
               detail: "Picks the best register for each message.",
-              example: "Need your call — which auth provider?"),
+              example: "Reads the moment — an ask when you're needed, a quick result otherwise."),
     ]
 
     public nonisolated static var summarizerPromptStyleOptions: [String] {
