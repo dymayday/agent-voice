@@ -46,4 +46,22 @@ final class HistoryViewSourceTests: XCTestCase {
         XCTAssertTrue(source.contains("Load more"))
         XCTAssertTrue(source.contains("History unavailable"))
     }
+
+    func testHistoryViewReplaysSummaryWithTransientPlayingState() throws {
+        let source = try appSource("HistoryView.swift")
+
+        // Transient per-row playing state.
+        XCTAssertTrue(source.contains("@State private var playingJobID: String?"))
+        // Play control gated on a non-empty summary.
+        XCTAssertTrue(source.contains("if let summary = job.summary, !summary.isEmpty {"))
+        // Replays the stored summary via the existing TTS path.
+        XCTAssertTrue(source.contains("await model.testVoice(summary)"))
+        // Marks the row as playing; clears only if still the active row.
+        XCTAssertTrue(source.contains("playingJobID = job.id"))
+        XCTAssertTrue(source.contains("if playingJobID == job.id { playingJobID = nil }"))
+        // "Playing…" feedback + disable while in flight.
+        XCTAssertTrue(source.contains("playingJobID == job.id ? \"Playing…\" : \"Play\""))
+        XCTAssertTrue(source.contains(".disabled(playingJobID == job.id)"))
+        XCTAssertTrue(source.contains(".accessibilityLabel(\"Replay summary\")"))
+    }
 }

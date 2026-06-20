@@ -33,6 +33,7 @@ struct HistoryView: View {
     @State private var statusFilter: HistoryStatusFilter = .all
     @State private var highlightedJobID: String?
     @State private var highlightTask: Task<Void, Never>?
+    @State private var playingJobID: String?
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -138,6 +139,23 @@ private extension HistoryView {
                     .padding(.vertical, 4)
                     .background(tint.opacity(0.12))
                     .clipShape(Capsule())
+                if let summary = job.summary, !summary.isEmpty {
+                    Button {
+                        Task { @MainActor in
+                            playingJobID = job.id
+                            await model.testVoice(summary)
+                            if playingJobID == job.id { playingJobID = nil }
+                        }
+                    } label: {
+                        Label(
+                            playingJobID == job.id ? "Playing…" : "Play",
+                            systemImage: playingJobID == job.id ? "waveform" : "play.circle"
+                        )
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(playingJobID == job.id)
+                    .accessibilityLabel("Replay summary")
+                }
             }
 
             Text(job.summary ?? "No summary recorded")
