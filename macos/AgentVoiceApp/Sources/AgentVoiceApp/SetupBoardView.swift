@@ -1,4 +1,5 @@
 import AgentVoiceCore
+import AppKit
 import SwiftUI
 
 /// Face B — "The Board". The same window once setup is healthy: a calm set of
@@ -10,6 +11,8 @@ struct SetupBoardView: View {
     let readiness: SetupReadiness
     var preferredConcern: SetupConcern?
 
+    @Environment(\.openWindow) private var openWindow
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @State private var expanded: SetupConcern?
 
     private var channels: [SetupConcern] { [.voice, .summaries, .agents, .daemon] }
@@ -111,6 +114,8 @@ struct SetupBoardView: View {
         case .daemon:
             DaemonChannelContent(model: model)
         case .engine:
+            // Unreachable: `channels` never includes .engine (engine is folded into
+            // the Voice channel). Arm exists only for switch exhaustiveness.
             KokoroInstallInlineView(model: model)
         }
     }
@@ -130,6 +135,7 @@ struct SetupBoardView: View {
         case .daemon:
             return model.status?.daemon.running == true ? "Running" : "Stopped"
         case .engine:
+            // Unreachable (see channelContent) — engine status lives on the Voice channel.
             return readiness.enginePresent ? "Kokoro ready" : "Not installed"
         }
     }
@@ -167,7 +173,7 @@ struct SetupBoardView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 24)
         .padding(.vertical, 12)
-        .background(.thinMaterial)
+        .background(reduceTransparency ? AnyShapeStyle(Color(nsColor: .windowBackgroundColor)) : AnyShapeStyle(.thinMaterial))
         if let lastError = model.lastError {
             Text(lastError)
                 .font(.caption)
@@ -184,6 +190,9 @@ struct SetupBoardView: View {
             Task { await model.startDaemon() }
         case "system.paused":
             Task { await model.resume() }
+        case "queue.failed.empty":
+            // The chip's label is "Open dashboard failed jobs" — honor it.
+            openWindow(id: AgentVoiceWindowID.dashboard)
         case SetupReadiness.kokoroScriptCheckID:
             withAnimation(.easeInOut(duration: 0.2)) { expanded = .voice }
         default:
@@ -226,9 +235,11 @@ struct VoiceChannelContent: View {
     private func speak() {
         guard !isSpeaking else { return }
         isSpeaking = true
+        SetupAccessibility.announce("Speaking test line")
         Task {
-            await model.testVoice()
+            let ok = await model.testVoice()
             isSpeaking = false
+            SetupAccessibility.announce(ok ? "Test complete." : "Voice test failed.")
         }
     }
 }

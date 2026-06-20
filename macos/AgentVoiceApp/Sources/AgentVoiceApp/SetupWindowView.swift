@@ -27,13 +27,17 @@ struct SetupWindowView: View {
     var body: some View {
         content
             .frame(minWidth: 560, minHeight: 560)
-            .task { await model.refresh() }
-            .task(id: model.preferredSetupStep) { applyPreferredStepIfNeeded() }
-            .onAppear {
+            .task {
+                await model.refresh()
+                // Latch the initial face from FRESH state. Until this resolves,
+                // `content` derives the face live (mode == nil), so a ready
+                // returning user is never stranded on Soundcheck by the nil
+                // snapshot that exists at appear time.
                 if mode == nil {
                     mode = readiness.isReady ? .board : .soundcheck
                 }
             }
+            .task(id: model.preferredSetupStep) { applyPreferredStepIfNeeded() }
     }
 
     @ViewBuilder

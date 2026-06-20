@@ -408,8 +408,12 @@ extension AppModel {
         }
     }
 
-    public func testVoice(_ text: String = "Agent Voice test.") async {
-        await perform { try await cli.runVoiceTest(text) }
+    /// Runs a voice test. Returns `true` when the test ran without error so the
+    /// UI can honestly gate success feedback (the "Speak it" celebration) on it
+    /// instead of always claiming success.
+    @discardableResult
+    public func testVoice(_ text: String = "Agent Voice test.") async -> Bool {
+        await performResult { try await cli.runVoiceTest(text) }
     }
 
     public var shouldPromptForKokoroSetup: Bool {
@@ -973,12 +977,19 @@ extension AppModel {
     }
 
     private func perform(_ operation: () async throws -> Void) async {
+        await performResult(operation)
+    }
+
+    @discardableResult
+    private func performResult(_ operation: () async throws -> Void) async -> Bool {
         do {
             try await operation()
             await refresh()
+            return true
         } catch {
             lastActionError = String(describing: error)
             recomputeLastError()
+            return false
         }
     }
 }

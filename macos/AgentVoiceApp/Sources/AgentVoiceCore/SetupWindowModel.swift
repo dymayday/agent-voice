@@ -144,7 +144,11 @@ public enum SetupConcernHealth {
         doctor: DoctorReport?,
         status: AgentVoiceStatusSnapshot?
     ) -> [SetupCheck] {
-        var items = SetupAssistantModel.checks(from: doctor, status: status)
+        // Only *failing* checks belong on the repair rail. `SetupAssistantModel.checks`
+        // maps the mapped doctor ids (kokoroScript / daemon / failed-jobs) regardless of
+        // their `ok` state, so without this filter a healthy system — whose doctor emits
+        // all three as ok — would render a false "N things need attention" Board.
+        var items = SetupAssistantModel.checks(from: doctor, status: status).filter { !$0.ok }
         let mappedIDs = Set(items.map(\.id))
         if let doctor {
             for check in doctor.checks where !check.ok && !mappedIDs.contains(check.id) {

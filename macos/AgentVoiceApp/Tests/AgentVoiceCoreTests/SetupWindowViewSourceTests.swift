@@ -95,9 +95,65 @@ final class SetupWindowViewSourceTests: XCTestCase {
         let source = try appSource("SetupBoardView.swift")
         XCTAssertTrue(source.contains("SetupConcernHealth.repairItems"))
         XCTAssertTrue(source.contains("All clear"))
-        // Fixes route to real model actions, not invented ones.
-        XCTAssertTrue(source.contains("await model.startDaemon()"))
-        XCTAssertTrue(source.contains("await model.resume()"))
+        // Assert routing INSIDE performFix so an unrelated startDaemon() elsewhere
+        // in the file cannot satisfy the contract.
+        let performFix = try sourceSlice(in: source, from: "private func performFix", to: "// MARK: - Channel contents")
+        XCTAssertTrue(performFix.contains("case \"daemon.running\":"))
+        XCTAssertTrue(performFix.contains("await model.startDaemon()"))
+        XCTAssertTrue(performFix.contains("case \"system.paused\":"))
+        XCTAssertTrue(performFix.contains("await model.resume()"))
+        XCTAssertTrue(performFix.contains("case \"queue.failed.empty\":"))
+        XCTAssertTrue(performFix.contains("openWindow(id: AgentVoiceWindowID.dashboard)"))
+        XCTAssertTrue(performFix.contains("case SetupReadiness.kokoroScriptCheckID"))
+    }
+
+    func testClimaxGatesCelebrationOnTestSuccessAndAnnouncesToVoiceOver() throws {
+        let source = try appSource("SoundcheckView.swift")
+        // Celebration is gated on the Bool result, not flipped unconditionally.
+        XCTAssertTrue(source.contains("let ok = await model.testVoice"))
+        XCTAssertTrue(source.contains("if ok {"))
+        // A failed test surfaces the error on Face A instead of claiming success.
+        XCTAssertTrue(source.contains("model.lastError"))
+        // VoiceOver live-region equivalent announcements at the climax.
+        XCTAssertTrue(source.contains("SetupAccessibility.announce"))
+        XCTAssertTrue(source.contains("Speaking test line"))
+    }
+
+    func testFinishAwaitsDaemonStartBeforeFlippingToBoard() throws {
+        let source = try appSource("SoundcheckView.swift")
+        let finish = try functionBody(named: "finish", in: source)
+        XCTAssertTrue(finish.contains("await model.startDaemon()"))
+        XCTAssertTrue(finish.contains("onFinish(concern)"))
+        // startDaemon must precede the face flip.
+        XCTAssertLessThan(
+            try offset(of: "await model.startDaemon()", in: finish),
+            try offset(of: "onFinish(concern)", in: finish)
+        )
+    }
+
+    func testCardsHonorReduceTransparency() throws {
+        let theater = try appSource("SetupTheater.swift")
+        XCTAssertTrue(theater.contains("accessibilityReduceTransparency"))
+        XCTAssertTrue(theater.contains("windowBackgroundColor"))
+        let board = try appSource("SetupBoardView.swift")
+        XCTAssertTrue(board.contains("accessibilityReduceTransparency"))
+    }
+
+    func testInlineInstallerShowsInstallPulseWaveform() throws {
+        let source = try appSource("KokoroInstallInlineView.swift")
+        XCTAssertTrue(source.contains("VoiceMeter(isActive: model.kokoroSetup.phase == .running"))
+    }
+
+    func testInlineInstallerRetryIsButtonGated() throws {
+        let source = try appSource("KokoroInstallInlineView.swift")
+        XCTAssertTrue(source.contains("Button(\"Retry\") { Task { await model.retryKokoroSetup() } }"))
+    }
+
+    func testInlineInstallerCopyDiagnosticsReportsPasteboardFailures() throws {
+        let copyDiagnostics = try functionBody(named: "copyDiagnostics", in: appSource("KokoroInstallInlineView.swift"))
+        XCTAssertTrue(copyDiagnostics.contains("if NSPasteboard.general.setString"))
+        XCTAssertTrue(copyDiagnostics.contains("Diagnostics copied."))
+        XCTAssertTrue(copyDiagnostics.contains("Copy failed."))
     }
 
     // MARK: Summary-voice controls + live preview preserved

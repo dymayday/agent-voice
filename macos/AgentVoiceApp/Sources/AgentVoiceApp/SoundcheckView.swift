@@ -50,7 +50,8 @@ struct SoundcheckView: View {
             railSegment("Speak", done: hasSpoken, active: activePanel == .speak)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(railAccessibilityLabel)
+        .accessibilityLabel("Setup progress")
+        .accessibilityValue(railAccessibilityValue)
     }
 
     private func railSegment(_ title: String, done: Bool, active: Bool) -> some View {
@@ -65,14 +66,18 @@ struct SoundcheckView: View {
         .frame(maxWidth: .infinity)
     }
 
-    private var railAccessibilityLabel: String {
-        let step: String
+    /// Conveys the active step AND each segment's done/pending state, so a
+    /// VoiceOver user learns progress that the colored segments encode visually.
+    private var railAccessibilityValue: String {
+        let position: String
         switch activePanel {
-        case .engine: step = "step 1 of 3, Engine"
-        case .voice: step = "step 2 of 3, Voice"
-        case .speak: step = "step 3 of 3, Speak"
+        case .engine: position = "Step 1 of 3, Engine"
+        case .voice: position = "Step 2 of 3, Voice"
+        case .speak: position = "Step 3 of 3, Speak"
         }
-        return step
+        func state(_ done: Bool) -> String { done ? "done" : "pending" }
+        return "\(position). Engine \(state(readiness.enginePresent)), "
+            + "Voice \(state(readiness.voiceSet)), Speak \(state(hasSpoken))."
     }
 
     // MARK: Panels
@@ -132,9 +137,9 @@ struct SoundcheckView: View {
                         }
                     }
                     HStack {
-                        Button("Sounds good → Finish") { finish(nil) }
+                        Button("Sounds good → Finish") { Task { await finish(nil) } }
                             .keyboardShortcut(.defaultAction)
-                        Button("Tune the words") { finish(.summaries) }
+                        Button("Tune the words") { Task { await finish(.summaries) } }
                         Spacer()
                         Button("Speak again") { speak() }
                             .disabled(isSpeaking)
@@ -157,6 +162,13 @@ struct SoundcheckView: View {
                     .disabled(isSpeaking)
 
                     VoiceMeter(isActive: isSpeaking, tint: .accentColor)
+                }
+                if let error = model.lastError, !isSpeaking {
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .textSelection(.enabled)
+                        .accessibilityLabel("Voice test error: \(error)")
                 }
             }
         }
@@ -231,16 +243,25 @@ struct SoundcheckView: View {
     private func speak() {
         guard !isSpeaking else { return }
         isSpeaking = true
+        SetupAccessibility.announce("Speaking test line")
         Task {
-            await model.testVoice("Agent Voice is ready. I'll speak when your agents finish.")
+            let ok = await model.testVoice("Agent Voice is ready. I'll speak when your agents finish.")
             isSpeaking = false
-            withAnimation(.easeInOut(duration: 0.25)) { hasSpoken = true }
+            if ok {
+                withAnimation(.easeInOut(duration: 0.25)) { hasSpoken = true }
+                SetupAccessibility.announce("Test complete — you heard \(model.config?.tts.voice ?? "your voice").")
+            } else {
+                // Honest failure: don't claim success. The error surfaces in the panel.
+                SetupAccessibility.announce("Voice test failed. Check the message below and try again.")
+            }
         }
     }
 
-    private func finish(_ concern: SetupConcern?) {
+    /// Await the daemon start before flipping to the Board so it renders
+    /// already-healthy instead of briefly showing "needs attention".
+    private func finish(_ concern: SetupConcern?) async {
         if model.status?.daemon.running != true {
-            Task { await model.startDaemon() }
+            await model.startDaemon()
         }
         onFinish(concern)
     }

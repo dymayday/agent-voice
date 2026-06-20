@@ -1,4 +1,5 @@
 import AgentVoiceCore
+import AppKit
 import SwiftUI
 
 // MARK: - Shared styling
@@ -38,17 +39,38 @@ struct SetupCard<Content: View>: View {
     var fill: Double = 0.0
     @ViewBuilder var content: Content
 
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
     var body: some View {
         content
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.regularMaterial)
+            // Reduce Transparency → opaque fill instead of vibrant material.
+            .background(reduceTransparency ? AnyShapeStyle(Color(nsColor: .windowBackgroundColor)) : AnyShapeStyle(.regularMaterial))
             .background(tint.opacity(fill))
             .overlay {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .stroke(tint.opacity(0.26), lineWidth: 1)
             }
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+}
+
+/// Posts a VoiceOver announcement (live-region equivalent for AppKit-backed
+/// SwiftUI on the macOS 13 target, where SwiftUI has no declarative live region).
+@MainActor
+enum SetupAccessibility {
+    static func announce(_ message: String, priority: NSAccessibilityPriorityLevel = .high) {
+        let message = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !message.isEmpty else { return }
+        NSAccessibility.post(
+            element: NSApp as Any,
+            notification: .announcementRequested,
+            userInfo: [
+                .announcement: message,
+                .priority: priority.rawValue,
+            ]
+        )
     }
 }
 
@@ -161,9 +183,6 @@ enum SetupNarration {
     }
 
     static let engineReady = "My voice engine is ready."
-    static let pickVoice = "Pick how I should sound."
     static let speakPrompt = "Ready when you are — let me say something."
     static func heardVoice(_ voice: String) -> String { "You just heard \(voice)" }
-    static let daemonStopped = "I'm not running yet — want to start me?"
-    static let speechPaused = "I'm muted right now — resume when you're ready."
 }

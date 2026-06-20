@@ -182,5 +182,45 @@ final class SetupWindowModelTests: XCTestCase {
         XCTAssertEqual(SetupConcern.from(step: .summaries), .summaries)
         XCTAssertEqual(SetupConcern.from(step: .agents), .agents)
         XCTAssertEqual(SetupConcern.from(step: .daemon), .daemon)
+        // The non-obvious arm: a concern-less deep-link lands on the Voice channel.
+        XCTAssertEqual(SetupConcern.from(step: .welcome), .voice)
+        XCTAssertEqual(SetupConcern.from(step: .finish), .voice)
+    }
+
+    /// Regression guard for the blocker: a healthy system's doctor emits the three
+    /// mapped checks as ok:true; they must NOT appear on the repair rail.
+    func testRepairItemsEmptyForHealthyPopulatedDoctorReport() {
+        let healthy = doctor([
+            DoctorCheck(id: "tts.kokoroScript.exists", ok: true, severity: .info, message: "Kokoro script exists", action: nil),
+            DoctorCheck(id: "daemon.running", ok: true, severity: .info, message: "Daemon running", action: nil),
+            DoctorCheck(id: "queue.failed.empty", ok: true, severity: .info, message: "0 failed jobs", action: nil),
+        ])
+        XCTAssertTrue(
+            SetupConcernHealth.repairItems(doctor: healthy, status: status(daemonRunning: true)).isEmpty,
+            "A healthy system must show an empty repair rail, not passing checks rendered as problems"
+        )
+    }
+
+    func testRepairItemsIncludePausedSystemFromStatus() {
+        let paused = status(daemonRunning: true, uiState: .paused, attention: ["system_paused"])
+        let items = SetupConcernHealth.repairItems(doctor: nil, status: paused)
+        XCTAssertTrue(items.contains { $0.id == "system.paused" })
+    }
+
+    func testRepairItemsDoNotDuplicateMappedFailingCheck() {
+        let report = doctor([
+            DoctorCheck(id: "queue.failed.empty", ok: false, severity: .warning, message: "2 failed jobs", action: "Open dashboard failed jobs"),
+        ])
+        let items = SetupConcernHealth.repairItems(doctor: report, status: nil)
+        XCTAssertEqual(items.filter { $0.id == "queue.failed.empty" }.count, 1)
+    }
+
+    func testKokoroSetupProgressHelpers() {
+        let firstID = KokoroSetupSteps.all.first!.id
+        let running = KokoroSetupSnapshot(phase: .running, currentStepID: firstID)
+        XCTAssertEqual(KokoroSetupProgress.stepState(for: firstID, in: running).text, "Running")
+        let done = KokoroSetupSnapshot(phase: .running, completedStepIDs: [firstID])
+        XCTAssertEqual(KokoroSetupProgress.stepState(for: firstID, in: done).symbol, "✓")
+        XCTAssertEqual(KokoroSetupProgress.value(of: KokoroSetupSnapshot(phase: .succeeded)), 1.0, accuracy: 0.0001)
     }
 }

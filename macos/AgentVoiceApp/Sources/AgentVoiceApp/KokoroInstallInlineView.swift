@@ -30,10 +30,15 @@ struct KokoroInstallInlineView: View {
             }
 
             if let caption = narrationCaption {
-                Label(caption, systemImage: "waveform")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .accessibilityLabel(caption)
+                HStack(spacing: 10) {
+                    VoiceMeter(isActive: model.kokoroSetup.phase == .running, tint: .blue, height: 20)
+                        .frame(width: 56)
+                    Text(caption)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(caption)
             }
 
             stepList
@@ -62,6 +67,14 @@ struct KokoroInstallInlineView: View {
             errorBanner
 
             controls
+        }
+        // Announce each install step to VoiceOver as the daemon streams them, so
+        // the "spoken" install progress is conveyed to assistive tech, not just
+        // the static caption snapshot.
+        .onChange(of: model.kokoroSetup.currentTitle) { title in
+            if model.kokoroSetup.phase == .running, let title {
+                SetupAccessibility.announce(SetupNarration.installing(title), priority: .low)
+            }
         }
     }
 
@@ -142,10 +155,7 @@ struct KokoroInstallInlineView: View {
     }
 
     private var progressValue: Double {
-        guard !KokoroSetupSteps.all.isEmpty else { return 0 }
-        if model.kokoroSetup.phase == .succeeded { return 1 }
-        let progressed = Set(model.kokoroSetup.completedStepIDs + model.kokoroSetup.skippedStepIDs).count
-        return min(Double(progressed) / Double(KokoroSetupSteps.all.count), 1)
+        KokoroSetupProgress.value(of: model.kokoroSetup)
     }
 
     private var progressAccessibilityValue: String {
@@ -164,19 +174,7 @@ struct KokoroInstallInlineView: View {
     }
 
     private func stepState(for id: String) -> (symbol: String, text: String) {
-        if model.kokoroSetup.completedStepIDs.contains(id) {
-            return ("✓", "Completed")
-        }
-        if model.kokoroSetup.skippedStepIDs.contains(id) {
-            return ("↷", "Skipped")
-        }
-        if model.kokoroSetup.failedStepID == id {
-            return ("✕", "Failed")
-        }
-        if model.kokoroSetup.currentStepID == id && model.kokoroSetup.phase == .running {
-            return ("●", "Running")
-        }
-        return ("○", "Pending")
+        KokoroSetupProgress.stepState(for: id, in: model.kokoroSetup)
     }
 
     private func copyDiagnostics() {

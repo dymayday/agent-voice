@@ -160,10 +160,7 @@ struct KokoroSetupProgressView: View {
     }
 
     private var progressValue: Double {
-        guard !KokoroSetupSteps.all.isEmpty else { return 0 }
-        if model.kokoroSetup.phase == .succeeded { return 1 }
-        let progressed = Set(model.kokoroSetup.completedStepIDs + model.kokoroSetup.skippedStepIDs).count
-        return min(Double(progressed) / Double(KokoroSetupSteps.all.count), 1)
+        KokoroSetupProgress.value(of: model.kokoroSetup)
     }
 
     private var progressAccessibilityValue: String {
@@ -182,19 +179,7 @@ struct KokoroSetupProgressView: View {
     }
 
     private func stepState(for id: String) -> (symbol: String, text: String) {
-        if model.kokoroSetup.completedStepIDs.contains(id) {
-            return ("✓", "Completed")
-        }
-        if model.kokoroSetup.skippedStepIDs.contains(id) {
-            return ("↷", "Skipped")
-        }
-        if model.kokoroSetup.failedStepID == id {
-            return ("✕", "Failed")
-        }
-        if model.kokoroSetup.currentStepID == id && model.kokoroSetup.phase == .running {
-            return ("●", "Running")
-        }
-        return ("○", "Pending")
+        KokoroSetupProgress.stepState(for: id, in: model.kokoroSetup)
     }
 
     private func copyDiagnostics() {
