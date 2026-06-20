@@ -447,4 +447,13 @@ describe("agent-voice summarizer fallback chain", () => {
 		expect(prompt).not.toContain("at most 1 sentences");
 		expect(prompt).toContain("plainly and neutrally");
 	});
+
+	test("adaptive style injects the decision cascade", () => {
+		const prompt = buildPrompt(
+			createEvent({ agent: "claude", text: "done" }),
+			config({ summarizer: { promptStyle: "adaptive" } }),
+		);
+		expect(prompt).toContain("Choose the register that fits");
+		expect(prompt).toContain("lead with exactly what you need");
+	});
 });

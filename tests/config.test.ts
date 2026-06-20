@@ -65,6 +65,12 @@ describe("summarizer prompt knobs config", () => {
     bad.summarizer.speakQuestionsVerbatim = "yes";
     expect(() => validateConfig(bad)).toThrow(/summarizer.speakQuestionsVerbatim/);
   });
+
+  test("adaptive is an accepted promptStyle", () => {
+    const updated = setConfigValue(defaultConfig, "summarizer.promptStyle", "adaptive");
+    expect(updated.summarizer.promptStyle).toBe("adaptive");
+    expect(() => validateConfig(updated)).not.toThrow();
+  });
 });
 
 async function withTempHome<T>(

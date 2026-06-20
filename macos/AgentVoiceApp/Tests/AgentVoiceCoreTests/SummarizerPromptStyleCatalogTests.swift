@@ -5,7 +5,7 @@ final class SummarizerPromptStyleCatalogTests: XCTestCase {
     func testCatalogIdsMatchAllowlistInOrder() {
         XCTAssertEqual(
             AppModel.summarizerPromptStyleCatalog.map(\.id),
-            ["default", "terse", "status-about", "triage", "conversational"]
+            ["default", "terse", "status-about", "triage", "conversational", "adaptive"]
         )
         XCTAssertEqual(AppModel.summarizerPromptStyleOptions, AppModel.summarizerPromptStyleCatalog.map(\.id))
     }
