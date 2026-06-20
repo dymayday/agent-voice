@@ -1,5 +1,4 @@
 import AgentVoiceCore
-import AppKit
 import SwiftUI
 
 private enum HistoryStatusFilter: String, CaseIterable, Identifiable {
