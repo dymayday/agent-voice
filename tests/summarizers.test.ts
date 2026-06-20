@@ -356,7 +356,9 @@ describe("agent-voice summarizer fallback chain", () => {
 
 		const outcome = await summarizeWithSource(
 			event,
-			config({ summarizer: { priority: ["pi-fast", "heuristic"] } }),
+			config({
+				summarizer: { priority: ["pi-fast", "heuristic"], speakQuestionsVerbatim: true },
+			}),
 			runner,
 		);
 

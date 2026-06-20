@@ -50,7 +50,7 @@ final class AppModelSummarizerKnobsTests: XCTestCase {
         XCTAssertEqual(model.draftPromptStyle, "default")
         XCTAssertEqual(model.draftMaxSentences, "1")
         XCTAssertEqual(model.draftMaxSummaryChars, "180")
-        XCTAssertTrue(model.draftSpeakQuestionsVerbatim)
+        XCTAssertFalse(model.draftSpeakQuestionsVerbatim)
     }
 
     func testRefreshPreservesInProgressKnobEdits() async throws {
@@ -137,7 +137,7 @@ final class AppModelSummarizerKnobsTests: XCTestCase {
         XCTAssertFalse(model.summaryVoiceCanSave)              // invalid
         model.draftMaxSentences = "1"
         XCTAssertFalse(model.summaryVoiceCanSave)              // back to clean
-        model.draftSpeakQuestionsVerbatim = false
+        model.draftSpeakQuestionsVerbatim = true
         XCTAssertTrue(model.summaryVoiceCanSave)               // toggle is part of dirty check
     }
 }

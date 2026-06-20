@@ -59,7 +59,7 @@ public struct SummarizerConfig: Codable, Equatable, Sendable {
         promptStyle: String = "default",
         maxSentences: Int = 1,
         maxSummaryChars: Int = 180,
-        speakQuestionsVerbatim: Bool = true
+        speakQuestionsVerbatim: Bool = false
     ) {
         self.thinking = thinking
         self.piModel = piModel
@@ -95,7 +95,7 @@ public struct SummarizerConfig: Codable, Equatable, Sendable {
         promptStyle = try container.decodeIfPresent(String.self, forKey: .promptStyle) ?? "default"
         maxSentences = try container.decodeIfPresent(Int.self, forKey: .maxSentences) ?? 1
         maxSummaryChars = try container.decodeIfPresent(Int.self, forKey: .maxSummaryChars) ?? 180
-        speakQuestionsVerbatim = try container.decodeIfPresent(Bool.self, forKey: .speakQuestionsVerbatim) ?? true
+        speakQuestionsVerbatim = try container.decodeIfPresent(Bool.self, forKey: .speakQuestionsVerbatim) ?? false
     }
 }
 

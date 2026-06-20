@@ -34,7 +34,7 @@ public final class AppModel: ObservableObject {
     @Published public var draftPromptStyle: String = ""
     @Published public var draftMaxSentences: String = ""
     @Published public var draftMaxSummaryChars: String = ""
-    @Published public var draftSpeakQuestionsVerbatim: Bool = true
+    @Published public var draftSpeakQuestionsVerbatim: Bool = false
 
     public static let defaultAutoRefreshIntervalNanoseconds: UInt64 = 2_000_000_000
     public static let defaultDiagnosticsRefreshEveryTicks = 15  // 15 * 2s ≈ 30s

@@ -82,7 +82,7 @@ export const defaultConfig: AgentVoiceConfig = {
 		maxSummaryChars: 180,
 		promptStyle: "default",
 		maxSentences: 1,
-		speakQuestionsVerbatim: true,
+		speakQuestionsVerbatim: false,
 	},
 	tts: {
 		kokoroScript: "",

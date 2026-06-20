@@ -54,10 +54,10 @@ describe("summarizer prompt knobs config", () => {
     expect(() => validateConfig(fractional)).toThrow(/summarizer.maxSentences/);
   });
 
-  test("speakQuestionsVerbatim defaults true and round-trips a boolean", () => {
-    expect(defaultConfig.summarizer.speakQuestionsVerbatim).toBe(true);
-    const off = setConfigValue(defaultConfig, "summarizer.speakQuestionsVerbatim", "false");
-    expect(off.summarizer.speakQuestionsVerbatim).toBe(false);
+  test("speakQuestionsVerbatim defaults false and round-trips a boolean", () => {
+    expect(defaultConfig.summarizer.speakQuestionsVerbatim).toBe(false);
+    const on = setConfigValue(defaultConfig, "summarizer.speakQuestionsVerbatim", "true");
+    expect(on.summarizer.speakQuestionsVerbatim).toBe(true);
   });
 
   test("validateConfig rejects a non-boolean speakQuestionsVerbatim", () => {

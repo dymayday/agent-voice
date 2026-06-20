@@ -19,22 +19,22 @@ final class SummarizerConfigDecodingTests: XCTestCase {
         XCTAssertEqual(config.summarizer.maxSummaryChars, 180)
     }
 
-    func testSpeakQuestionsVerbatimDefaultsTrueAndDecodes() throws {
+    func testSpeakQuestionsVerbatimDefaultsFalseAndDecodes() throws {
         let missing = try decode("""
         {
           "tts": {"kokoroScript": "", "python": "python3", "voice": "af_heart", "timeoutSeconds": 30},
           "summarizer": {"thinking": "off", "piModel": "p", "codexModel": "c", "opencodeModel": null, "priority": ["pi-fast","heuristic"]}
         }
         """)
-        XCTAssertTrue(missing.summarizer.speakQuestionsVerbatim)
+        XCTAssertFalse(missing.summarizer.speakQuestionsVerbatim)
 
         let present = try decode("""
         {
           "tts": {"kokoroScript": "", "python": "python3", "voice": "af_heart", "timeoutSeconds": 30},
-          "summarizer": {"thinking": "off", "piModel": "p", "codexModel": "c", "opencodeModel": null, "priority": ["pi-fast","heuristic"], "speakQuestionsVerbatim": false}
+          "summarizer": {"thinking": "off", "piModel": "p", "codexModel": "c", "opencodeModel": null, "priority": ["pi-fast","heuristic"], "speakQuestionsVerbatim": true}
         }
         """)
-        XCTAssertFalse(present.summarizer.speakQuestionsVerbatim)
+        XCTAssertTrue(present.summarizer.speakQuestionsVerbatim)
     }
 
     func testKnobFieldsAreDecodedWhenPresent() throws {
