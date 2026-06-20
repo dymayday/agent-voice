@@ -47,6 +47,12 @@ private extension DashboardView {
         NSApplication.shared.activate(ignoringOtherApps: true)
     }
 
+    func openHistory(focus id: String) {
+        model.focusHistoryJob(id)
+        openWindow(id: AgentVoiceWindowID.history)
+        NSApplication.shared.activate(ignoringOtherApps: true)
+    }
+
     var header: some View {
         HStack(alignment: .center, spacing: 16) {
             VStack(alignment: .leading, spacing: 6) {
@@ -458,15 +464,23 @@ private extension DashboardView {
             } else {
                 VStack(alignment: .leading, spacing: 12) {
                     ForEach(recentDoneJobs.prefix(recentEventsPreviewLimit)) { job in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(job.summary ?? "No summary recorded")
-                                .font(.headline)
-                                .lineLimit(2)
-                            Text("\(job.agent.capitalized) · \(job.finishedAt ?? job.createdAt)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                        Button {
+                            openHistory(focus: job.id)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(job.summary ?? "No summary recorded")
+                                    .font(.headline)
+                                    .lineLimit(2)
+                                Text("\(job.agent.capitalized) · \(job.finishedAt ?? job.createdAt)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Open in history")
+                        .accessibilityValue(job.summary ?? "No summary recorded")
                     }
                 }
             }

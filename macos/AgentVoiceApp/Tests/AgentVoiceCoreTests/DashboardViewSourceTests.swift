@@ -94,4 +94,19 @@ final class DashboardViewSourceTests: XCTestCase {
         XCTAssertTrue(controls.contains("model.installAgentHook(name)"))
         XCTAssertTrue(controls.contains("model.uninstallAgentHook(name)"))
     }
+
+    func testRecentEventsItemsOpenFocusedHistoryWindow() throws {
+        let source = try dashboardViewSource()
+        let section = try propertyBody(named: "recentEventsSection", in: source)
+
+        XCTAssertTrue(section.contains("Button {"))
+        XCTAssertTrue(section.contains("openHistory(focus: job.id)"))
+        XCTAssertTrue(section.contains(".buttonStyle(.plain)"))
+        XCTAssertTrue(section.contains("Open in history"))
+
+        let opener = try functionBody(named: "openHistory", in: source)
+        XCTAssertTrue(opener.contains("model.focusHistoryJob(id)"))
+        XCTAssertTrue(opener.contains("openWindow(id: AgentVoiceWindowID.history)"))
+        XCTAssertTrue(opener.contains("NSApplication.shared.activate(ignoringOtherApps: true)"))
+    }
 }
