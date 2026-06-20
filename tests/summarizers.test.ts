@@ -367,6 +367,30 @@ describe("agent-voice summarizer fallback chain", () => {
 		expect(calls).toHaveLength(0);
 	});
 
+	test("questions are summarized when speakQuestionsVerbatim is off", async () => {
+		const event = createEvent({
+			agent: "claude",
+			text: "Claude is asking for your input: Pick one. The options are A, B, or C.",
+			metadata: { kind: "question" },
+		});
+		const { calls, runner } = recordingRunner(() => ({
+			ok: true,
+			stdout: "Claude needs your input on an option.",
+		}));
+
+		const outcome = await summarizeWithSource(
+			event,
+			config({
+				summarizer: { priority: ["pi-fast", "heuristic"], speakQuestionsVerbatim: false },
+			}),
+			runner,
+		);
+
+		expect(calls).toHaveLength(1);
+		expect(outcome.summarizerUsed).toBe("pi-fast");
+		expect(outcome.summary).toBe("Claude needs your input on an option.");
+	});
+
 	test("summarizer keeps up to maxSentences sentences", async () => {
 		const event = createEvent({ agent: "claude", text: "x" });
 		const { runner } = recordingRunner(() => ({

@@ -295,7 +295,7 @@ export async function summarizeWithSource(
 	runner: SummarizerRunner = runSummarizerSubprocess,
 	options: SummarizeOptions = {},
 ): Promise<SummarizeOutcome> {
-	if (event.metadata?.kind === "question") {
+	if (config.summarizer.speakQuestionsVerbatim && event.metadata?.kind === "question") {
 		const spoken = cleanForSpeech(event.text);
 		return {
 			summary: spoken || "Agent is asking for your input.",

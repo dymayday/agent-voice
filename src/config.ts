@@ -39,6 +39,7 @@ export interface AgentVoiceConfig {
 		maxSummaryChars: number;
 		promptStyle: SummarizerPromptStyle;
 		maxSentences: number;
+		speakQuestionsVerbatim: boolean;
 	};
 	tts: {
 		kokoroScript: string;
@@ -81,6 +82,7 @@ export const defaultConfig: AgentVoiceConfig = {
 		maxSummaryChars: 180,
 		promptStyle: "default",
 		maxSentences: 1,
+		speakQuestionsVerbatim: true,
 	},
 	tts: {
 		kokoroScript: "",
@@ -236,6 +238,10 @@ export function validateConfig(config: AgentVoiceConfig): AgentVoiceConfig {
 	assertIntegerInRange(config.summarizer.maxSentences, "summarizer.maxSentences", {
 		min: 1,
 	});
+	assertBoolean(
+		config.summarizer.speakQuestionsVerbatim,
+		"summarizer.speakQuestionsVerbatim",
+	);
 
 	if (!isRecord(config.tts)) invalidConfig("tts", "object");
 	assertString(config.tts.kokoroScript, "tts.kokoroScript", { allowEmpty: true });

@@ -53,6 +53,18 @@ describe("summarizer prompt knobs config", () => {
     fractional.summarizer.maxSentences = 1.5;
     expect(() => validateConfig(fractional)).toThrow(/summarizer.maxSentences/);
   });
+
+  test("speakQuestionsVerbatim defaults true and round-trips a boolean", () => {
+    expect(defaultConfig.summarizer.speakQuestionsVerbatim).toBe(true);
+    const off = setConfigValue(defaultConfig, "summarizer.speakQuestionsVerbatim", "false");
+    expect(off.summarizer.speakQuestionsVerbatim).toBe(false);
+  });
+
+  test("validateConfig rejects a non-boolean speakQuestionsVerbatim", () => {
+    const bad = JSON.parse(JSON.stringify(defaultConfig));
+    bad.summarizer.speakQuestionsVerbatim = "yes";
+    expect(() => validateConfig(bad)).toThrow(/summarizer.speakQuestionsVerbatim/);
+  });
 });
 
 async function withTempHome<T>(
