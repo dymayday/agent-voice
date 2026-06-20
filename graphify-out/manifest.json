@@ -45,9 +45,9 @@
     "semantic_hash": "765150be8327b380f9a0314b9d284e7d"
   },
   "/Users/meidhy/junk/repo/agent-voice/macos/AgentVoiceApp/Sources/AgentVoiceApp/DashboardView.swift": {
-    "mtime": 1781725396.036419,
-    "ast_hash": "52a3a300f66944a906eba50b7d6c6037",
-    "semantic_hash": "52a3a300f66944a906eba50b7d6c6037"
+    "mtime": 1781940422.2325969,
+    "ast_hash": "6cb17e41cacc2b2da840488c42ec973d",
+    "semantic_hash": "6cb17e41cacc2b2da840488c42ec973d"
   },
   "/Users/meidhy/junk/repo/agent-voice/macos/AgentVoiceApp/Sources/AgentVoiceApp/DockMenuController.swift": {
     "mtime": 1781792751.2729056,
@@ -65,19 +65,19 @@
     "semantic_hash": "f437f060ed0c5d7b65f02d4e94e33f9d"
   },
   "/Users/meidhy/junk/repo/agent-voice/macos/AgentVoiceApp/Sources/AgentVoiceApp/SetupAssistantView.swift": {
-    "mtime": 1781726384.6348488,
-    "ast_hash": "124bc9e5b41c5d4385be9e0147dc9f3e",
-    "semantic_hash": "124bc9e5b41c5d4385be9e0147dc9f3e"
+    "mtime": 1781940422.2329586,
+    "ast_hash": "05aa5ea97ca6624d7d8a665a4bcd2c15",
+    "semantic_hash": "05aa5ea97ca6624d7d8a665a4bcd2c15"
   },
   "/Users/meidhy/junk/repo/agent-voice/macos/AgentVoiceApp/Sources/AgentVoiceCore/AgentVoiceCLI.swift": {
-    "mtime": 1781792751.2737596,
-    "ast_hash": "dd8aab2c841691503301faa0ebaf16d0",
-    "semantic_hash": "dd8aab2c841691503301faa0ebaf16d0"
+    "mtime": 1781940422.2332573,
+    "ast_hash": "a9c999c6d1f204066b714c178626b0c3",
+    "semantic_hash": "a9c999c6d1f204066b714c178626b0c3"
   },
   "/Users/meidhy/junk/repo/agent-voice/macos/AgentVoiceApp/Sources/AgentVoiceCore/AgentVoiceConfig.swift": {
-    "mtime": 1781697506.6435332,
-    "ast_hash": "79e766f7162fbcf56f26d1e348a33217",
-    "semantic_hash": "79e766f7162fbcf56f26d1e348a33217"
+    "mtime": 1781940422.2337697,
+    "ast_hash": "77b5cdfd8a6c2bcc31ee5073bef99f18",
+    "semantic_hash": "77b5cdfd8a6c2bcc31ee5073bef99f18"
   },
   "/Users/meidhy/junk/repo/agent-voice/macos/AgentVoiceApp/Sources/AgentVoiceCore/AgentVoiceDiagnosticSnapshot.swift": {
     "mtime": 1781758027.8053856,
@@ -90,9 +90,9 @@
     "semantic_hash": "1f47d3d986dd9297d894bce9e66cae2c"
   },
   "/Users/meidhy/junk/repo/agent-voice/macos/AgentVoiceApp/Sources/AgentVoiceCore/AgentVoiceStatus.swift": {
-    "mtime": 1781536756.8336577,
-    "ast_hash": "9fd8b3939b10f6fc2e90cfe9da124c9d",
-    "semantic_hash": "9fd8b3939b10f6fc2e90cfe9da124c9d"
+    "mtime": 1781891147.6748707,
+    "ast_hash": "0bdcdaf2ea80046cb315c92b2783936f",
+    "semantic_hash": "0bdcdaf2ea80046cb315c92b2783936f"
   },
   "/Users/meidhy/junk/repo/agent-voice/macos/AgentVoiceApp/Sources/AgentVoiceCore/AppModel+Warnings.swift": {
     "mtime": 1781707402.2158089,
@@ -100,14 +100,14 @@
     "semantic_hash": "d7c56ecc1650e20e871df39a89f022fa"
   },
   "/Users/meidhy/junk/repo/agent-voice/macos/AgentVoiceApp/Sources/AgentVoiceCore/AppModel.swift": {
-    "mtime": 1781792908.9205797,
-    "ast_hash": "45538e7cca2cc07d65394dc7e5411b95",
-    "semantic_hash": "45538e7cca2cc07d65394dc7e5411b95"
+    "mtime": 1781940422.2341118,
+    "ast_hash": "414faa8a0cf9e368024f246706795c1a",
+    "semantic_hash": "414faa8a0cf9e368024f246706795c1a"
   },
   "/Users/meidhy/junk/repo/agent-voice/macos/AgentVoiceApp/Sources/AgentVoiceCore/AppSettings.swift": {
-    "mtime": 1781537220.85739,
-    "ast_hash": "eab851995ba0bb8dd7fac0d67bd9c247",
-    "semantic_hash": "eab851995ba0bb8dd7fac0d67bd9c247"
+    "mtime": 1781891323.8904736,
+    "ast_hash": "dd78f3f5f154347e79a185580644a3ea",
+    "semantic_hash": "dd78f3f5f154347e79a185580644a3ea"
   },
   "/Users/meidhy/junk/repo/agent-voice/macos/AgentVoiceApp/Sources/AgentVoiceCore/DoctorReport.swift": {
     "mtime": 1781707402.2167916,
@@ -125,9 +125,9 @@
     "semantic_hash": "de4234fcb118c2d97fe3dbfc31c146cb"
   },
   "/Users/meidhy/junk/repo/agent-voice/macos/AgentVoiceApp/Sources/AgentVoiceCore/SetupAssistantModel.swift": {
-    "mtime": 1781538016.4961789,
-    "ast_hash": "f6db6559b5754b55889fa473ebdffccb",
-    "semantic_hash": "f6db6559b5754b55889fa473ebdffccb"
+    "mtime": 1781940422.2342954,
+    "ast_hash": "f30e2e8c7da6d1343a8107e0fb48af4d",
+    "semantic_hash": "f30e2e8c7da6d1343a8107e0fb48af4d"
   },
   "/Users/meidhy/junk/repo/agent-voice/macos/AgentVoiceApp/Tests/AgentVoiceCoreTests/AgentVoiceAppSourceTests.swift": {
     "mtime": 1781770236.267898,
@@ -145,14 +145,14 @@
     "semantic_hash": "bd741e8f47e553e5d6468d1879bae657"
   },
   "/Users/meidhy/junk/repo/agent-voice/macos/AgentVoiceApp/Tests/AgentVoiceCoreTests/AgentVoiceCLITests.swift": {
-    "mtime": 1781758097.045428,
-    "ast_hash": "b9ff1f317155f5ebe770f090f171d72b",
-    "semantic_hash": "b9ff1f317155f5ebe770f090f171d72b"
+    "mtime": 1781940422.2345915,
+    "ast_hash": "c94a9e3171f599b594a433f63c6932c2",
+    "semantic_hash": "c94a9e3171f599b594a433f63c6932c2"
   },
   "/Users/meidhy/junk/repo/agent-voice/macos/AgentVoiceApp/Tests/AgentVoiceCoreTests/AgentVoiceStatusTests.swift": {
-    "mtime": 1781536698.4485428,
-    "ast_hash": "57941e3721359bd2b7429a2053d19dd9",
-    "semantic_hash": "57941e3721359bd2b7429a2053d19dd9"
+    "mtime": 1781900183.8262155,
+    "ast_hash": "0d2384bccf993ba2cc0042e891de3746",
+    "semantic_hash": "0d2384bccf993ba2cc0042e891de3746"
   },
   "/Users/meidhy/junk/repo/agent-voice/macos/AgentVoiceApp/Tests/AgentVoiceCoreTests/AppModelActionTests.swift": {
     "mtime": 1781771948.5038924,
@@ -180,9 +180,9 @@
     "semantic_hash": "588eb197692244e4bb265f0a925c3952"
   },
   "/Users/meidhy/junk/repo/agent-voice/macos/AgentVoiceApp/Tests/AgentVoiceCoreTests/AppModelTests.swift": {
-    "mtime": 1781792751.2746317,
-    "ast_hash": "b7488bfebc6ab193602a53dc57046bb9",
-    "semantic_hash": "b7488bfebc6ab193602a53dc57046bb9"
+    "mtime": 1781891378.4034324,
+    "ast_hash": "6d8f3cd4e12ef29e80d65edd110bf015",
+    "semantic_hash": "6d8f3cd4e12ef29e80d65edd110bf015"
   },
   "/Users/meidhy/junk/repo/agent-voice/macos/AgentVoiceApp/Tests/AgentVoiceCoreTests/AttentionDetailViewSourceTests.swift": {
     "mtime": 1781707402.2184904,
@@ -190,9 +190,9 @@
     "semantic_hash": "8a82588af165b6657f14d3cb0017928c"
   },
   "/Users/meidhy/junk/repo/agent-voice/macos/AgentVoiceApp/Tests/AgentVoiceCoreTests/DashboardViewSourceTests.swift": {
-    "mtime": 1781758027.8062797,
-    "ast_hash": "2d498aece03fc52c5bd53eb14c31fd37",
-    "semantic_hash": "2d498aece03fc52c5bd53eb14c31fd37"
+    "mtime": 1781940422.2351193,
+    "ast_hash": "460faf5b386629be4c280c277415e1c8",
+    "semantic_hash": "460faf5b386629be4c280c277415e1c8"
   },
   "/Users/meidhy/junk/repo/agent-voice/macos/AgentVoiceApp/Tests/AgentVoiceCoreTests/DockMenuSourceTests.swift": {
     "mtime": 1781792751.274977,
@@ -215,9 +215,9 @@
     "semantic_hash": "bc6f029324df73f35470848636889aa2"
   },
   "/Users/meidhy/junk/repo/agent-voice/macos/AgentVoiceApp/Tests/AgentVoiceCoreTests/SetupAssistantModelTests.swift": {
-    "mtime": 1781537976.5357184,
-    "ast_hash": "68f2609a7ebe8589f6723892aba49511",
-    "semantic_hash": "68f2609a7ebe8589f6723892aba49511"
+    "mtime": 1781940422.2352428,
+    "ast_hash": "c496ad4705e3b27702f6bffc827c603f",
+    "semantic_hash": "c496ad4705e3b27702f6bffc827c603f"
   },
   "/Users/meidhy/junk/repo/agent-voice/macos/AgentVoiceApp/Tests/AgentVoiceCoreTests/SourceTestHelpers.swift": {
     "mtime": 1781758027.8068461,
@@ -235,9 +235,9 @@
     "semantic_hash": "841f94110b2689d19a4fa35a29d75261"
   },
   "/Users/meidhy/junk/repo/agent-voice/scripts/build-macos-app.sh": {
-    "mtime": 1781757673.8691323,
-    "ast_hash": "4033f1ffe51225f29b407ebbe017a05b",
-    "semantic_hash": "4033f1ffe51225f29b407ebbe017a05b"
+    "mtime": 1781891105.7705839,
+    "ast_hash": "338ca71760e62da6c4cc8d273af51716",
+    "semantic_hash": "338ca71760e62da6c4cc8d273af51716"
   },
   "/Users/meidhy/junk/repo/agent-voice/scripts/generate-macos-icon.sh": {
     "mtime": 1781539897.9398482,
@@ -250,14 +250,14 @@
     "semantic_hash": "f8060e92a59b201edef65519aebed6cd"
   },
   "/Users/meidhy/junk/repo/agent-voice/src/cli.ts": {
-    "mtime": 1781792751.2752578,
-    "ast_hash": "9c41ff77ca93f8024d545c4111f5e538",
-    "semantic_hash": "9c41ff77ca93f8024d545c4111f5e538"
+    "mtime": 1781940422.2362828,
+    "ast_hash": "e855baf4e2957173c2e285e4ebd79603",
+    "semantic_hash": "e855baf4e2957173c2e285e4ebd79603"
   },
   "/Users/meidhy/junk/repo/agent-voice/src/config.ts": {
-    "mtime": 1781713719.299985,
-    "ast_hash": "c283c9835889bf065152d66ab2d55bfe",
-    "semantic_hash": "c283c9835889bf065152d66ab2d55bfe"
+    "mtime": 1781940422.236582,
+    "ast_hash": "b358c5260904c30ad62f2c9265b06553",
+    "semantic_hash": "b358c5260904c30ad62f2c9265b06553"
   },
   "/Users/meidhy/junk/repo/agent-voice/src/daemon-wait.ts": {
     "mtime": 1781771594.582107,
@@ -265,9 +265,9 @@
     "semantic_hash": "6fd3731c18ba298796660854e89e3fab"
   },
   "/Users/meidhy/junk/repo/agent-voice/src/daemon.ts": {
-    "mtime": 1781792751.2756972,
-    "ast_hash": "ca1ed698c45b35efb99051b461f40d18",
-    "semantic_hash": "ca1ed698c45b35efb99051b461f40d18"
+    "mtime": 1781890979.5088344,
+    "ast_hash": "62e4ba644495a0d313d170fbd006b4cb",
+    "semantic_hash": "62e4ba644495a0d313d170fbd006b4cb"
   },
   "/Users/meidhy/junk/repo/agent-voice/src/db.ts": {
     "mtime": 1781758027.8073628,
@@ -275,9 +275,9 @@
     "semantic_hash": "70faa7b09d5034d4101655913ab5c9ee"
   },
   "/Users/meidhy/junk/repo/agent-voice/src/doctor.ts": {
-    "mtime": 1781715162.9869475,
-    "ast_hash": "4d457073c4d2bce146c0b623ddf019db",
-    "semantic_hash": "4d457073c4d2bce146c0b623ddf019db"
+    "mtime": 1781900183.8269298,
+    "ast_hash": "e049c061475ec1aed5089150e885f623",
+    "semantic_hash": "e049c061475ec1aed5089150e885f623"
   },
   "/Users/meidhy/junk/repo/agent-voice/src/events.ts": {
     "mtime": 1781543802.6535766,
@@ -300,9 +300,9 @@
     "semantic_hash": "57a30f6d087b289180fdea166f80a3a8"
   },
   "/Users/meidhy/junk/repo/agent-voice/src/install.ts": {
-    "mtime": 1781713719.3005786,
-    "ast_hash": "470cebafbb3fb9dd49c6b8d36ed7f03b",
-    "semantic_hash": "470cebafbb3fb9dd49c6b8d36ed7f03b"
+    "mtime": 1781900183.8271213,
+    "ast_hash": "7a97872a0965888e73cc8b271bcaf85d",
+    "semantic_hash": "7a97872a0965888e73cc8b271bcaf85d"
   },
   "/Users/meidhy/junk/repo/agent-voice/src/kokoro-setup.ts": {
     "mtime": 1781758027.807674,
@@ -350,9 +350,9 @@
     "semantic_hash": "805387bc8c6c758831bdc7b17069dfd1"
   },
   "/Users/meidhy/junk/repo/agent-voice/src/status.ts": {
-    "mtime": 1781792751.2767017,
-    "ast_hash": "6a80e25ecf4e6404a332c93a828dc0e1",
-    "semantic_hash": "6a80e25ecf4e6404a332c93a828dc0e1"
+    "mtime": 1781890937.822428,
+    "ast_hash": "2d58d72a9714369814ff38b661b88b6b",
+    "semantic_hash": "2d58d72a9714369814ff38b661b88b6b"
   },
   "/Users/meidhy/junk/repo/agent-voice/src/store.ts": {
     "mtime": 1781771594.582643,
@@ -365,9 +365,9 @@
     "semantic_hash": "09bd1a95777b39d311dec7e4f03e9fa0"
   },
   "/Users/meidhy/junk/repo/agent-voice/src/summarizers.ts": {
-    "mtime": 1781620550.046723,
-    "ast_hash": "25a422c064e898ad3005a0b67c824950",
-    "semantic_hash": "25a422c064e898ad3005a0b67c824950"
+    "mtime": 1781940422.236709,
+    "ast_hash": "90f36eae3346446df814c81e7912210f",
+    "semantic_hash": "90f36eae3346446df814c81e7912210f"
   },
   "/Users/meidhy/junk/repo/agent-voice/src/tts.ts": {
     "mtime": 1781758027.8105676,
@@ -390,14 +390,14 @@
     "semantic_hash": "af2432fe11f331565cd02d7945aa070a"
   },
   "/Users/meidhy/junk/repo/agent-voice/tests/cli.test.ts": {
-    "mtime": 1781715162.987625,
-    "ast_hash": "54e15d371d412b29cf728fb21062e8d3",
-    "semantic_hash": "54e15d371d412b29cf728fb21062e8d3"
+    "mtime": 1781940422.2369485,
+    "ast_hash": "cbd7f1f4446d608f397d9e9cb5bf210c",
+    "semantic_hash": "cbd7f1f4446d608f397d9e9cb5bf210c"
   },
   "/Users/meidhy/junk/repo/agent-voice/tests/config.test.ts": {
-    "mtime": 1781715162.9878447,
-    "ast_hash": "453b31b53805ef2e67bf26fe54665435",
-    "semantic_hash": "453b31b53805ef2e67bf26fe54665435"
+    "mtime": 1781940422.2371957,
+    "ast_hash": "12efd73e5e2a97c50f03cd23089eaef8",
+    "semantic_hash": "12efd73e5e2a97c50f03cd23089eaef8"
   },
   "/Users/meidhy/junk/repo/agent-voice/tests/daemon-cli.test.ts": {
     "mtime": 1781760858.085118,
@@ -425,9 +425,9 @@
     "semantic_hash": "2ee13004d027f3f0094920a29dd1f000"
   },
   "/Users/meidhy/junk/repo/agent-voice/tests/doctor.test.ts": {
-    "mtime": 1781715162.9880602,
-    "ast_hash": "f2f900dc1e46550086301161ea590ed1",
-    "semantic_hash": "f2f900dc1e46550086301161ea590ed1"
+    "mtime": 1781900183.8279223,
+    "ast_hash": "28dfcd900c063518c201480230116152",
+    "semantic_hash": "28dfcd900c063518c201480230116152"
   },
   "/Users/meidhy/junk/repo/agent-voice/tests/enqueue-cli.test.ts": {
     "mtime": 1781771594.5836387,
@@ -450,9 +450,9 @@
     "semantic_hash": "2dd4129b8c32fce9fd85450f0a3e1f43"
   },
   "/Users/meidhy/junk/repo/agent-voice/tests/install-pi.test.ts": {
-    "mtime": 1781714087.907225,
-    "ast_hash": "ef7ef4bd57396b020190742c7063ea9d",
-    "semantic_hash": "ef7ef4bd57396b020190742c7063ea9d"
+    "mtime": 1781900183.8284776,
+    "ast_hash": "f840a604bb1d7d1c0e687e74bde6ef2f",
+    "semantic_hash": "f840a604bb1d7d1c0e687e74bde6ef2f"
   },
   "/Users/meidhy/junk/repo/agent-voice/tests/integration-daemon.test.ts": {
     "mtime": 1781792751.2778065,
@@ -495,14 +495,14 @@
     "semantic_hash": "3e79f8b8058c5efec5780176837c7290"
   },
   "/Users/meidhy/junk/repo/agent-voice/tests/status-json.test.ts": {
-    "mtime": 1781698361.4483845,
-    "ast_hash": "97f7e6da38954e03c86aa6657b7550f7",
-    "semantic_hash": "97f7e6da38954e03c86aa6657b7550f7"
+    "mtime": 1781900183.828676,
+    "ast_hash": "aff9b14b7c33887b02b2cf1ffa2c52b1",
+    "semantic_hash": "aff9b14b7c33887b02b2cf1ffa2c52b1"
   },
   "/Users/meidhy/junk/repo/agent-voice/tests/status-snapshot.test.ts": {
-    "mtime": 1781792751.2781072,
-    "ast_hash": "29aad49099701184a7d645adae347ecc",
-    "semantic_hash": "29aad49099701184a7d645adae347ecc"
+    "mtime": 1781900183.8288236,
+    "ast_hash": "6bc49362b4fea560c751ffb94069945c",
+    "semantic_hash": "6bc49362b4fea560c751ffb94069945c"
   },
   "/Users/meidhy/junk/repo/agent-voice/tests/store.test.ts": {
     "mtime": 1781771594.5840352,
@@ -515,9 +515,9 @@
     "semantic_hash": "f73368bc37ca128bd1c0e95ee4dc5c01"
   },
   "/Users/meidhy/junk/repo/agent-voice/tests/summarizers.test.ts": {
-    "mtime": 1781620486.336641,
-    "ast_hash": "881e5795928d183d0ba7b1efc3794de4",
-    "semantic_hash": "881e5795928d183d0ba7b1efc3794de4"
+    "mtime": 1781940422.2374828,
+    "ast_hash": "daf930e95bdb2434391f333935122248",
+    "semantic_hash": "daf930e95bdb2434391f333935122248"
   },
   "/Users/meidhy/junk/repo/agent-voice/tests/tts.test.ts": {
     "mtime": 1781707402.2253299,
@@ -530,194 +530,9 @@
     "semantic_hash": "7603cab75cb71a4313d6a3ee4a30ab1b"
   },
   "/Users/meidhy/junk/repo/agent-voice/README.md": {
-    "mtime": 1781755391.3941388,
-    "ast_hash": "e987c7061838a5be6dfdc1f677109072",
-    "semantic_hash": "e987c7061838a5be6dfdc1f677109072"
-  },
-  "/Users/meidhy/junk/repo/agent-voice/docs/superpowers/plans/2026-06-11-fast-mode-extension.md": {
-    "mtime": 1781205452.9752612,
-    "ast_hash": "8c4aa5ad442bd25bd1466e7aa3c91d64",
-    "semantic_hash": "8c4aa5ad442bd25bd1466e7aa3c91d64"
-  },
-  "/Users/meidhy/junk/repo/agent-voice/docs/superpowers/plans/2026-06-11-sticky-fast-mode.md": {
-    "mtime": 1781207384.4524984,
-    "ast_hash": "0db0c0291ece9e9bf8311c726eeaf13e",
-    "semantic_hash": "0db0c0291ece9e9bf8311c726eeaf13e"
-  },
-  "/Users/meidhy/junk/repo/agent-voice/docs/superpowers/plans/2026-06-12-agent-voice-implementation.md": {
-    "mtime": 1781502601.7877178,
-    "ast_hash": "b43de1ce4eb575d8071f0602c8579895",
-    "semantic_hash": "b43de1ce4eb575d8071f0602c8579895"
-  },
-  "/Users/meidhy/junk/repo/agent-voice/docs/superpowers/plans/2026-06-15-agent-voice-mac-app-implementation.md": {
-    "mtime": 1781533811.5218887,
-    "ast_hash": "3de1eb350f68f969ad8dac5203cdd858",
-    "semantic_hash": "3de1eb350f68f969ad8dac5203cdd858"
-  },
-  "/Users/meidhy/junk/repo/agent-voice/docs/superpowers/plans/2026-06-15-fix-pi-lens-findings.md": {
-    "mtime": 1781543243.3574364,
-    "ast_hash": "36cf09b4eb6f42e5f3003a7e25e69cd3",
-    "semantic_hash": "36cf09b4eb6f42e5f3003a7e25e69cd3"
-  },
-  "/Users/meidhy/junk/repo/agent-voice/docs/superpowers/plans/2026-06-15-kokoro-voice-picker.md": {
-    "mtime": 1781547762.7560534,
-    "ast_hash": "42fc7483089be701f5d94c633384bea3",
-    "semantic_hash": "42fc7483089be701f5d94c633384bea3"
-  },
-  "/Users/meidhy/junk/repo/agent-voice/docs/superpowers/plans/2026-06-15-pi-agent-install-buttons.md": {
-    "mtime": 1781546183.7492418,
-    "ast_hash": "9dbbbe6692b6b1632c7fea80ea21ee6f",
-    "semantic_hash": "9dbbbe6692b6b1632c7fea80ea21ee6f"
-  },
-  "/Users/meidhy/junk/repo/agent-voice/docs/superpowers/plans/2026-06-15-sqlite-queue-migration.md": {
-    "mtime": 1781530711.497803,
-    "ast_hash": "174dea665483c9df8237b4bb6d5fb41d",
-    "semantic_hash": "174dea665483c9df8237b4bb6d5fb41d"
-  },
-  "/Users/meidhy/junk/repo/agent-voice/docs/superpowers/plans/2026-06-16-agent-voice-latency.md": {
-    "mtime": 1781585808.923239,
-    "ast_hash": "af078460fb3dee8a69f1c60210dad8ec",
-    "semantic_hash": "af078460fb3dee8a69f1c60210dad8ec"
-  },
-  "/Users/meidhy/junk/repo/agent-voice/docs/superpowers/plans/2026-06-16-attention-detail-window.md": {
-    "mtime": 1781611766.2466612,
-    "ast_hash": "78271acee67445aeb8c096c4ee886a72",
-    "semantic_hash": "78271acee67445aeb8c096c4ee886a72"
-  },
-  "/Users/meidhy/junk/repo/agent-voice/docs/superpowers/plans/2026-06-16-dashboard-summarizer-thinking.md": {
-    "mtime": 1781611042.1068916,
-    "ast_hash": "357c28dad128e2f10a9a515b8f9f7eb0",
-    "semantic_hash": "357c28dad128e2f10a9a515b8f9f7eb0"
-  },
-  "/Users/meidhy/junk/repo/agent-voice/docs/superpowers/plans/2026-06-16-diagnostics-window-debug-console.md": {
-    "mtime": 1781635718.059217,
-    "ast_hash": "b3af439842ef852542150802be8dc206",
-    "semantic_hash": "b3af439842ef852542150802be8dc206"
-  },
-  "/Users/meidhy/junk/repo/agent-voice/docs/superpowers/plans/2026-06-16-menu-bar-template-icon.md": {
-    "mtime": 1781624248.2757583,
-    "ast_hash": "93a0f182d6d86de7e13032c56744df5a",
-    "semantic_hash": "93a0f182d6d86de7e13032c56744df5a"
-  },
-  "/Users/meidhy/junk/repo/agent-voice/docs/superpowers/plans/2026-06-16-menu-smart-actions.md": {
-    "mtime": 1781623919.1288388,
-    "ast_hash": "b0b0a69c0a1c90867bb4d72e289924c8",
-    "semantic_hash": "b0b0a69c0a1c90867bb4d72e289924c8"
-  },
-  "/Users/meidhy/junk/repo/agent-voice/docs/superpowers/plans/2026-06-17-diagnostic-history-pagination.md": {
-    "mtime": 1781685567.4733698,
-    "ast_hash": "16108587bcdddada106e61d4832c55f2",
-    "semantic_hash": "16108587bcdddada106e61d4832c55f2"
-  },
-  "/Users/meidhy/junk/repo/agent-voice/docs/superpowers/plans/2026-06-17-diagnostics-recent-jobs-layout.md": {
-    "mtime": 1781697506.6419532,
-    "ast_hash": "44a1066f0a41f93ebf0182f1deb7ec8a",
-    "semantic_hash": "44a1066f0a41f93ebf0182f1deb7ec8a"
-  },
-  "/Users/meidhy/junk/repo/agent-voice/docs/superpowers/plans/2026-06-17-kokoro-bootstrap-setup.md": {
-    "mtime": 1781705436.4175105,
-    "ast_hash": "1b0905b3cacc4cdf2d69c96d7c8bf0fe",
-    "semantic_hash": "1b0905b3cacc4cdf2d69c96d7c8bf0fe"
-  },
-  "/Users/meidhy/junk/repo/agent-voice/docs/superpowers/plans/2026-06-17-public-release-sanitization.md": {
-    "mtime": 1781689603.4532065,
-    "ast_hash": "4e7f5a19afc5a19c09519824af8bb9c7",
-    "semantic_hash": "4e7f5a19afc5a19c09519824af8bb9c7"
-  },
-  "/Users/meidhy/junk/repo/agent-voice/docs/superpowers/plans/2026-06-18-code-quality-cleanup.md": {
-    "mtime": 1781758027.8050003,
-    "ast_hash": "6a0815391f9450b3483e8e7969052688",
-    "semantic_hash": "6a0815391f9450b3483e8e7969052688"
-  },
-  "/Users/meidhy/junk/repo/agent-voice/docs/superpowers/plans/2026-06-18-menu-bar-dropdown-header-icon.md": {
-    "mtime": 1781770236.2673993,
-    "ast_hash": "c21a49807b96b871b5737d979a3e5ffd",
-    "semantic_hash": "c21a49807b96b871b5737d979a3e5ffd"
-  },
-  "/Users/meidhy/junk/repo/agent-voice/docs/superpowers/specs/2026-06-12-agent-voice-design.md": {
-    "mtime": 1781509882.7280464,
-    "ast_hash": "149aca2c50e4c04321d925e47384a184",
-    "semantic_hash": "149aca2c50e4c04321d925e47384a184"
-  },
-  "/Users/meidhy/junk/repo/agent-voice/docs/superpowers/specs/2026-06-15-agent-voice-mac-app-design.md": {
-    "mtime": 1781533622.6330667,
-    "ast_hash": "d77e622882e01de40e32902a805fd52a",
-    "semantic_hash": "d77e622882e01de40e32902a805fd52a"
-  },
-  "/Users/meidhy/junk/repo/agent-voice/docs/superpowers/specs/2026-06-15-kokoro-voice-picker-design.md": {
-    "mtime": 1781545628.436201,
-    "ast_hash": "de391d86a3b1c1f1c23b90dde2befd51",
-    "semantic_hash": "de391d86a3b1c1f1c23b90dde2befd51"
-  },
-  "/Users/meidhy/junk/repo/agent-voice/docs/superpowers/specs/2026-06-15-pi-agent-install-buttons-design.md": {
-    "mtime": 1781546035.8721745,
-    "ast_hash": "b0bae17d50c8bb17be47edcad39c16f1",
-    "semantic_hash": "b0bae17d50c8bb17be47edcad39c16f1"
-  },
-  "/Users/meidhy/junk/repo/agent-voice/docs/superpowers/specs/2026-06-15-sqlite-queue-migration-design.md": {
-    "mtime": 1781529818.7866406,
-    "ast_hash": "741480c5dc096eaf056a6416daff7d2f",
-    "semantic_hash": "741480c5dc096eaf056a6416daff7d2f"
-  },
-  "/Users/meidhy/junk/repo/agent-voice/docs/superpowers/specs/2026-06-16-agent-voice-latency-design.md": {
-    "mtime": 1781585761.5400662,
-    "ast_hash": "c789873b6027a14657046ce3a7a9182f",
-    "semantic_hash": "c789873b6027a14657046ce3a7a9182f"
-  },
-  "/Users/meidhy/junk/repo/agent-voice/docs/superpowers/specs/2026-06-16-attention-detail-window-design.md": {
-    "mtime": 1781609214.1278887,
-    "ast_hash": "dbbe18805472707d3bd843fe3e22fa2c",
-    "semantic_hash": "dbbe18805472707d3bd843fe3e22fa2c"
-  },
-  "/Users/meidhy/junk/repo/agent-voice/docs/superpowers/specs/2026-06-16-dashboard-summarizer-thinking-design.md": {
-    "mtime": 1781610019.7086556,
-    "ast_hash": "660e8b8e1a5cbd035c5e4240f3a9f577",
-    "semantic_hash": "660e8b8e1a5cbd035c5e4240f3a9f577"
-  },
-  "/Users/meidhy/junk/repo/agent-voice/docs/superpowers/specs/2026-06-16-diagnostics-window-debug-console-design.md": {
-    "mtime": 1781632274.6622112,
-    "ast_hash": "cfad6913e402932f2918a0857c6dedea",
-    "semantic_hash": "cfad6913e402932f2918a0857c6dedea"
-  },
-  "/Users/meidhy/junk/repo/agent-voice/docs/superpowers/specs/2026-06-16-menu-bar-template-icon-design.md": {
-    "mtime": 1781623866.3564174,
-    "ast_hash": "38c4233351ee7c5295f26cd0f41fa05d",
-    "semantic_hash": "38c4233351ee7c5295f26cd0f41fa05d"
-  },
-  "/Users/meidhy/junk/repo/agent-voice/docs/superpowers/specs/2026-06-16-menu-smart-actions-design.md": {
-    "mtime": 1781622871.6191263,
-    "ast_hash": "74f9304663ba381cbe266f1a3309b7b0",
-    "semantic_hash": "74f9304663ba381cbe266f1a3309b7b0"
-  },
-  "/Users/meidhy/junk/repo/agent-voice/docs/superpowers/specs/2026-06-17-diagnostic-history-pagination-design.md": {
-    "mtime": 1781684056.059681,
-    "ast_hash": "188c19000e918f29548b525b94af60bb",
-    "semantic_hash": "188c19000e918f29548b525b94af60bb"
-  },
-  "/Users/meidhy/junk/repo/agent-voice/docs/superpowers/specs/2026-06-17-diagnostics-recent-jobs-layout-design.md": {
-    "mtime": 1781697506.6422372,
-    "ast_hash": "67949f017265269c0666f594cbc90586",
-    "semantic_hash": "67949f017265269c0666f594cbc90586"
-  },
-  "/Users/meidhy/junk/repo/agent-voice/docs/superpowers/specs/2026-06-17-kokoro-bootstrap-setup-design.md": {
-    "mtime": 1781703486.5089545,
-    "ast_hash": "3e63eec7a354615e167e33a380e4e599",
-    "semantic_hash": "3e63eec7a354615e167e33a380e4e599"
-  },
-  "/Users/meidhy/junk/repo/agent-voice/docs/superpowers/specs/2026-06-17-public-release-sanitization-design.md": {
-    "mtime": 1781688843.9424922,
-    "ast_hash": "b60c2e253cc8f575c044a1a98deab9a6",
-    "semantic_hash": "b60c2e253cc8f575c044a1a98deab9a6"
-  },
-  "/Users/meidhy/junk/repo/agent-voice/docs/superpowers/specs/2026-06-18-menu-bar-dropdown-header-icon-design.md": {
-    "mtime": 1781770236.2675192,
-    "ast_hash": "d25a5a14cb5977c3cb82f67e82efb67e",
-    "semantic_hash": "d25a5a14cb5977c3cb82f67e82efb67e"
-  },
-  "/Users/meidhy/junk/repo/agent-voice/docs/visual/agent-voice-identity-directions.html": {
-    "mtime": 1781521417.9431424,
-    "ast_hash": "3eff3736d7012dcc748ec2eae05d0025",
-    "semantic_hash": "3eff3736d7012dcc748ec2eae05d0025"
+    "mtime": 1781900183.8260205,
+    "ast_hash": "450f9870e0b82e611743c2e5f4041652",
+    "semantic_hash": "450f9870e0b82e611743c2e5f4041652"
   },
   "/Users/meidhy/junk/repo/agent-voice/plans/starry-swimming-quail.md": {
     "mtime": 1781783348.4480107,
@@ -788,5 +603,95 @@
     "mtime": 1781526756.658598,
     "ast_hash": "ec7b034688d9dc6ac643163a03a7f0c1",
     "semantic_hash": "ec7b034688d9dc6ac643163a03a7f0c1"
+  },
+  "/Users/meidhy/junk/repo/agent-voice/macos/AgentVoiceApp/Sources/AgentVoiceCore/BuildInfo.swift": {
+    "mtime": 1781891156.8174512,
+    "ast_hash": "ae9852286b2e29c6cf88a859589fd2bc",
+    "semantic_hash": "ae9852286b2e29c6cf88a859589fd2bc"
+  },
+  "/Users/meidhy/junk/repo/agent-voice/macos/AgentVoiceApp/Tests/AgentVoiceCoreTests/AppModelDaemonRestartTests.swift": {
+    "mtime": 1781891511.017215,
+    "ast_hash": "48779c26792c6400018556af6e477082",
+    "semantic_hash": "48779c26792c6400018556af6e477082"
+  },
+  "/Users/meidhy/junk/repo/agent-voice/macos/AgentVoiceApp/Tests/AgentVoiceCoreTests/BuildInfoTests.swift": {
+    "mtime": 1781891194.643375,
+    "ast_hash": "dc5a76f2c19a18433d172a39e1b832f7",
+    "semantic_hash": "dc5a76f2c19a18433d172a39e1b832f7"
+  },
+  "/Users/meidhy/junk/repo/agent-voice/src/adapters/codex.ts": {
+    "mtime": 1781900183.8263502,
+    "ast_hash": "24547fb2ff4f47eae0dabf52defb89b4",
+    "semantic_hash": "24547fb2ff4f47eae0dabf52defb89b4"
+  },
+  "/Users/meidhy/junk/repo/agent-voice/src/build-info.ts": {
+    "mtime": 1781890893.904272,
+    "ast_hash": "473db65a17bdf042cba6aa7c9de51fcc",
+    "semantic_hash": "473db65a17bdf042cba6aa7c9de51fcc"
+  },
+  "/Users/meidhy/junk/repo/agent-voice/src/install/codex.ts": {
+    "mtime": 1781900183.8272965,
+    "ast_hash": "6389702bb318c264c78680a9f34428fc",
+    "semantic_hash": "6389702bb318c264c78680a9f34428fc"
+  },
+  "/Users/meidhy/junk/repo/agent-voice/src/install/opencode.ts": {
+    "mtime": 1781900183.8274133,
+    "ast_hash": "a2b75839a68593a9576c3b1a95bfa577",
+    "semantic_hash": "a2b75839a68593a9576c3b1a95bfa577"
+  },
+  "/Users/meidhy/junk/repo/agent-voice/src/install/shared.ts": {
+    "mtime": 1781900183.8275278,
+    "ast_hash": "1046a06b9bf04afaa967cde3b29d5bbd",
+    "semantic_hash": "1046a06b9bf04afaa967cde3b29d5bbd"
+  },
+  "/Users/meidhy/junk/repo/agent-voice/tests/adapters-codex.test.ts": {
+    "mtime": 1781900183.8276496,
+    "ast_hash": "64f005e5297d083ec0b1707ba07cd55d",
+    "semantic_hash": "64f005e5297d083ec0b1707ba07cd55d"
+  },
+  "/Users/meidhy/junk/repo/agent-voice/tests/build-info.test.ts": {
+    "mtime": 1781890882.7838504,
+    "ast_hash": "b91add3792d1559e0402a1c303b18d1b",
+    "semantic_hash": "b91add3792d1559e0402a1c303b18d1b"
+  },
+  "/Users/meidhy/junk/repo/agent-voice/tests/codex-hook-cli.test.ts": {
+    "mtime": 1781900183.8277576,
+    "ast_hash": "7b81978dfb05c79d12cc8e51425ee356",
+    "semantic_hash": "7b81978dfb05c79d12cc8e51425ee356"
+  },
+  "/Users/meidhy/junk/repo/agent-voice/tests/install-codex.test.ts": {
+    "mtime": 1781900183.8280344,
+    "ast_hash": "fd1440ce49c5cb11b4c882c5e4789389",
+    "semantic_hash": "fd1440ce49c5cb11b4c882c5e4789389"
+  },
+  "/Users/meidhy/junk/repo/agent-voice/tests/install-detect.test.ts": {
+    "mtime": 1781900183.8281834,
+    "ast_hash": "1c7ba6ab88d0aa4d514059f9b8c614bc",
+    "semantic_hash": "1c7ba6ab88d0aa4d514059f9b8c614bc"
+  },
+  "/Users/meidhy/junk/repo/agent-voice/tests/install-opencode.test.ts": {
+    "mtime": 1781900183.828309,
+    "ast_hash": "f207ab5b373d8048c44d448b4bab1cdf",
+    "semantic_hash": "f207ab5b373d8048c44d448b4bab1cdf"
+  },
+  "/Users/meidhy/junk/repo/agent-voice/macos/AgentVoiceApp/Tests/AgentVoiceCoreTests/AppModelSummarizerKnobsTests.swift": {
+    "mtime": 1781940422.2348273,
+    "ast_hash": "d33c13f2bbace1cb4c8594f4409a63ec",
+    "semantic_hash": "d33c13f2bbace1cb4c8594f4409a63ec"
+  },
+  "/Users/meidhy/junk/repo/agent-voice/macos/AgentVoiceApp/Tests/AgentVoiceCoreTests/SetupAssistantViewSourceTests.swift": {
+    "mtime": 1781940422.2354636,
+    "ast_hash": "47f56b5386b7bb318b24dcd675e03720",
+    "semantic_hash": "47f56b5386b7bb318b24dcd675e03720"
+  },
+  "/Users/meidhy/junk/repo/agent-voice/macos/AgentVoiceApp/Tests/AgentVoiceCoreTests/SummarizerConfigDecodingTests.swift": {
+    "mtime": 1781940422.2356687,
+    "ast_hash": "997713d2a3e438be3f56268bf413c783",
+    "semantic_hash": "997713d2a3e438be3f56268bf413c783"
+  },
+  "/Users/meidhy/junk/repo/agent-voice/macos/AgentVoiceApp/Tests/AgentVoiceCoreTests/SummarizerPromptStyleCatalogTests.swift": {
+    "mtime": 1781940422.2359805,
+    "ast_hash": "30d80170f9837668846e3b05beb96c10",
+    "semantic_hash": "30d80170f9837668846e3b05beb96c10"
   }
 }
