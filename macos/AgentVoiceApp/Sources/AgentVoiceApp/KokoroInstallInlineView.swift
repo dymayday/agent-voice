@@ -2,34 +2,44 @@ import AgentVoiceCore
 import AppKit
 import SwiftUI
 
-struct KokoroSetupProgressView: View {
+/// The Kokoro installer rendered *inline* inside the Setup window's Voice-engine
+/// panel — the same install flow the standalone window drives, but without any
+/// window-close semantics. Install starts only on an explicit button press;
+/// expanding or opening the panel never begins network/download work.
+struct KokoroInstallInlineView: View {
     @ObservedObject var model: AppModel
     @State private var showDetails = false
     @State private var diagnosticsCopyFeedback: String?
 
-    private let detailsLogBottomID = "kokoro-details-log-bottom"
+    private let detailsLogBottomID = "kokoro-inline-log-bottom"
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Kokoro Installer")
-                .font(.largeTitle.bold())
-                .accessibilityAddTraits(.isHeader)
-
-            Text(statusMessage)
-                .font(.headline)
-                .textSelection(.enabled)
-
+        VStack(alignment: .leading, spacing: 12) {
             Text(
-                "Kokoro enables local voice playback. Installing may download managed uv, " +
-                    "Python dependencies, and model files, and stores them under Agent Voice Home."
+                "Installing downloads managed uv, pinned Python dependencies, and Kokoro model files " +
+                    "from the network, using local disk under Agent Voice Home."
             )
             .font(.caption)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
 
-            ProgressView(value: progressValue, total: 1.0)
-                .accessibilityLabel("Kokoro setup progress")
-                .accessibilityValue(progressAccessibilityValue)
+            if model.kokoroSetup.phase == .running || model.kokoroSetup.phase == .succeeded {
+                ProgressView(value: progressValue, total: 1.0)
+                    .accessibilityLabel("Kokoro setup progress")
+                    .accessibilityValue(progressAccessibilityValue)
+            }
+
+            if let caption = narrationCaption {
+                HStack(spacing: 10) {
+                    VoiceMeter(isActive: model.kokoroSetup.phase == .running, tint: .blue, height: 20)
+                        .frame(width: 56)
+                    Text(caption)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(caption)
+            }
 
             stepList
 
@@ -54,45 +64,49 @@ struct KokoroSetupProgressView: View {
                 .frame(minHeight: 120, maxHeight: 180)
             }
 
-            if model.kokoroSetup.phase == .failed, let error = model.kokoroSetup.error {
-                Label("Setup failed: \(error)", systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.red)
-                    .textSelection(.enabled)
-                    .accessibilityLabel("Setup failed: \(error)")
-            } else if let cliDetectionError = model.cliDetectionError {
-                Label(
-                    "Agent Voice CLI unavailable: \(cliDetectionError)",
-                    systemImage: "terminal.fill"
-                )
-                .foregroundStyle(.orange)
-                .textSelection(.enabled)
-                .accessibilityLabel("Agent Voice CLI unavailable: \(cliDetectionError)")
-            } else if let setupDetectionError = model.kokoroSetupDetectionError {
-                Label(
-                    "Setup detection needs attention: \(setupDetectionError)",
-                    systemImage: "exclamationmark.triangle.fill"
-                )
-                .foregroundStyle(.orange)
-                .textSelection(.enabled)
-                .accessibilityLabel("Setup detection needs attention: \(setupDetectionError)")
-            } else if model.kokoroSetup.phase == .cancelled {
-                Label("Setup cancelled. You can retry when ready.", systemImage: "xmark.circle")
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-            }
+            errorBanner
 
             controls
         }
-        .padding(24)
-        .frame(minWidth: 520, minHeight: 420)
+        // Announce each install step to VoiceOver as the daemon streams them, so
+        // the "spoken" install progress is conveyed to assistive tech, not just
+        // the static caption snapshot.
+        .onChange(of: model.kokoroSetup.currentTitle) { title in
+            if model.kokoroSetup.phase == .running, let title {
+                SetupAccessibility.announce(SetupNarration.installing(title), priority: .low)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var errorBanner: some View {
+        if model.kokoroSetup.phase == .failed, let error = model.kokoroSetup.error {
+            Label("Setup failed: \(error)", systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.red)
+                .textSelection(.enabled)
+                .accessibilityLabel("Setup failed: \(error)")
+        } else if let cliDetectionError = model.cliDetectionError {
+            Label("Agent Voice CLI unavailable: \(cliDetectionError)", systemImage: "terminal.fill")
+                .foregroundStyle(.orange)
+                .textSelection(.enabled)
+                .accessibilityLabel("Agent Voice CLI unavailable: \(cliDetectionError)")
+        } else if let setupDetectionError = model.kokoroSetupDetectionError {
+            Label("Setup detection needs attention: \(setupDetectionError)", systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+                .textSelection(.enabled)
+                .accessibilityLabel("Setup detection needs attention: \(setupDetectionError)")
+        } else if model.kokoroSetup.phase == .cancelled {
+            Label("Setup cancelled. You can retry when ready.", systemImage: "xmark.circle")
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+        }
     }
 
     private var controls: some View {
         let phase = model.kokoroSetup.phase
-
         return HStack {
             if phase == .idle {
-                Button("Start Installing") { Task { await model.installKokoro() } }
+                Button("Install Kokoro") { Task { await model.installKokoro() } }
                     .keyboardShortcut(.defaultAction)
             } else if phase == .running {
                 Button("Cancel") { model.cancelKokoroSetup() }
@@ -102,56 +116,37 @@ struct KokoroSetupProgressView: View {
             }
 
             if phase == .failed || phase == .cancelled {
-                Button("Copy Diagnostics") {
-                    copyDiagnostics()
-                }
-                .disabled(model.kokoroSetupDiagnostics().isEmpty)
+                Button("Copy Diagnostics") { copyDiagnostics() }
+                    .disabled(model.kokoroSetupDiagnostics().isEmpty)
                 if let diagnosticsCopyFeedback {
                     Text(diagnosticsCopyFeedback)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
-
             Spacer()
-
-            if phase != .running {
-                Button(doneTitle) { NSApp.keyWindow?.close() }
-                    .keyboardShortcut(phase == .idle ? .cancelAction : .defaultAction)
-            }
         }
     }
 
     private var stepList: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             ForEach(KokoroSetupSteps.all) { step in
                 Text(stepLabel(for: step))
+                    .font(.callout)
                     .accessibilityLabel(stepAccessibilityLabel(for: step))
             }
         }
     }
 
-    private var statusMessage: String {
-        if let currentTitle = model.kokoroSetup.currentTitle {
-            return currentTitle
-        }
-
+    private var narrationCaption: String? {
         switch model.kokoroSetup.phase {
-        case .idle:
-            return "Ready to install Kokoro"
         case .running:
-            return "Installing Kokoro…"
+            return SetupNarration.installing(model.kokoroSetup.currentTitle)
         case .succeeded:
-            return "Kokoro is ready"
-        case .failed:
-            return "Kokoro setup needs attention"
-        case .cancelled:
-            return "Kokoro setup was cancelled"
+            return SetupNarration.engineReady
+        default:
+            return nil
         }
-    }
-
-    private var doneTitle: String {
-        model.kokoroSetup.phase == .succeeded ? "Done" : "Close"
     }
 
     private var diagnosticsText: String {
@@ -165,7 +160,7 @@ struct KokoroSetupProgressView: View {
 
     private var progressAccessibilityValue: String {
         let percent = Int((progressValue * 100).rounded())
-        return "\(percent)% complete, \(statusMessage)"
+        return "\(percent)% complete"
     }
 
     private func stepLabel(for step: KokoroSetupStepDefinition) -> String {
