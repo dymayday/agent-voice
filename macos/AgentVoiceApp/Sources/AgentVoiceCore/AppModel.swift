@@ -12,6 +12,7 @@ public final class AppModel: ObservableObject {
     @Published public private(set) var kokoroSetupDetectionError: String?
     @Published public private(set) var cliDetectionError: String?
     @Published public private(set) var isLoadingHistoryPage = false
+    @Published public private(set) var focusedHistoryJobID: String?
     @Published public private(set) var availableSummarizerModels: [String] = []
     @Published public private(set) var preferredSetupStep: SetupStep?
     @Published public var draftVoice: String = ""
@@ -412,6 +413,14 @@ extension AppModel {
             lastActionError = "history: \(String(describing: error))"
         }
         recomputeLastError()
+    }
+
+    /// Records which history job the History window should scroll to and briefly
+    /// highlight. The dashboard sets this before opening the window; the window
+    /// consumes it (passing nil) once it has focused the row, so re-selecting the
+    /// same job triggers a fresh focus.
+    public func focusHistoryJob(_ id: String?) {
+        focusedHistoryJobID = id
     }
 
 }
