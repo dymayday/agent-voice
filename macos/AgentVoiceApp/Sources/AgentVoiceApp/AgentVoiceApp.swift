@@ -6,6 +6,7 @@ enum AgentVoiceWindowID {
     static let setup = "setup"
     static let attention = "attention"
     static let kokoroSetup = "kokoro-setup"
+    static let history = "history"
 }
 
 @main
@@ -38,6 +39,11 @@ struct AgentVoiceApplication: App {
             AttentionDetailView(model: model)
         }
         .defaultSize(width: 760, height: 620)
+
+        Window("History", id: AgentVoiceWindowID.history) {
+            HistoryView(model: model)
+        }
+        .defaultSize(width: 820, height: 680)
 
         Window("Kokoro Installer", id: AgentVoiceWindowID.kokoroSetup) {
             KokoroSetupProgressView(model: model)

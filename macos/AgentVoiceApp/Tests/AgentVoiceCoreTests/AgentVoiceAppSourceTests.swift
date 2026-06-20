@@ -21,6 +21,19 @@ final class AgentVoiceAppSourceTests: XCTestCase {
         )
     }
 
+    func testHistoryWindowIDAndSceneAreRegistered() throws {
+        let source = try appSource("AgentVoiceApp.swift")
+
+        XCTAssertTrue(source.contains("static let history = \"history\""))
+        XCTAssertTrue(source.contains("Window(\"History\", id: AgentVoiceWindowID.history)"))
+        XCTAssertTrue(source.contains("HistoryView(model: model)"))
+        XCTAssertTrue(source.contains(".defaultSize(width: 820, height: 680)"))
+        XCTAssertFalse(
+            source.contains("WindowGroup(\"History"),
+            "History should be a singleton Window so repeated clicks focus the same surface."
+        )
+    }
+
     func testMenuBarUsesNativeTemplateWaveformIcon() throws {
         let applicationSource = try appSource("AgentVoiceApp.swift")
         let statusLabel = try sourceSlice(
