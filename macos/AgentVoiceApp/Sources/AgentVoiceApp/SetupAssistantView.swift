@@ -1,4 +1,5 @@
 import AgentVoiceCore
+import AppKit
 import SwiftUI
 
 private struct AgentSetupSummary: Identifiable {
@@ -209,6 +210,34 @@ struct SetupAssistantView: View {
                 Text("Off shortens them like other summaries; you may lose the exact options.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+
+            DisclosureGroup("What the model is told") {
+                VStack(alignment: .leading, spacing: 8) {
+                    if model.summaryVoicePromptPreview.isEmpty {
+                        Text("Loading…")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ScrollView {
+                            Text(model.summaryVoicePromptPreview)
+                                .font(.system(.caption, design: .monospaced))
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .frame(maxHeight: 220)
+                    }
+                    Button("Copy") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(model.summaryVoicePromptPreview, forType: .string)
+                    }
+                    .disabled(model.summaryVoicePromptPreview.isEmpty)
+                }
+                .padding(.top, 4)
+                .task(id: "\(model.draftPromptStyle)|\(model.draftMaxSentences)|\(model.draftMaxSummaryChars)") {
+                    try? await Task.sleep(nanoseconds: 250_000_000)  // debounce rapid edits
+                    if Task.isCancelled { return }
+                    await model.refreshSummaryVoicePrompt()
+                }
             }
 
             Button("Save changes") {

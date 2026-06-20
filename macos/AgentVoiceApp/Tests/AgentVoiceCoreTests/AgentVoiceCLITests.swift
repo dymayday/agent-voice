@@ -490,6 +490,15 @@ final class AgentVoiceCLITests: XCTestCase {
         XCTAssertEqual(requests.first?.arguments, ["config", "set", "summarizer.speakQuestionsVerbatim", "false"])
     }
 
+    func testSummarizerPromptIssuesRenderCommand() async throws {
+        let runner = RecordingRunner(results: [ProcessResult(exitCode: 0, stdout: "PROMPT TEXT", stderr: "")])
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+        let prompt = try await cli.summarizerPrompt(style: "terse", maxSentences: 2, maxSummaryChars: 240)
+        XCTAssertEqual(prompt, "PROMPT TEXT")
+        let requests = await runner.capturedRequests()
+        XCTAssertEqual(requests.first?.arguments, ["summarizer", "prompt", "--style", "terse", "--max-sentences", "2", "--max-chars", "240"])
+    }
+
     func testDefaultExecutablePrefersEnvironmentOverride() throws {
         let settings = AppSettings.defaultSettings(env: ["AGENT_VOICE_EXECUTABLE": "/tmp/agent-voice"])
         XCTAssertEqual(settings.executableURL.path, "/tmp/agent-voice")

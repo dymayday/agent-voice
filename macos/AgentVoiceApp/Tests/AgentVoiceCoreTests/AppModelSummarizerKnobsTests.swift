@@ -119,6 +119,36 @@ final class AppModelSummarizerKnobsTests: XCTestCase {
         XCTAssertNotNil(model.lastError)
     }
 
+    func testRefreshSummaryVoicePromptStoresRenderedPrompt() async throws {
+        let runner = RecordingRunner(results: [ProcessResult(exitCode: 0, stdout: "RENDERED PROMPT", stderr: "")])
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+        let model = AppModel(cli: cli)
+        model.draftPromptStyle = "terse"
+        model.draftMaxSentences = "2"
+        model.draftMaxSummaryChars = "240"
+
+        await model.refreshSummaryVoicePrompt()
+
+        XCTAssertEqual(model.summaryVoicePromptPreview, "RENDERED PROMPT")
+        let requests = await runner.capturedRequests()
+        XCTAssertEqual(requests.first?.arguments, ["summarizer", "prompt", "--style", "terse", "--max-sentences", "2", "--max-chars", "240"])
+    }
+
+    func testRefreshSummaryVoicePromptSkipsWhenInputsInvalid() async throws {
+        let runner = RecordingRunner(results: [])
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+        let model = AppModel(cli: cli)
+        model.draftPromptStyle = "terse"
+        model.draftMaxSentences = "0"   // invalid → keep previous preview, no CLI call
+        model.draftMaxSummaryChars = "240"
+
+        await model.refreshSummaryVoicePrompt()
+
+        let requests = await runner.capturedRequests()
+        XCTAssertTrue(requests.isEmpty)
+        XCTAssertEqual(model.summaryVoicePromptPreview, "")
+    }
+
     func testSummaryVoiceCanSaveReflectsDirtyAndValidity() async throws {
         let runner = RecordingRunner(results: [
             ProcessResult(exitCode: 0, stdout: statusJSON(), stderr: ""),

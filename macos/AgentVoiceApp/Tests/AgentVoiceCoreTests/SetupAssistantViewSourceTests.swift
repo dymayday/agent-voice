@@ -1,6 +1,14 @@
 import XCTest
 
 final class SetupAssistantViewSourceTests: XCTestCase {
+    func testSummaryVoiceTabShowsPromptPreviewDisclosure() throws {
+        let source = try appSources()
+        XCTAssertTrue(source.contains("What the model is told"))
+        XCTAssertTrue(source.contains("model.summaryVoicePromptPreview"))
+        XCTAssertTrue(source.contains("model.refreshSummaryVoicePrompt()"))
+        XCTAssertTrue(source.contains("Button(\"Copy\")"))
+    }
+
     func testSummaryVoiceTabRendersStyleLengthAndQuestionControls() throws {
         let source = try appSources()
         XCTAssertTrue(source.contains("case .summaryVoice:"))

@@ -35,6 +35,7 @@ public final class AppModel: ObservableObject {
     @Published public var draftMaxSentences: String = ""
     @Published public var draftMaxSummaryChars: String = ""
     @Published public var draftSpeakQuestionsVerbatim: Bool = false
+    @Published public private(set) var summaryVoicePromptPreview: String = ""
 
     public static let defaultAutoRefreshIntervalNanoseconds: UInt64 = 2_000_000_000
     public static let defaultDiagnosticsRefreshEveryTicks = 15  // 15 * 2s ≈ 30s
@@ -580,6 +581,23 @@ extension AppModel {
             try await self.cli.setSummarizerMaxSentences(sentences)
             try await self.cli.setSummarizerMaxSummaryChars(chars)
             try await self.cli.setSummarizerSpeakQuestionsVerbatim(verbatim)
+        }
+    }
+
+    // Fetch the actual prompt the daemon would build for the current draft selection.
+    // Skips (keeping the previous preview) while a field is mid-edit / invalid, so the
+    // panel never flickers to empty. Failures are non-fatal — the panel is informational.
+    public func refreshSummaryVoicePrompt() async {
+        let style = draftPromptStyle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard Self.summarizerPromptStyleOptions.contains(style),
+              let sentences = Int(draftMaxSentences.trimmingCharacters(in: .whitespacesAndNewlines)), sentences >= 1,
+              let chars = Int(draftMaxSummaryChars.trimmingCharacters(in: .whitespacesAndNewlines)), chars >= 1
+        else { return }
+        do {
+            let prompt = try await cli.summarizerPrompt(style: style, maxSentences: sentences, maxSummaryChars: chars)
+            summaryVoicePromptPreview = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch {
+            // Leave the previous preview in place.
         }
     }
 
