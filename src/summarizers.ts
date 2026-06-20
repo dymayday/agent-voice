@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import type { AgentVoiceConfig, SummarizerName } from "./config";
+import type { AgentVoiceConfig, SummarizerName, SummarizerPromptStyle } from "./config";
 import type { AgentVoiceEvent } from "./events";
 
 export interface SummarizerRunRequest {
@@ -40,8 +40,8 @@ export interface SummarizeOptions {
 
 export interface SummarizeOutcome {
 	summary: string;
-	/** Which summarizer actually produced `summary` (not merely the first in the priority list). */
-	summarizerUsed: SummarizerName;
+	/** Which summarizer produced `summary`; "verbatim" means a crafted question/approval line spoken as-is. */
+	summarizerUsed: SummarizerName | "verbatim";
 }
 
 const SENTENCE_BOUNDARY_PATTERN = /[.!?]+(\s+|$)/g;
@@ -56,10 +56,32 @@ const LINE_PREFIX_PATTERN = /^\s*(?:#{1,6}\s*|[-+*]\s+|\d+[.)]\s*)/;
 // eslint-disable-next-line no-control-regex
 const ANSI_ESCAPE_PATTERN = /\x1b(?:\[[0-9;?<>=]*[ -/]*[@-~]|[@-Z\\-_])/g;
 
-export function buildPrompt(event: AgentVoiceEvent): string {
+const STYLE_FRAGMENTS: Record<SummarizerPromptStyle, string> = {
+	default: "Summarize what the response conveys, plainly and neutrally.",
+	terse:
+		"Be as brief as possible: lead with the single most important outcome and drop everything non-essential.",
+	"status-about":
+		"First convey the state (done, blocked, waiting on the user, or still working), then what the output is about.",
+	triage:
+		"If the agent needs the user (a question, an approval, or a blocker), lead with exactly what you need from them. Otherwise state the result.",
+	conversational:
+		"Speak in the first person, as the assistant talking to the user, warm and direct, like a colleague leaning over their desk.",
+};
+
+export function buildPrompt(
+	event: AgentVoiceEvent,
+	config: AgentVoiceConfig,
+): string {
+	const { promptStyle, maxSentences, maxSummaryChars } = config.summarizer;
+	const sentenceWord = maxSentences === 1 ? "sentence" : "sentences";
 	return [
-		"Summarize this coding-agent response as exactly one short, natural, TTS-friendly sentence.",
-		"Do not include markdown, bullets, quotes, emojis, file paths unless essential, or more than one sentence.",
+		"You write a spoken notification telling a developer who stepped away from their screen what the coding agent just did.",
+		"It is read aloud by text-to-speech and heard once; they cannot re-read it.",
+		`Use at most ${maxSentences} ${sentenceWord} and about ${maxSummaryChars} characters or fewer.`,
+		"Lead with the outcome. Write for the ear: no markdown, emojis, or quotes.",
+		'Never speak file paths, code identifiers, function names, or symbols; describe them plainly (say "the login handler", not "auth/login.ts"). State numbers approximately.',
+		"Report the result directly, with no preamble.",
+		STYLE_FRAGMENTS[promptStyle],
 		"",
 		`Agent: ${event.agent}`,
 		"Response:",
@@ -97,7 +119,7 @@ function baseRequest(
 			...envWithoutUndefined(options.env ?? process.env),
 			AGENT_VOICE_DISABLE: "1",
 		},
-		stdin: buildPrompt(event),
+		stdin: buildPrompt(event, config),
 		timeoutMs: config.summarizer.timeoutSeconds * 1000,
 	};
 }
@@ -192,32 +214,52 @@ function truncateAtWord(text: string, maxChars: number): string {
 	return `${truncated.replace(/[.!?;:,]+$/g, "")}.`.slice(0, maxChars);
 }
 
-function normalizeSummary(text: string, maxChars: number): string {
+function normalizeSummary(
+	text: string,
+	maxChars: number,
+	maxSentences: number,
+): string {
 	const cleaned = cleanForSpeech(text);
 	if (!cleaned) return "Agent finished responding.";
-	return truncateAtWord(oneSentenceFromAllText(cleaned, maxChars), maxChars);
+	const limited =
+		maxSentences <= 1
+			? oneSentenceFromAllText(cleaned, maxChars)
+			: firstNSentences(cleaned, maxSentences);
+	return truncateAtWord(limited, maxChars);
 }
 
-// First sentence terminator: a run of .!? that is followed by whitespace or end
-// of string. The lookahead keeps "1.5", "0.0.0.0", and "file.ts" from splitting
-// mid-token, matching only real sentence ends.
-const FIRST_SENTENCE_TERMINATOR = /[.!?]+(?=\s|$)/;
-
-function firstSentence(cleaned: string): string {
-	const match = FIRST_SENTENCE_TERMINATOR.exec(cleaned);
-	if (!match) {
-		return SENTENCE_END_PATTERN.test(cleaned) ? cleaned : `${cleaned}.`;
+// Keep the first `count` sentences (a sentence ends at a run of .!? followed by
+// whitespace or end of string). The lookahead keeps "1.5", "0.0.0.0", and
+// "file.ts" from splitting mid-token. Falls back to appending a period when the
+// text has no sentence terminator at all.
+function firstNSentences(text: string, count: number): string {
+	const pattern = /[.!?]+(?=\s|$)/g;
+	let seen = 0;
+	let end = -1;
+	for (let match = pattern.exec(text); match; match = pattern.exec(text)) {
+		seen += 1;
+		end = match.index + match[0].length;
+		if (seen >= count) break;
 	}
-	return cleaned.slice(0, match.index + match[0].length);
+	if (end === -1) {
+		return SENTENCE_END_PATTERN.test(text) ? text : `${text}.`;
+	}
+	return text.slice(0, end).trim();
 }
 
-// The fallback when no LLM summarizer succeeds. Speaks the agent's entire first
-// sentence verbatim (no character cap) — a complete, natural-sounding clause is
-// better for TTS than a summary truncated mid-word.
-export function heuristicSummary(text: string): string {
+// The fallback when no LLM summarizer succeeds. Speaks the agent's first
+// `maxSentences` sentences. A bare call (no maxChars) is uncapped so a complete
+// clause is never truncated mid-thought; the daemon path passes maxChars so the
+// fallback still respects the user's length budget.
+export function heuristicSummary(
+	text: string,
+	maxSentences = 1,
+	maxChars?: number,
+): string {
 	const cleaned = cleanForSpeech(text);
 	if (!cleaned) return "Agent finished responding.";
-	return firstSentence(cleaned);
+	const limited = firstNSentences(cleaned, maxSentences);
+	return maxChars === undefined ? limited : truncateAtWord(limited, maxChars);
 }
 
 function describeFailure(
@@ -230,8 +272,18 @@ function describeFailure(
 	return stderr ? stderr.split("\n")[0].slice(0, 120) : "unknown failure";
 }
 
-function heuristicOutcome(event: AgentVoiceEvent): SummarizeOutcome {
-	return { summary: heuristicSummary(event.text), summarizerUsed: "heuristic" };
+function heuristicOutcome(
+	event: AgentVoiceEvent,
+	config: AgentVoiceConfig,
+): SummarizeOutcome {
+	return {
+		summary: heuristicSummary(
+			event.text,
+			config.summarizer.maxSentences,
+			config.summarizer.maxSummaryChars,
+		),
+		summarizerUsed: "heuristic",
+	};
 }
 
 // Runs the summarizer priority chain and reports which summarizer actually
@@ -243,8 +295,15 @@ export async function summarizeWithSource(
 	runner: SummarizerRunner = runSummarizerSubprocess,
 	options: SummarizeOptions = {},
 ): Promise<SummarizeOutcome> {
+	if (event.metadata?.kind === "question") {
+		const spoken = cleanForSpeech(event.text);
+		return {
+			summary: spoken || "Agent is asking for your input.",
+			summarizerUsed: "verbatim",
+		};
+	}
 	for (const name of config.summarizer.priority) {
-		if (name === "heuristic") return heuristicOutcome(event);
+		if (name === "heuristic") return heuristicOutcome(event, config);
 
 		const request = requestFor(name, event, config, options);
 		if (!request) continue;
@@ -258,6 +317,7 @@ export async function summarizeWithSource(
 			const summary = normalizeSummary(
 				result.stdout,
 				config.summarizer.maxSummaryChars,
+				config.summarizer.maxSentences,
 			);
 			if (summary) return { summary, summarizerUsed: name };
 		} catch (error) {
@@ -266,7 +326,7 @@ export async function summarizeWithSource(
 		}
 	}
 
-	return heuristicOutcome(event);
+	return heuristicOutcome(event, config);
 }
 
 export async function summarize(

@@ -8,9 +8,52 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { defaultConfig, loadConfig, setConfigValue } from "../src/config";
+import { defaultConfig, loadConfig, setConfigValue, validateConfig } from "../src/config";
 import { runCli } from "../src/cli";
 import { resolvePaths } from "../src/paths";
+
+describe("summarizer prompt knobs config", () => {
+  test("defaults are the unchanged one-sentence behavior", () => {
+    expect(defaultConfig.summarizer.promptStyle).toBe("default");
+    expect(defaultConfig.summarizer.maxSentences).toBe(1);
+    expect(defaultConfig.summarizer.maxSummaryChars).toBe(180);
+  });
+
+  test("setConfigValue round-trips all three knobs", () => {
+    const a = setConfigValue(defaultConfig, "summarizer.promptStyle", "triage");
+    expect(a.summarizer.promptStyle).toBe("triage");
+    const b = setConfigValue(defaultConfig, "summarizer.maxSentences", "3");
+    expect(b.summarizer.maxSentences).toBe(3);
+    const c = setConfigValue(defaultConfig, "summarizer.maxSummaryChars", "260");
+    expect(c.summarizer.maxSummaryChars).toBe(260);
+  });
+
+  test("maxSentences has no upper bound but rejects < 1 and non-integers", () => {
+    expect(setConfigValue(defaultConfig, "summarizer.maxSentences", "9").summarizer.maxSentences).toBe(9);
+    expect(() => setConfigValue(defaultConfig, "summarizer.maxSentences", "0")).toThrow();
+    expect(() => setConfigValue(defaultConfig, "summarizer.maxSentences", "2.5")).toThrow();
+  });
+
+  test("promptStyle rejects unknown ids", () => {
+    expect(() => setConfigValue(defaultConfig, "summarizer.promptStyle", "shouty")).toThrow();
+  });
+
+  test("validateConfig rejects a bad promptStyle on a full config object", () => {
+    const bad = JSON.parse(JSON.stringify(defaultConfig));
+    bad.summarizer.promptStyle = "nope";
+    expect(() => validateConfig(bad)).toThrow(/summarizer.promptStyle/);
+  });
+
+  test("validateConfig rejects maxSentences < 1 and non-integers on a full config object", () => {
+    const zero = JSON.parse(JSON.stringify(defaultConfig));
+    zero.summarizer.maxSentences = 0;
+    expect(() => validateConfig(zero)).toThrow(/summarizer.maxSentences/);
+
+    const fractional = JSON.parse(JSON.stringify(defaultConfig));
+    fractional.summarizer.maxSentences = 1.5;
+    expect(() => validateConfig(fractional)).toThrow(/summarizer.maxSentences/);
+  });
+});
 
 async function withTempHome<T>(
 	fn: (home: string) => T | Promise<T>,

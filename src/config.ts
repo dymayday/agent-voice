@@ -16,6 +16,13 @@ export type SummarizerThinking =
 	| "high"
 	| "xhigh";
 
+export type SummarizerPromptStyle =
+	| "default"
+	| "terse"
+	| "status-about"
+	| "triage"
+	| "conversational";
+
 export interface AgentVoiceConfig {
 	enabled: boolean;
 	agents: Record<AgentName, { enabled: boolean; mode: string }>;
@@ -30,6 +37,8 @@ export interface AgentVoiceConfig {
 		timeoutSeconds: number;
 		maxInputChars: number;
 		maxSummaryChars: number;
+		promptStyle: SummarizerPromptStyle;
+		maxSentences: number;
 	};
 	tts: {
 		kokoroScript: string;
@@ -70,6 +79,8 @@ export const defaultConfig: AgentVoiceConfig = {
 		timeoutSeconds: 33,
 		maxInputChars: 12000,
 		maxSummaryChars: 180,
+		promptStyle: "default",
+		maxSentences: 1,
 	},
 	tts: {
 		kokoroScript: "",
@@ -85,6 +96,14 @@ export const defaultConfig: AgentVoiceConfig = {
 		retryBackoffSeconds: 30,
 	},
 };
+
+const PROMPT_STYLE_NAMES: SummarizerPromptStyle[] = [
+	"default",
+	"terse",
+	"status-about",
+	"triage",
+	"conversational",
+];
 
 const SUMMARIZER_NAMES: SummarizerName[] = [
 	"codex-fast",
@@ -209,6 +228,14 @@ export function validateConfig(config: AgentVoiceConfig): AgentVoiceConfig {
 	assertIntegerInRange(config.summarizer.timeoutSeconds, "summarizer.timeoutSeconds", { min: 1 });
 	assertIntegerInRange(config.summarizer.maxInputChars, "summarizer.maxInputChars", { min: 1 });
 	assertIntegerInRange(config.summarizer.maxSummaryChars, "summarizer.maxSummaryChars", { min: 1 });
+	assertOneOf(
+		config.summarizer.promptStyle,
+		"summarizer.promptStyle",
+		PROMPT_STYLE_NAMES,
+	);
+	assertIntegerInRange(config.summarizer.maxSentences, "summarizer.maxSentences", {
+		min: 1,
+	});
 
 	if (!isRecord(config.tts)) invalidConfig("tts", "object");
 	assertString(config.tts.kokoroScript, "tts.kokoroScript", { allowEmpty: true });

@@ -343,12 +343,82 @@ describe("agent-voice summarizer fallback chain", () => {
 		expect(summary).not.toContain("\n");
 	});
 
-	test("buildPrompt asks for one sentence and includes raw local response text", () => {
-		const rawText = "Raw local response including Bearer sk-secret123.";
-		const prompt = buildPrompt(createEvent({ agent: "claude", text: rawText }));
+	test("question events are spoken verbatim without invoking the summarizer", async () => {
+		const event = createEvent({
+			agent: "claude",
+			text: "Claude is asking for your input: Pick one. The options are A, B, or C.",
+			metadata: { kind: "question" },
+		});
+		const { calls, runner } = recordingRunner(() => ({
+			ok: true,
+			stdout: "should not be used",
+		}));
 
-		expect(prompt).toContain("exactly one short");
+		const outcome = await summarizeWithSource(
+			event,
+			config({ summarizer: { priority: ["pi-fast", "heuristic"] } }),
+			runner,
+		);
+
+		expect(outcome.summarizerUsed).toBe("verbatim");
+		expect(outcome.summary).toBe(
+			"Claude is asking for your input: Pick one. The options are A, B, or C.",
+		);
+		expect(calls).toHaveLength(0);
+	});
+
+	test("summarizer keeps up to maxSentences sentences", async () => {
+		const event = createEvent({ agent: "claude", text: "x" });
+		const { runner } = recordingRunner(() => ({
+			ok: true,
+			stdout: "First done. Second done. Third dropped.",
+		}));
+
+		const summary = await summarize(
+			event,
+			config({
+				summarizer: { priority: ["pi-fast", "heuristic"], maxSentences: 2 },
+			}),
+			runner,
+		);
+
+		expect(summary).toBe("First done. Second done.");
+	});
+
+	test("heuristicSummary keeps the first N sentences when asked", () => {
+		expect(heuristicSummary("One. Two. Three.", 2)).toBe("One. Two.");
+	});
+
+	test("heuristicSummary applies a word-boundary char cap when maxChars is given", () => {
+		const result = heuristicSummary("This sentence is quite long indeed.", 1, 20);
+		expect(result).toBe("This sentence is.");
+		expect(result.length).toBeLessThanOrEqual(20);
+	});
+
+	test("buildPrompt injects the style fragment and the sentence + char budget", () => {
+		const rawText = "Raw local response including Bearer sk-secret123.";
+		const prompt = buildPrompt(
+			createEvent({ agent: "claude", text: rawText }),
+			config({
+				summarizer: {
+					promptStyle: "terse",
+					maxSentences: 2,
+					maxSummaryChars: 200,
+				},
+			}),
+		);
+
+		expect(prompt).toContain("at most 2 sentences");
+		expect(prompt).toContain("about 200 characters");
+		expect(prompt).toContain("Be as brief as possible");
 		expect(prompt).toContain("Agent: claude");
 		expect(prompt).toContain(rawText);
+	});
+
+	test("buildPrompt is singular and neutral at the defaults", () => {
+		const prompt = buildPrompt(createEvent({ agent: "pi", text: "done" }), config());
+		expect(prompt).toContain("at most 1 sentence");
+		expect(prompt).not.toContain("at most 1 sentences");
+		expect(prompt).toContain("plainly and neutrally");
 	});
 });
