@@ -66,6 +66,11 @@ const STYLE_FRAGMENTS: Record<SummarizerPromptStyle, string> = {
 		"If the agent needs the user (a question, an approval, or a blocker), lead with exactly what you need from them. Otherwise state the result.",
 	conversational:
 		"Speak in the first person, as the assistant talking to the user, warm and direct, like a colleague leaning over their desk.",
+	adaptive: `Choose the register that fits this response, in priority order:
+1. The agent needs the user (a question, an approval, or a blocker) -> lead with exactly what you need from them.
+2. There is a notable state -> say done / blocked / waiting / still working, then what it's about.
+3. It's a simple result -> be terse: the outcome only.
+Pick one and write only in that register.`,
 };
 
 export function buildPrompt(

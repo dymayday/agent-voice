@@ -21,7 +21,8 @@ export type SummarizerPromptStyle =
 	| "terse"
 	| "status-about"
 	| "triage"
-	| "conversational";
+	| "conversational"
+	| "adaptive";
 
 export interface AgentVoiceConfig {
 	enabled: boolean;
@@ -105,6 +106,7 @@ const PROMPT_STYLE_NAMES: SummarizerPromptStyle[] = [
 	"status-about",
 	"triage",
 	"conversational",
+	"adaptive",
 ];
 
 const SUMMARIZER_NAMES: SummarizerName[] = [
