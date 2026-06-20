@@ -51,8 +51,9 @@ struct AgentVoiceApplication: App {
         .defaultSize(width: 620, height: 520)
 
         Window("Setup", id: AgentVoiceWindowID.setup) {
-            SetupAssistantView(model: model)
+            SetupWindowView(model: model)
         }
+        .defaultSize(width: 720, height: 640)
     }
 }
 

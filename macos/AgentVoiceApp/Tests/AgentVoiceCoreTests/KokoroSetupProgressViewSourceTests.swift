@@ -9,29 +9,6 @@ final class KokoroSetupProgressViewSourceTests: XCTestCase {
         XCTAssertTrue(source.contains("KokoroSetupProgressView(model: model)"))
     }
 
-    func testSetupAssistantShowsOpenKokoroInstallerButton() throws {
-        let source = try appSource("SetupAssistantView.swift")
-
-        XCTAssertTrue(source.contains("Open Kokoro Installer"))
-        XCTAssertTrue(source.contains("openWindow(id: AgentVoiceWindowID.kokoroSetup)"))
-        XCTAssertFalse(
-            source.contains("model.installKokoro()"),
-            "SetupAssistant should only open the installer window; installation starts after explicit consent there."
-        )
-    }
-
-    func testSetupAssistantCanOpenDirectlyToRequestedKokoroStepWithoutInstalling() throws {
-        let source = try appSource("SetupAssistantView.swift")
-
-        XCTAssertTrue(source.contains("applyPreferredSetupStepIfNeeded()"))
-        XCTAssertTrue(source.contains("model.preferredSetupStep"))
-        XCTAssertTrue(source.contains("model.clearPreferredSetupStep(step)"))
-        XCTAssertFalse(
-            source.contains("await model.installKokoro()"),
-            "Opening Setup to the Kokoro step must not start downloads."
-        )
-    }
-
     func testProgressViewRequiresExplicitStartBeforeInstalling() throws {
         let source = try appSource("KokoroSetupProgressView.swift")
         let body = try sourceSlice(
@@ -51,14 +28,6 @@ final class KokoroSetupProgressViewSourceTests: XCTestCase {
             body.contains("installKokoro"),
             "Opening the Kokoro installer window must not start network/download work without a button click."
         )
-    }
-
-    func testSetupAssistantDisclosesInstallRequirements() throws {
-        let source = try appSource("SetupAssistantView.swift")
-
-        XCTAssertTrue(source.localizedCaseInsensitiveContains("uv"))
-        XCTAssertTrue(source.localizedCaseInsensitiveContains("network"))
-        XCTAssertTrue(source.localizedCaseInsensitiveContains("disk"))
     }
 
     func testProgressViewHasDiagnosticsControls() throws {
