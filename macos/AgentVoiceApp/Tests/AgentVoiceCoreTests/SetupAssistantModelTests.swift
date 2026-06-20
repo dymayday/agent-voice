@@ -7,6 +7,7 @@ final class SetupAssistantModelTests: XCTestCase {
             "Welcome",
             "Kokoro",
             "Summaries",
+            "Summary voice",
             "Agents",
             "Daemon",
             "Finish"
@@ -50,6 +51,11 @@ final class SetupAssistantModelTests: XCTestCase {
         let checks = SetupAssistantModel.checks(from: nil, status: status)
 
         XCTAssertTrue(checks.contains { $0.id == "system.paused" && $0.targetStep == .summaries })
+    }
+
+    func testSummaryVoiceStepExistsWithTitle() {
+        XCTAssertTrue(SetupStep.allCases.contains(.summaryVoice))
+        XCTAssertEqual(SetupStep.summaryVoice.title, "Summary voice")
     }
 
     func testAgentActionsAreExplicitCommands() {

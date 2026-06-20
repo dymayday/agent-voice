@@ -49,7 +49,7 @@ import {
 } from "./install";
 import { resolvePaths } from "./paths";
 import type { ProcessorDeps } from "./processor";
-import { summarizeWithSource } from "./summarizers";
+import { buildPrompt, summarizeWithSource } from "./summarizers";
 import { openDb } from "./db";
 import { clearActiveQueue, clearFailedJobs, enqueue } from "./store";
 import { buildAppStatusSnapshot, formatAppStatusJson } from "./status";
@@ -414,12 +414,44 @@ export async function runCli(
 	}
 
 	if (command === "summarizer") {
-		const [, subcommand, mode] = args;
+		const [, subcommand] = args;
+
+		if (subcommand === "prompt") {
+			try {
+				let config = loadConfig(paths);
+				const flag = (name: string): string | undefined => {
+					const i = args.indexOf(name);
+					return i >= 0 && i + 1 < args.length ? args[i + 1] : undefined;
+				};
+				const style = flag("--style");
+				const maxSentences = flag("--max-sentences");
+				const maxChars = flag("--max-chars");
+				if (style !== undefined)
+					config = setConfigValue(config, "summarizer.promptStyle", style);
+				if (maxSentences !== undefined)
+					config = setConfigValue(config, "summarizer.maxSentences", maxSentences);
+				if (maxChars !== undefined)
+					config = setConfigValue(config, "summarizer.maxSummaryChars", maxChars);
+				const event = createEvent({
+					agent: "claude",
+					text: "[the agent's last message]",
+				});
+				return result(0, `${buildPrompt(event, config)}\n`);
+			} catch (error) {
+				return result(
+					2,
+					"",
+					`${error instanceof Error ? error.message : String(error)}\n`,
+				);
+			}
+		}
+
+		const mode = args[2];
 		if (subcommand !== "mode" || !mode) {
 			return result(
 				2,
 				"",
-				"Usage: agent-voice summarizer mode heuristic|default\n",
+				"Usage: agent-voice summarizer mode heuristic|default | agent-voice summarizer prompt [--style S --max-sentences N --max-chars M]\n",
 			);
 		}
 		if (!isSummarizerMode(mode)) {

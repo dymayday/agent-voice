@@ -206,6 +206,32 @@ public struct AgentVoiceCLI: Sendable {
         try await setConfigValue(path, to: model)
     }
 
+    public func setSummarizerPromptStyle(_ style: String) async throws {
+        try await setConfigValue("summarizer.promptStyle", to: style)
+    }
+
+    public func setSummarizerMaxSentences(_ value: Int) async throws {
+        try await setConfigValue("summarizer.maxSentences", to: String(value))
+    }
+
+    public func setSummarizerMaxSummaryChars(_ value: Int) async throws {
+        try await setConfigValue("summarizer.maxSummaryChars", to: String(value))
+    }
+
+    public func setSummarizerSpeakQuestionsVerbatim(_ value: Bool) async throws {
+        try await setConfigValue("summarizer.speakQuestionsVerbatim", to: value ? "true" : "false")
+    }
+
+    public func summarizerPrompt(style: String, maxSentences: Int, maxSummaryChars: Int) async throws -> String {
+        let result = try await run([
+            "summarizer", "prompt",
+            "--style", style,
+            "--max-sentences", String(maxSentences),
+            "--max-chars", String(maxSummaryChars),
+        ])
+        return result.stdout
+    }
+
     public func clearQueue() async throws {
         _ = try await run(["queue", "clear"])
     }

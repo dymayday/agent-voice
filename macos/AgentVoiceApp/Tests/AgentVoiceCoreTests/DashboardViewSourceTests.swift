@@ -82,6 +82,19 @@ final class DashboardViewSourceTests: XCTestCase {
         XCTAssertTrue(section.contains("Text(\"Voice disabled\")"))
     }
 
+    func testDashboardPreservesSummarizerPromptKnobControls() throws {
+        let source = try appSources()
+
+        XCTAssertTrue(source.contains("Prompt style"))
+        XCTAssertTrue(source.contains("Max sentences"))
+        XCTAssertTrue(source.contains("Max characters"))
+        XCTAssertFalse(source.contains("Save Style"))
+        XCTAssertFalse(source.contains("private var summaryLengthControls"))
+        // The read-only rows deep-link to the Summary voice setup tab.
+        XCTAssertTrue(source.contains("summaryVoiceRow"))
+        XCTAssertTrue(source.contains("model.requestSetupStep(.summaryVoice)"))
+    }
+
     func testAgentCardGatesInstallButtonsOnState() throws {
         let source = try dashboardViewSource()
         let controls = try functionBody(named: "agentHookControls", in: source)
