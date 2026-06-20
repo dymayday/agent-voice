@@ -109,4 +109,33 @@ describe("agent-voice CLI", () => {
 			rmSync(home, { recursive: true, force: true });
 		}
 	});
+
+	test("summarizer prompt renders the assembled prompt for the given knobs", async () => {
+		const home = mkdtempSync(join(tmpdir(), "agent-voice-cli-prompt-"));
+		try {
+			const result = await runCli(
+				["summarizer", "prompt", "--style", "terse", "--max-sentences", "2", "--max-chars", "240"],
+				{ env: { AGENT_VOICE_HOME: home } },
+			);
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("at most 2 sentences");
+			expect(result.stdout).toContain("about 240 characters");
+			expect(result.stdout).toContain("Be as brief as possible");
+			expect(result.stdout).toContain("[the agent's last message]");
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	test("summarizer prompt rejects an invalid style", async () => {
+		const home = mkdtempSync(join(tmpdir(), "agent-voice-cli-prompt-invalid-"));
+		try {
+			const result = await runCli(["summarizer", "prompt", "--style", "shouty"], {
+				env: { AGENT_VOICE_HOME: home },
+			});
+			expect(result.exitCode).toBe(2);
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
 });
