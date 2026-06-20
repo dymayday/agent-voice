@@ -254,9 +254,9 @@ private extension DashboardView {
                 voiceControls
                 labeledRow("Summarizer thinking", model.config?.summarizer.thinking ?? "Unknown")
                 thinkingControls
-                labeledRow("Prompt style", model.config?.summarizer.promptStyle ?? "Unknown")
-                labeledRow("Max sentences", model.config.map { String($0.summarizer.maxSentences) } ?? "Unknown")
-                labeledRow("Max characters", model.config.map { String($0.summarizer.maxSummaryChars) } ?? "Unknown")
+                summaryVoiceRow("Prompt style", model.config?.summarizer.promptStyle ?? "Unknown")
+                summaryVoiceRow("Max sentences", model.config.map { String($0.summarizer.maxSentences) } ?? "Unknown")
+                summaryVoiceRow("Max characters", model.config.map { String($0.summarizer.maxSummaryChars) } ?? "Unknown")
                 labeledRow(model.summarizerModelInUseLabel, model.summarizerModelInUseValue)
                 summarizerModelControls
                 labeledRow("Kokoro script", model.config?.tts.kokoroScript ?? "Unknown")
@@ -273,6 +273,33 @@ private extension DashboardView {
                 }
             }
         }
+    }
+
+    // Read-only summarizer values that deep-link to the Summary voice setup tab,
+    // where they are edited. The chevron + tooltip signal the row is actionable.
+    @ViewBuilder
+    private func summaryVoiceRow(_ title: String, _ value: String) -> some View {
+        Button {
+            model.requestSetupStep(.summaryVoice)
+            openSetup()
+        } label: {
+            HStack(alignment: .firstTextBaseline) {
+                Text(title)
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 12)
+                Text(value)
+                    .multilineTextAlignment(.trailing)
+                    .lineLimit(2)
+                Image(systemName: "chevron.right")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            .font(.subheadline)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Edit in Setup → Summary voice")
+        .accessibilityHint("Opens the Summary voice setup tab")
     }
 
     @ViewBuilder
