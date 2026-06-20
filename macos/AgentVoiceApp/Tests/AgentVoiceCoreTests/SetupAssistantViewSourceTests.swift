@@ -7,6 +7,9 @@ final class SetupAssistantViewSourceTests: XCTestCase {
         XCTAssertTrue(source.contains("model.summaryVoicePromptPreview"))
         XCTAssertTrue(source.contains("model.refreshSummaryVoicePrompt()"))
         XCTAssertTrue(source.contains("Button(\"Copy\")"))
+        // Refresh is driven by the open state + drafts so changing style while open updates it.
+        XCTAssertTrue(source.contains("isExpanded: $promptExpanded"))
+        XCTAssertTrue(source.contains("guard promptExpanded else { return }"))
     }
 
     func testSummaryVoiceTabRendersStyleLengthAndQuestionControls() throws {

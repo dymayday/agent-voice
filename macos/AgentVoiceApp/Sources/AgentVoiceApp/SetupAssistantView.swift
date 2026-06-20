@@ -13,6 +13,7 @@ struct SetupAssistantView: View {
     @ObservedObject var model: AppModel
     @Environment(\.openWindow) private var openWindow
     @State private var selectedStep: SetupStep = .welcome
+    @State private var promptExpanded = false
 
     var body: some View {
         HStack(spacing: 0) {
@@ -212,7 +213,7 @@ struct SetupAssistantView: View {
                     .foregroundStyle(.secondary)
             }
 
-            DisclosureGroup("What the model is told") {
+            DisclosureGroup("What the model is told", isExpanded: $promptExpanded) {
                 VStack(alignment: .leading, spacing: 8) {
                     if model.summaryVoicePromptPreview.isEmpty {
                         Text("Loading…")
@@ -233,17 +234,23 @@ struct SetupAssistantView: View {
                     .disabled(model.summaryVoicePromptPreview.isEmpty)
                 }
                 .padding(.top, 4)
-                .task(id: "\(model.draftPromptStyle)|\(model.draftMaxSentences)|\(model.draftMaxSummaryChars)") {
-                    try? await Task.sleep(nanoseconds: 250_000_000)  // debounce rapid edits
-                    if Task.isCancelled { return }
-                    await model.refreshSummaryVoicePrompt()
-                }
             }
 
             Button("Save changes") {
                 Task { await model.saveSummaryVoice() }
             }
             .disabled(!model.summaryVoiceCanSave)
+        }
+        // Refresh the preview whenever the panel is open and the draft selection
+        // changes (style / sentences / characters). Keyed on the open state too, so
+        // expanding triggers the initial fetch. Attached to the always-present
+        // container — not the disclosure's content — so it fires reliably when the
+        // user picks a different style while the panel is open.
+        .task(id: "\(promptExpanded)|\(model.draftPromptStyle)|\(model.draftMaxSentences)|\(model.draftMaxSummaryChars)") {
+            guard promptExpanded else { return }
+            try? await Task.sleep(nanoseconds: 250_000_000)  // debounce rapid edits
+            if Task.isCancelled { return }
+            await model.refreshSummaryVoicePrompt()
         }
     }
 
