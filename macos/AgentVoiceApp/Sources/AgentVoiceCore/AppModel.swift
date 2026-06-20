@@ -17,6 +17,9 @@ public final class AppModel: ObservableObject {
     @Published public var draftVoice: String = ""
     @Published public var draftThinking: String = "off"
     @Published public var draftSummarizerModel: String = ""
+    @Published public var draftPromptStyle: String = ""
+    @Published public var draftMaxSentences: String = ""
+    @Published public var draftMaxSummaryChars: String = ""
 
     public static let defaultAutoRefreshIntervalNanoseconds: UInt64 = 2_000_000_000
     public static let defaultDiagnosticsRefreshEveryTicks = 15  // 15 * 2s ≈ 30s
@@ -71,6 +74,9 @@ public final class AppModel: ObservableObject {
     ]
 
     public static let summarizerThinkingOptions = ["off", "minimal", "low", "medium", "high", "xhigh"]
+    public static let summarizerPromptStyleOptions = [
+        "default", "terse", "status-about", "triage", "conversational"
+    ]
 
     public let cli: AgentVoiceCLI
 
@@ -198,6 +204,19 @@ extension AppModel {
             }
 
             draftThinking = refreshedConfig.summarizer.thinking
+
+            let currentPromptStyle = refreshedConfig.summarizer.promptStyle
+            if draftPromptStyle.isEmpty || draftPromptStyle == currentPromptStyle {
+                draftPromptStyle = currentPromptStyle
+            }
+            let currentMaxSentences = String(refreshedConfig.summarizer.maxSentences)
+            if draftMaxSentences.isEmpty || draftMaxSentences == currentMaxSentences {
+                draftMaxSentences = currentMaxSentences
+            }
+            let currentMaxSummaryChars = String(refreshedConfig.summarizer.maxSummaryChars)
+            if draftMaxSummaryChars.isEmpty || draftMaxSummaryChars == currentMaxSummaryChars {
+                draftMaxSummaryChars = currentMaxSummaryChars
+            }
 
             let currentSummarizerModel = summarizerModelBinding(from: refreshedConfig.summarizer)?.current ?? ""
             if draftSummarizerModel.isEmpty || draftSummarizerModel == currentSummarizerModel {
@@ -480,6 +499,38 @@ extension AppModel {
             return
         }
         await perform { try await cli.setSummarizerThinking(thinking) }
+    }
+
+    public func savePromptStyle() async {
+        let style = draftPromptStyle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard Self.summarizerPromptStyleOptions.contains(style) else {
+            lastActionError = "Unsupported prompt style"
+            recomputeLastError()
+            return
+        }
+        await perform { try await self.cli.setSummarizerPromptStyle(style) }
+    }
+
+    public func saveMaxSentences() async {
+        let trimmed = draftMaxSentences.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let value = Int(trimmed), value >= 1 else {
+            lastActionError = "Max sentences must be a whole number of at least 1"
+            recomputeLastError()
+            return
+        }
+        draftMaxSentences = String(value)
+        await perform { try await self.cli.setSummarizerMaxSentences(value) }
+    }
+
+    public func saveMaxSummaryChars() async {
+        let trimmed = draftMaxSummaryChars.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let value = Int(trimmed), value >= 1 else {
+            lastActionError = "Max characters must be a whole number of at least 1"
+            recomputeLastError()
+            return
+        }
+        draftMaxSummaryChars = String(value)
+        await perform { try await self.cli.setSummarizerMaxSummaryChars(value) }
     }
 
     public var summarizerModelInUseLabel: String {

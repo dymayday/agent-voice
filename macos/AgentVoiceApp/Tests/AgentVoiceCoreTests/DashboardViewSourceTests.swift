@@ -82,6 +82,15 @@ final class DashboardViewSourceTests: XCTestCase {
         XCTAssertTrue(section.contains("Text(\"Voice disabled\")"))
     }
 
+    func testDashboardPreservesSummarizerPromptKnobControls() throws {
+        let source = try appSources()
+
+        XCTAssertTrue(source.contains("Prompt style"))
+        XCTAssertTrue(source.contains("Save Style"))
+        XCTAssertTrue(source.contains("Max sentences"))
+        XCTAssertTrue(source.contains("Max characters"))
+    }
+
     func testAgentCardGatesInstallButtonsOnState() throws {
         let source = try dashboardViewSource()
         let controls = try functionBody(named: "agentHookControls", in: source)

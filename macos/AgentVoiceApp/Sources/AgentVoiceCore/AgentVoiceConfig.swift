@@ -45,19 +45,28 @@ public struct SummarizerConfig: Codable, Equatable, Sendable {
     public let codexModel: String
     public let opencodeModel: String?
     public let priority: [String]
+    public let promptStyle: String
+    public let maxSentences: Int
+    public let maxSummaryChars: Int
 
     public init(
         thinking: String = "off",
         piModel: String = "openai-codex/gpt-5.5",
         codexModel: String = "gpt-5.3-codex",
         opencodeModel: String? = nil,
-        priority: [String] = ["pi-fast", "codex-fast", "heuristic"]
+        priority: [String] = ["pi-fast", "codex-fast", "heuristic"],
+        promptStyle: String = "default",
+        maxSentences: Int = 1,
+        maxSummaryChars: Int = 180
     ) {
         self.thinking = thinking
         self.piModel = piModel
         self.codexModel = codexModel
         self.opencodeModel = opencodeModel
         self.priority = priority
+        self.promptStyle = promptStyle
+        self.maxSentences = maxSentences
+        self.maxSummaryChars = maxSummaryChars
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -66,6 +75,9 @@ public struct SummarizerConfig: Codable, Equatable, Sendable {
         case codexModel = "codexModel"
         case opencodeModel = "opencodeModel"
         case priority
+        case promptStyle
+        case maxSentences
+        case maxSummaryChars
     }
 
     public init(from decoder: Decoder) throws {
@@ -76,6 +88,9 @@ public struct SummarizerConfig: Codable, Equatable, Sendable {
         opencodeModel = try container.decodeIfPresent(String.self, forKey: .opencodeModel)
         priority = try container.decodeIfPresent([String].self, forKey: .priority)
             ?? ["pi-fast", "codex-fast", "heuristic"]
+        promptStyle = try container.decodeIfPresent(String.self, forKey: .promptStyle) ?? "default"
+        maxSentences = try container.decodeIfPresent(Int.self, forKey: .maxSentences) ?? 1
+        maxSummaryChars = try container.decodeIfPresent(Int.self, forKey: .maxSummaryChars) ?? 180
     }
 }
 
