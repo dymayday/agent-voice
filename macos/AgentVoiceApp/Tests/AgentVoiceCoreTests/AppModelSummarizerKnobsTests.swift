@@ -50,6 +50,7 @@ final class AppModelSummarizerKnobsTests: XCTestCase {
         XCTAssertEqual(model.draftPromptStyle, "default")
         XCTAssertEqual(model.draftMaxSentences, "1")
         XCTAssertEqual(model.draftMaxSummaryChars, "180")
+        XCTAssertTrue(model.draftSpeakQuestionsVerbatim)
     }
 
     func testRefreshPreservesInProgressKnobEdits() async throws {
@@ -74,8 +75,11 @@ final class AppModelSummarizerKnobsTests: XCTestCase {
         XCTAssertEqual(model.draftMaxSummaryChars, "500")
     }
 
-    func testSavePromptStyleIssuesConfigSetThenRefreshes() async throws {
+    func testSaveSummaryVoiceIssuesAllFourSetsThenRefreshes() async throws {
         let runner = RecordingRunner(results: [
+            ProcessResult(exitCode: 0, stdout: "", stderr: ""),
+            ProcessResult(exitCode: 0, stdout: "", stderr: ""),
+            ProcessResult(exitCode: 0, stdout: "", stderr: ""),
             ProcessResult(exitCode: 0, stdout: "", stderr: ""),
             ProcessResult(exitCode: 0, stdout: statusJSON(), stderr: ""),
             ProcessResult(exitCode: 0, stdout: doneHistoryJSON, stderr: ""),
@@ -85,23 +89,55 @@ final class AppModelSummarizerKnobsTests: XCTestCase {
         let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
         let model = AppModel(cli: cli)
         model.draftPromptStyle = "triage"
+        model.draftMaxSentences = "2"
+        model.draftMaxSummaryChars = "240"
+        model.draftSpeakQuestionsVerbatim = false
 
-        await model.savePromptStyle()
+        await model.saveSummaryVoice()
 
         let requests = await runner.capturedRequests()
-        XCTAssertEqual(requests.first?.arguments, ["config", "set", "summarizer.promptStyle", "triage"])
+        XCTAssertEqual(Array(requests.prefix(4)).map(\.arguments), [
+            ["config", "set", "summarizer.promptStyle", "triage"],
+            ["config", "set", "summarizer.maxSentences", "2"],
+            ["config", "set", "summarizer.maxSummaryChars", "240"],
+            ["config", "set", "summarizer.speakQuestionsVerbatim", "false"]
+        ])
     }
 
-    func testSaveMaxSentencesRejectsNonPositiveWithoutCallingCLI() async throws {
+    func testSaveSummaryVoiceRejectsBadCharsWithoutCallingCLI() async throws {
         let runner = RecordingRunner(results: [])
         let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
         let model = AppModel(cli: cli)
-        model.draftMaxSentences = "0"
+        model.draftPromptStyle = "terse"
+        model.draftMaxSentences = "2"
+        model.draftMaxSummaryChars = "0"
 
-        await model.saveMaxSentences()
+        await model.saveSummaryVoice()
 
         let requests = await runner.capturedRequests()
         XCTAssertTrue(requests.isEmpty)
         XCTAssertNotNil(model.lastError)
+    }
+
+    func testSummaryVoiceCanSaveReflectsDirtyAndValidity() async throws {
+        let runner = RecordingRunner(results: [
+            ProcessResult(exitCode: 0, stdout: statusJSON(), stderr: ""),
+            ProcessResult(exitCode: 0, stdout: doneHistoryJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: runningDoctorJSON, stderr: ""),
+            ProcessResult(exitCode: 0, stdout: fullConfigJSON(), stderr: "")
+        ])
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+        let model = AppModel(cli: cli)
+        await model.refresh()
+
+        XCTAssertFalse(model.summaryVoiceCanSave)              // clean
+        model.draftMaxSentences = "3"
+        XCTAssertTrue(model.summaryVoiceCanSave)               // dirty + valid
+        model.draftMaxSentences = "0"
+        XCTAssertFalse(model.summaryVoiceCanSave)              // invalid
+        model.draftMaxSentences = "1"
+        XCTAssertFalse(model.summaryVoiceCanSave)              // back to clean
+        model.draftSpeakQuestionsVerbatim = false
+        XCTAssertTrue(model.summaryVoiceCanSave)               // toggle is part of dirty check
     }
 }

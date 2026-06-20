@@ -2,6 +2,7 @@ public enum SetupStep: String, CaseIterable, Identifiable, Equatable, Sendable {
     case welcome
     case kokoro
     case summaries
+    case summaryVoice
     case agents
     case daemon
     case finish
@@ -16,6 +17,8 @@ public enum SetupStep: String, CaseIterable, Identifiable, Equatable, Sendable {
             "Kokoro"
         case .summaries:
             "Summaries"
+        case .summaryVoice:
+            "Summary voice"
         case .agents:
             "Agents"
         case .daemon:

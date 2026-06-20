@@ -118,6 +118,8 @@ struct SetupAssistantView: View {
                     }
                 }
             }
+        case .summaryVoice:
+            summaryVoiceContent
         case .agents:
             VStack(alignment: .leading, spacing: 12) {
                 Text("Agent enable/disable controls are intentionally explicit.")
@@ -148,6 +150,71 @@ struct SetupAssistantView: View {
                 )
                 .foregroundStyle(.secondary)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var summaryVoiceContent: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            Text("How spoken notifications sound when an agent finishes.")
+                .foregroundStyle(.secondary)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("STYLE")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Picker("Style", selection: $model.draftPromptStyle) {
+                    ForEach(AppModel.summarizerPromptStyleCatalog) { style in
+                        Text(style.name).tag(style.id)
+                    }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                if let info = AppModel.summarizerPromptStyleCatalog.first(where: { $0.id == model.draftPromptStyle }) {
+                    Text(info.detail)
+                    Text("e.g. \"\(info.example)\"")
+                        .foregroundStyle(.secondary)
+                        .italic()
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("LENGTH")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                HStack {
+                    Text("Max sentences")
+                    TextField("1", text: $model.draftMaxSentences)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 80)
+                }
+                HStack {
+                    Text("Max characters")
+                    TextField("180", text: $model.draftMaxSummaryChars)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 80)
+                    if let chars = Int(model.draftMaxSummaryChars.trimmingCharacters(in: .whitespacesAndNewlines)), chars > 0 {
+                        Text("~\(max(1, chars / 15))s of speech")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("QUESTIONS")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Toggle("Speak questions and approvals word-for-word", isOn: $model.draftSpeakQuestionsVerbatim)
+                Text("Off shortens them like other summaries; you may lose the exact options.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Button("Save changes") {
+                Task { await model.saveSummaryVoice() }
+            }
+            .disabled(!model.summaryVoiceCanSave)
         }
     }
 

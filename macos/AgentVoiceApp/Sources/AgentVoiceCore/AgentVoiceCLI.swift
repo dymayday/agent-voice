@@ -218,6 +218,10 @@ public struct AgentVoiceCLI: Sendable {
         try await setConfigValue("summarizer.maxSummaryChars", to: String(value))
     }
 
+    public func setSummarizerSpeakQuestionsVerbatim(_ value: Bool) async throws {
+        try await setConfigValue("summarizer.speakQuestionsVerbatim", to: value ? "true" : "false")
+    }
+
     public func clearQueue() async throws {
         _ = try await run(["queue", "clear"])
     }

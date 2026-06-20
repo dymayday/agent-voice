@@ -255,10 +255,8 @@ private extension DashboardView {
                 labeledRow("Summarizer thinking", model.config?.summarizer.thinking ?? "Unknown")
                 thinkingControls
                 labeledRow("Prompt style", model.config?.summarizer.promptStyle ?? "Unknown")
-                promptStyleControls
                 labeledRow("Max sentences", model.config.map { String($0.summarizer.maxSentences) } ?? "Unknown")
                 labeledRow("Max characters", model.config.map { String($0.summarizer.maxSummaryChars) } ?? "Unknown")
-                summaryLengthControls
                 labeledRow(model.summarizerModelInUseLabel, model.summarizerModelInUseValue)
                 summarizerModelControls
                 labeledRow("Kokoro script", model.config?.tts.kokoroScript ?? "Unknown")
@@ -317,46 +315,6 @@ private extension DashboardView {
                 Task { await model.saveThinking() }
             }
             .disabled(!options.contains(model.draftThinking.trimmingCharacters(in: .whitespacesAndNewlines)))
-        }
-    }
-
-    @ViewBuilder
-    private var promptStyleControls: some View {
-        let options = AppModel.summarizerPromptStyleOptions
-        VStack(alignment: .leading, spacing: 8) {
-            Picker("Prompt style", selection: $model.draftPromptStyle) {
-                ForEach(options, id: \.self) { style in
-                    Text(style).tag(style)
-                }
-            }
-            .pickerStyle(.menu)
-
-            Button("Save Style") {
-                Task { await model.savePromptStyle() }
-            }
-            .disabled(!options.contains(model.draftPromptStyle.trimmingCharacters(in: .whitespacesAndNewlines)))
-        }
-    }
-
-    @ViewBuilder
-    private var summaryLengthControls: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                TextField("Max sentences", text: $model.draftMaxSentences)
-                    .textFieldStyle(.roundedBorder)
-                Button("Save") {
-                    Task { await model.saveMaxSentences() }
-                }
-                .disabled(Int(model.draftMaxSentences.trimmingCharacters(in: .whitespacesAndNewlines)) == nil)
-            }
-            HStack {
-                TextField("Max characters", text: $model.draftMaxSummaryChars)
-                    .textFieldStyle(.roundedBorder)
-                Button("Save") {
-                    Task { await model.saveMaxSummaryChars() }
-                }
-                .disabled(Int(model.draftMaxSummaryChars.trimmingCharacters(in: .whitespacesAndNewlines)) == nil)
-            }
         }
     }
 

@@ -86,9 +86,10 @@ final class DashboardViewSourceTests: XCTestCase {
         let source = try appSources()
 
         XCTAssertTrue(source.contains("Prompt style"))
-        XCTAssertTrue(source.contains("Save Style"))
         XCTAssertTrue(source.contains("Max sentences"))
         XCTAssertTrue(source.contains("Max characters"))
+        XCTAssertFalse(source.contains("Save Style"))
+        XCTAssertFalse(source.contains("private var summaryLengthControls"))
     }
 
     func testAgentCardGatesInstallButtonsOnState() throws {

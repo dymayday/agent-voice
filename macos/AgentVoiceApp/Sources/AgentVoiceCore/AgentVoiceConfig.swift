@@ -48,6 +48,7 @@ public struct SummarizerConfig: Codable, Equatable, Sendable {
     public let promptStyle: String
     public let maxSentences: Int
     public let maxSummaryChars: Int
+    public let speakQuestionsVerbatim: Bool
 
     public init(
         thinking: String = "off",
@@ -57,7 +58,8 @@ public struct SummarizerConfig: Codable, Equatable, Sendable {
         priority: [String] = ["pi-fast", "codex-fast", "heuristic"],
         promptStyle: String = "default",
         maxSentences: Int = 1,
-        maxSummaryChars: Int = 180
+        maxSummaryChars: Int = 180,
+        speakQuestionsVerbatim: Bool = true
     ) {
         self.thinking = thinking
         self.piModel = piModel
@@ -67,6 +69,7 @@ public struct SummarizerConfig: Codable, Equatable, Sendable {
         self.promptStyle = promptStyle
         self.maxSentences = maxSentences
         self.maxSummaryChars = maxSummaryChars
+        self.speakQuestionsVerbatim = speakQuestionsVerbatim
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -78,6 +81,7 @@ public struct SummarizerConfig: Codable, Equatable, Sendable {
         case promptStyle
         case maxSentences
         case maxSummaryChars
+        case speakQuestionsVerbatim
     }
 
     public init(from decoder: Decoder) throws {
@@ -91,6 +95,7 @@ public struct SummarizerConfig: Codable, Equatable, Sendable {
         promptStyle = try container.decodeIfPresent(String.self, forKey: .promptStyle) ?? "default"
         maxSentences = try container.decodeIfPresent(Int.self, forKey: .maxSentences) ?? 1
         maxSummaryChars = try container.decodeIfPresent(Int.self, forKey: .maxSummaryChars) ?? 180
+        speakQuestionsVerbatim = try container.decodeIfPresent(Bool.self, forKey: .speakQuestionsVerbatim) ?? true
     }
 }
 
