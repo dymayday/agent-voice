@@ -3,6 +3,7 @@ import {
 	existsSync,
 	mkdtempSync,
 	readFileSync,
+	readdirSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
@@ -134,7 +135,11 @@ describe("agent-voice Kokoro TTS bridge", () => {
 					expect(readFileSync(playedPath).equals(wavBuffer())).toBe(true);
 					return { ok: true };
 				},
-				{ timeoutMs: 1234 },
+				{
+					timeoutMs: 1234,
+					platform: "darwin",
+					commandExists: async (command) => command === "afplay",
+				},
 			);
 
 			expect(calls).toHaveLength(1);
@@ -148,14 +153,63 @@ describe("agent-voice Kokoro TTS bridge", () => {
 			let playedPath = "";
 
 			await expect(
-				playWav(wavBuffer(), paths, async (request) => {
-					playedPath = request.args[0];
-					expect(existsSync(playedPath)).toBe(true);
-					return { ok: false, exitCode: 1, stderr: "speaker busy" };
-				}),
+				playWav(
+					wavBuffer(),
+					paths,
+					async (request) => {
+						playedPath = request.args[0];
+						expect(existsSync(playedPath)).toBe(true);
+						return { ok: false, exitCode: 1, stderr: "speaker busy" };
+					},
+					{
+						platform: "darwin",
+						commandExists: async (command) => command === "afplay",
+					},
+				),
 			).rejects.toThrow("afplay failed");
 
 			expect(existsSync(playedPath)).toBe(false);
+		});
+	});
+
+	test("playWav uses paplay on Linux when available", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			const calls: PlaybackRunRequest[] = [];
+
+			await playWav(
+				wavBuffer(),
+				paths,
+				async (request) => {
+					calls.push(request);
+					return { ok: true };
+				},
+				{
+					platform: "linux",
+					commandExists: async (command) => command === "paplay",
+				},
+			);
+
+			expect(calls).toEqual([expect.objectContaining({ cmd: "paplay" })]);
+		});
+	});
+
+	test("playWav deletes temp wav after Linux playback failure", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+
+			await expect(
+				playWav(
+					wavBuffer(),
+					paths,
+					async () => ({ ok: false, stderr: "no device" }),
+					{
+						platform: "linux",
+						commandExists: async (command) => command === "paplay",
+					},
+				),
+			).rejects.toThrow("paplay failed");
+			expect(readdirSync(join(paths.run, "audio"))).toHaveLength(0);
 		});
 	});
 
@@ -174,7 +228,11 @@ describe("agent-voice Kokoro TTS bridge", () => {
 						expect(existsSync(playedPath)).toBe(true);
 						throw new Error("afplay timed out");
 					},
-					{ timeoutMs: 5 },
+					{
+						timeoutMs: 5,
+						platform: "darwin",
+						commandExists: async (command) => command === "afplay",
+					},
 				),
 			).rejects.toThrow("afplay timed out");
 
@@ -263,8 +321,14 @@ describe("agent-voice Kokoro TTS bridge", () => {
 	test("Kokoro retry failure includes the original failure context", async () => {
 		const sessions: FakeKokoroSession[] = [];
 		const lineSets = [
-			[JSON.stringify({ status: "ready" }), JSON.stringify({ error: "first boom" })],
-			[JSON.stringify({ status: "ready" }), JSON.stringify({ error: "second boom" })],
+			[
+				JSON.stringify({ status: "ready" }),
+				JSON.stringify({ error: "first boom" }),
+			],
+			[
+				JSON.stringify({ status: "ready" }),
+				JSON.stringify({ error: "second boom" }),
+			],
 		];
 		const client = new KokoroClient(defaultConfig, () => {
 			const session = new FakeKokoroSession(lineSets[sessions.length]);

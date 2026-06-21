@@ -12,11 +12,25 @@
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "build:macos": "bash scripts/build-macos-app.sh",
-    "clean:cache": "bash scripts/build-macos-app.sh clean-cache"
+    "clean:cache": "bash scripts/build-macos-app.sh clean-cache",
+    "dev:linux": "bun linux/electron/dev-runner.ts electron",
+    "build:linux-main": "bun linux/electron/build-main.ts",
+    "build:linux-renderer": "vite build --config linux/electron/vite.config.ts",
+    "test:renderer": "vitest run --config linux/electron/vite.config.ts",
+    "check:renderer": "svelte-check --tsconfig linux/electron/tsconfig.json"
   },
   "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "latest",
+    "@testing-library/jest-dom": "latest",
+    "@testing-library/svelte": "latest",
     "@types/node": "latest",
     "bun-types": "latest",
-    "typescript": "latest"
+    "electron": "latest",
+    "jsdom": "latest",
+    "svelte": "^5.0.0",
+    "svelte-check": "latest",
+    "typescript": "latest",
+    "vite": "latest",
+    "vitest": "latest"
   }
 }

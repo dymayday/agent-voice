@@ -11,8 +11,9 @@
 > macOS menu-bar app that speaks a one-line summary when a coding agent
 > finishes.
 
-Agent Voice is app-first. The SwiftUI menu-bar app is the main way to run it;
+Agent Voice is app-first. The SwiftUI menu-bar app is the main supported app;
 the Bun/TypeScript CLI is the local engine used for setup, hooks, and debugging.
+A Linux Electron sibling app is now available as a dev-build Operator Console.
 
 ## App-first quick start
 
@@ -48,11 +49,46 @@ Then use the waveform menu-bar icon:
 5. Open **Dashboard** for queue, history, diagnostics, voice, summarizer, and
    repair controls.
 
+## Linux Electron dev app
+
+Linux v1 ships as a dev-build sibling app, not a packaged production app. It
+uses the same Bun/TypeScript app-service layer and local queue/daemon/Kokoro
+engine as the CLI and macOS app, with a Svelte + Vite + TypeScript renderer and
+a narrow typed preload IPC surface.
+
+```bash
+bun install
+bun run dev:linux
+```
+
+The Operator Console includes:
+
+- **Home / Signal Feed** for daemon, Kokoro, playback, queue, and first-run
+  actions.
+- **Voice Bench** for sound checks, voice selection, and summarizer privacy
+  labels.
+- **Queue & History** for pending, processing, done, skipped, and failed jobs,
+  plus guarded queue cleanup.
+- **Setup & Repair** for consent-gated Kokoro setup with session-scoped progress
+  events and best-effort cancel.
+- **Hooks**, **Diagnostics**, and **Settings** panels for agent hook state,
+  privacy-safe snapshots, summarizer settings, and Desktop Capsule opt-in.
+
+The renderer has no Node access. Electron exposes only allowlisted app actions;
+there is no generic `ipcRenderer`, shell, filesystem, SQL, spawn, or exec escape
+hatch. The optional Desktop Capsule uses a separate capsule-only preload with
+safe actions only: **Open Console**, **Speak Latest**, and **View Queue**.
+
+Linux playback probes `paplay` first and falls back to `aplay`. Install one of
+those tools before expecting sound from the Linux app. Pause/resume controls are
+intentionally hidden in Linux v1.
+
 ## Requirements
 
-- macOS 13+.
+- macOS 13+ for the SwiftUI menu-bar app.
+- Linux with `paplay` or `aplay` for the Electron dev app.
 - [Bun](https://bun.sh/) on your `PATH`.
-- Swift/Xcode command-line tools to build the app.
+- Swift/Xcode command-line tools to build the macOS app.
 - Network access and local disk space during Kokoro setup for managed `uv`,
   Python packages, and Kokoro model files.
 - Optional summarizer CLIs: `codex`, `pi`, or `opencode`. Missing CLIs fall
@@ -216,6 +252,11 @@ AGENT_VOICE_EXECUTABLE=/path/to/agent-voice \
 ```bash
 bun test
 bun run typecheck
+bun run test:renderer
+bun run check:renderer
+bun run build:linux-renderer
+bun run build:linux-main
+bun run dev:linux
 swift test --package-path macos/AgentVoiceApp
 swift build --package-path macos/AgentVoiceApp
 bun run build:macos

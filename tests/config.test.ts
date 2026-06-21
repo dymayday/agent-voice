@@ -146,6 +146,7 @@ describe("agent-voice config and paths", () => {
 		expect(defaultConfig.summarizer.thinking).toBe("off");
 		expect(defaultConfig.tts.kokoroScript).not.toContain("/Users/");
 		expect(defaultConfig.tts.kokoroScript).toBe("");
+		expect(defaultConfig.ui.desktopCapsule.enabled).toBe(false);
 	});
 
 	test("setConfigValue updates known dotted leaf paths and rejects unsafe paths", () => {
@@ -198,6 +199,7 @@ describe("agent-voice config and paths", () => {
 				"spool",
 				"summarizer",
 				"tts",
+				"ui",
 			]);
 			expect((config.summarizer as Record<string, unknown>).codexModel).toBe(
 				"gpt-5.3-codex",
@@ -275,6 +277,26 @@ describe("agent-voice config and paths", () => {
 			expect(config.spool.retentionDays).toBe(
 				defaultConfig.spool.retentionDays,
 			);
+			expect(config.ui.desktopCapsule.enabled).toBe(false);
+		});
+	});
+
+	test("loadConfig rejects unsafe merge keys without prototype pollution", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			writeFileSync(
+				paths.config,
+				'{"agents":{"__proto__":{"polluted":"yes"}}}',
+			);
+
+			try {
+				expect(() => loadConfig(paths)).toThrow("Unsafe config path");
+				expect(
+					(Object.prototype as Record<string, unknown>).polluted,
+				).toBeUndefined();
+			} finally {
+				delete (Object.prototype as Record<string, unknown>).polluted;
+			}
 		});
 	});
 
@@ -292,6 +314,18 @@ describe("agent-voice config and paths", () => {
 				loadConfig(resolvePaths({ AGENT_VOICE_HOME: home })).summarizer
 					.timeoutSeconds,
 			).toBe(8);
+
+			const capsuleResult = await runCli(
+				["config", "set", "ui.desktopCapsule.enabled", "true"],
+				{
+					env: { AGENT_VOICE_HOME: home },
+				},
+			);
+			expect(capsuleResult.exitCode).toBe(0);
+			expect(
+				loadConfig(resolvePaths({ AGENT_VOICE_HOME: home })).ui.desktopCapsule
+					.enabled,
+			).toBe(true);
 		});
 	});
 

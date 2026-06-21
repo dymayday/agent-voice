@@ -56,6 +56,11 @@ export interface AgentVoiceConfig {
 		maxAttempts: number;
 		retryBackoffSeconds: number;
 	};
+	ui: {
+		desktopCapsule: {
+			enabled: boolean;
+		};
+	};
 }
 
 export const AGENT_NAMES: AgentName[] = ["claude", "codex", "pi", "opencode"];
@@ -100,6 +105,9 @@ export const defaultConfig: AgentVoiceConfig = {
 		maxAttempts: 3,
 		retryBackoffSeconds: 30,
 	},
+	ui: {
+		desktopCapsule: { enabled: false },
+	},
 };
 
 const PROMPT_STYLE_NAMES: SummarizerPromptStyle[] = [
@@ -132,6 +140,18 @@ function cloneConfig(config: AgentVoiceConfig): AgentVoiceConfig {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+const UNSAFE_PATH_PARTS = new Set(["__proto__", "prototype", "constructor"]);
+
+function hasOwn(object: object, key: string): boolean {
+	return Object.hasOwn(object, key);
+}
+
+function assertSafePath(parts: string[], dottedPath: string): void {
+	if (parts.some((part) => UNSAFE_PATH_PARTS.has(part))) {
+		throw new Error(`Unsafe config path: ${dottedPath}`);
+	}
 }
 
 function invalidConfig(path: string, expected: string): never {
@@ -303,19 +323,28 @@ export function validateConfig(config: AgentVoiceConfig): AgentVoiceConfig {
 		{ min: 0 },
 	);
 
+	if (!isRecord(config.ui)) invalidConfig("ui", "object");
+	if (!isRecord(config.ui.desktopCapsule)) {
+		invalidConfig("ui.desktopCapsule", "object");
+	}
+	assertBoolean(config.ui.desktopCapsule.enabled, "ui.desktopCapsule.enabled");
+
 	return config;
 }
 
 function mergeRecord<T extends Record<string, unknown>>(
 	target: T,
 	source: unknown,
+	path: string[] = [],
 ): T {
 	if (source === undefined) return target;
 	if (!isRecord(source)) invalidConfig("config", "object");
 	for (const [key, value] of Object.entries(source)) {
+		const keyPath = [...path, key];
+		assertSafePath(keyPath, keyPath.join("."));
 		const current = target[key];
 		if (isRecord(current) && isRecord(value) && !Array.isArray(current)) {
-			mergeRecord(current, value);
+			mergeRecord(current, value, keyPath);
 		} else {
 			target[key as keyof T] = value as T[keyof T];
 		}
@@ -383,18 +412,6 @@ function parseValue(value: string): unknown {
 	if (value === "null") return null;
 	if (/^-?\d+(\.\d+)?$/.test(value)) return Number(value);
 	return value;
-}
-
-const UNSAFE_PATH_PARTS = new Set(["__proto__", "prototype", "constructor"]);
-
-function hasOwn(object: object, key: string): boolean {
-	return Object.hasOwn(object, key);
-}
-
-function assertSafePath(parts: string[], dottedPath: string): void {
-	if (parts.some((part) => UNSAFE_PATH_PARTS.has(part))) {
-		throw new Error(`Unsafe config path: ${dottedPath}`);
-	}
 }
 
 export function setConfigValue(

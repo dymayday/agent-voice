@@ -8,6 +8,12 @@ import {
 	type KokoroProtocolSession,
 } from "./kokoro/protocol";
 import type { AgentVoicePaths } from "./paths";
+import {
+	detectPlaybackBackend,
+	limitPlaybackDiagnostic,
+	playbackCommandForPlatform,
+	type CommandExists,
+} from "./platform/playback";
 
 export interface KokoroSession extends KokoroProtocolSession {
 	writeLine(line: string): void;
@@ -32,6 +38,8 @@ export type KokoroSessionFactory = () => KokoroSession;
 
 export interface PlayWavOptions {
 	timeoutMs?: number;
+	platform?: NodeJS.Platform;
+	commandExists?: CommandExists;
 }
 
 const DEFAULT_PLAYBACK_TIMEOUT_MS = 30_000;
@@ -121,7 +129,8 @@ export class KokoroClient {
 		try {
 			return await this.speakOnce(text, voice);
 		} catch (error) {
-			const originalMessage = error instanceof Error ? error.message : String(error);
+			const originalMessage =
+				error instanceof Error ? error.message : String(error);
 			this.onRetry?.(`Kokoro TTS failed; restarting once: ${originalMessage}`);
 			this.restart();
 			try {
@@ -205,12 +214,21 @@ async function defaultPlaybackRunner(
 			streamToText(proc.stdout),
 			streamToText(proc.stderr),
 		]);
+		const boundedStdout = limitPlaybackDiagnostic(stdout);
+		const boundedStderr = limitPlaybackDiagnostic(
+			timedOut ? `${request.cmd} timed out` : stderr,
+		);
 		if (exitCode === 0 && !timedOut)
-			return { ok: true, stdout, stderr, exitCode };
+			return {
+				ok: true,
+				stdout: boundedStdout,
+				stderr: boundedStderr,
+				exitCode,
+			};
 		return {
 			ok: false,
-			stdout,
-			stderr: timedOut ? "afplay timed out" : stderr,
+			stdout: boundedStdout,
+			stderr: boundedStderr,
 			exitCode,
 		};
 	} finally {
@@ -229,14 +247,19 @@ export async function playWav(
 	const wavPath = join(dir, `agent-voice-${crypto.randomUUID()}.wav`);
 	try {
 		writeFileSync(wavPath, buffer, { flag: "wx" });
+		const backend = await detectPlaybackBackend({
+			platform: options.platform,
+			commandExists: options.commandExists,
+		});
+		if (backend.kind === "missing") throw new Error(backend.message);
+		const command = playbackCommandForPlatform(backend.name, wavPath);
 		const result = await runner({
-			cmd: "afplay",
-			args: [wavPath],
+			...command,
 			timeoutMs: options.timeoutMs ?? DEFAULT_PLAYBACK_TIMEOUT_MS,
 		});
 		if (!result.ok) {
 			throw new Error(
-				`afplay failed${result.stderr ? `: ${result.stderr}` : ""}`,
+				`${backend.name} failed${result.stderr ? `: ${result.stderr}` : ""}`,
 			);
 		}
 	} finally {
