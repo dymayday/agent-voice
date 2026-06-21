@@ -93,7 +93,9 @@ final class SetupWindowViewSourceTests: XCTestCase {
 
     func testBoardRendersASingleRepairRailFromRepairItems() throws {
         let source = try appSource("SetupBoardView.swift")
+        XCTAssertTrue(source.contains("private var boardRepairItems: [SetupCheck]"))
         XCTAssertTrue(source.contains("SetupConcernHealth.repairItems"))
+        XCTAssertTrue(source.contains("let items = boardRepairItems"))
         XCTAssertTrue(source.contains("All clear"))
         // Assert routing INSIDE performFix so an unrelated startDaemon() elsewhere
         // in the file cannot satisfy the contract.
@@ -105,6 +107,53 @@ final class SetupWindowViewSourceTests: XCTestCase {
         XCTAssertTrue(performFix.contains("case \"queue.failed.empty\":"))
         XCTAssertTrue(performFix.contains("openWindow(id: AgentVoiceWindowID.dashboard)"))
         XCTAssertTrue(performFix.contains("case SetupReadiness.kokoroScriptCheckID"))
+        XCTAssertTrue(performFix.contains("case \"summarizer.model.available\":"))
+        XCTAssertTrue(performFix.contains("expanded = .model"))
+    }
+
+    func testBoardIncludesDedicatedModelChannel() throws {
+        let source = try appSource("SetupBoardView.swift")
+        XCTAssertTrue(source.contains("private var channels: [SetupConcern] { [.voice, .summaries, .model, .agents, .daemon] }"))
+        XCTAssertTrue(source.contains("case .model:"))
+        XCTAssertTrue(source.contains("ModelChannelContent(model: model)"))
+    }
+
+    func testModelChannelHealthAndSummaryUseModelAvailability() throws {
+        let source = try appSource("SetupBoardView.swift")
+        XCTAssertTrue(source.contains("summarizerModelEditable: model.isSummarizerModelEditable"))
+        XCTAssertTrue(source.contains("summarizerModelValue: model.summarizerModelInUseValue"))
+        XCTAssertTrue(source.contains("private var modelSummary: String"))
+        XCTAssertTrue(source.contains("SetupConcernHealth.hasUsableSummarizerModelValue"))
+        XCTAssertTrue(source.contains("id: \"summarizer.model.available\""))
+        XCTAssertTrue(source.contains("title: \"Model unavailable\""))
+        XCTAssertTrue(source.contains("action: \"Open Model\""))
+        XCTAssertTrue(source.contains("Model unavailable"))
+    }
+
+    func testSetupAndDashboardUseSharedSummarizerModelControls() throws {
+        let board = try appSource("SetupBoardView.swift")
+        let modelChannel = try sourceSlice(in: board, from: "struct ModelChannelContent", to: "/// Agents channel")
+        XCTAssertTrue(modelChannel.contains("SummarizerModelControls(model: model)"))
+
+        let dashboard = try appSource("DashboardView.swift")
+        XCTAssertTrue(dashboard.contains("SummarizerModelControls(model: model)"))
+        XCTAssertFalse(dashboard.contains("private var summarizerModelControls"))
+    }
+
+    func testSharedSummarizerModelControlsMirrorDashboardBehavior() throws {
+        let source = try appSource("SummarizerModelControls.swift")
+        XCTAssertTrue(source.contains("struct SummarizerModelControls: View"))
+        XCTAssertTrue(source.contains("@ObservedObject var model: AppModel"))
+        XCTAssertTrue(source.contains("model.summarizerModelInUseLabel"))
+        XCTAssertTrue(source.contains("model.summarizerModelInUseValue"))
+        XCTAssertTrue(source.contains("TextField(\"Model identifier\", text: $model.draftSummarizerModel)"))
+        XCTAssertTrue(source.contains("model.saveSummarizerModel()"))
+        XCTAssertTrue(source.contains("model.validateSummarizerModel()"))
+        XCTAssertTrue(source.contains("model.availableSummarizerModels"))
+        XCTAssertTrue(source.contains("Use known model"))
+        XCTAssertTrue(source.contains(".textSelection(.enabled)"))
+        XCTAssertTrue(source.contains(".accessibilityElement(children: .combine)"))
+        XCTAssertTrue(source.contains("Summarizer model cannot be determined from current config"))
     }
 
     func testAgentsChannelMirrorsDashboardInstallStateBehavior() throws {

@@ -3,7 +3,7 @@ import AppKit
 import SwiftUI
 
 /// Face B — "The Board". The same window once setup is healthy: a calm set of
-/// channel strips (Voice · Summaries · Agents · Daemon) plus a single bottom
+/// channel strips (Voice · Summaries · Model · Agents · Daemon) plus a single bottom
 /// repair rail. Broken concerns re-disclose their controls inline here, so the
 /// guided flow is never a dead one-time artifact.
 struct SetupBoardView: View {
@@ -15,7 +15,7 @@ struct SetupBoardView: View {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @State private var expanded: SetupConcern?
 
-    private var channels: [SetupConcern] { [.voice, .summaries, .agents, .daemon] }
+    private var channels: [SetupConcern] { [.voice, .summaries, .model, .agents, .daemon] }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -42,7 +42,7 @@ struct SetupBoardView: View {
     // MARK: Header
 
     private var header: some View {
-        let items = SetupConcernHealth.repairItems(doctor: model.doctorReport, status: model.status)
+        let items = boardRepairItems
         let ok = items.isEmpty && readiness.isReady
         return HStack(spacing: 12) {
             Image(systemName: ok ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
@@ -68,7 +68,9 @@ struct SetupBoardView: View {
             for: concern,
             readiness: readiness,
             status: model.status,
-            doctor: model.doctorReport
+            doctor: model.doctorReport,
+            summarizerModelEditable: model.isSummarizerModelEditable,
+            summarizerModelValue: model.summarizerModelInUseValue
         )
         let isOpen = expanded == concern
         SetupCard(tint: status.tint, fill: status == .ok ? 0.0 : 0.06) {
@@ -109,6 +111,8 @@ struct SetupBoardView: View {
             VoiceChannelContent(model: model, enginePresent: readiness.enginePresent)
         case .summaries:
             SummariesChannelContent(model: model)
+        case .model:
+            ModelChannelContent(model: model)
         case .agents:
             AgentsChannelContent(model: model)
         case .daemon:
@@ -128,6 +132,8 @@ struct SetupBoardView: View {
             let style = model.config?.summarizer.promptStyle ?? "default"
             let sentences = model.config?.summarizer.maxSentences ?? 1
             return "\(style.capitalized) · ≤\(sentences) sentence\(sentences == 1 ? "" : "s")"
+        case .model:
+            return modelSummary
         case .agents:
             let agents = model.status?.config.agents ?? [:]
             let enabled = agents.filter { $0.value.enabled }.keys.sorted().map(\.capitalized)
@@ -140,11 +146,43 @@ struct SetupBoardView: View {
         }
     }
 
+    private var modelSummary: String {
+        guard model.isSummarizerModelEditable,
+              SetupConcernHealth.hasUsableSummarizerModelValue(model.summarizerModelInUseValue)
+        else {
+            return "Model unavailable"
+        }
+        return model.summarizerModelInUseValue
+    }
+
+    private var boardRepairItems: [SetupCheck] {
+        var items = SetupConcernHealth.repairItems(doctor: model.doctorReport, status: model.status)
+        let modelStatus = SetupConcernHealth.status(
+            for: .model,
+            readiness: readiness,
+            status: model.status,
+            doctor: model.doctorReport,
+            summarizerModelEditable: model.isSummarizerModelEditable,
+            summarizerModelValue: model.summarizerModelInUseValue
+        )
+        if modelStatus == .attention {
+            items.append(SetupCheck(
+                id: "summarizer.model.available",
+                ok: false,
+                title: "Model unavailable",
+                detail: "Active summarizer model cannot be determined.",
+                targetStep: .summaries,
+                action: "Open Model"
+            ))
+        }
+        return items
+    }
+
     // MARK: Repair rail
 
     @ViewBuilder
     private var repairRail: some View {
-        let items = SetupConcernHealth.repairItems(doctor: model.doctorReport, status: model.status)
+        let items = boardRepairItems
         Divider()
         Group {
             if items.isEmpty {
@@ -195,6 +233,8 @@ struct SetupBoardView: View {
             openWindow(id: AgentVoiceWindowID.dashboard)
         case SetupReadiness.kokoroScriptCheckID:
             withAnimation(.easeInOut(duration: 0.2)) { expanded = .voice }
+        case "summarizer.model.available":
+            withAnimation(.easeInOut(duration: 0.2)) { expanded = .model }
         default:
             Task { await model.refresh() }
         }
@@ -358,6 +398,15 @@ struct SummaryVoiceSection: View {
             if Task.isCancelled { return }
             await model.refreshSummaryVoicePrompt()
         }
+    }
+}
+
+/// Model channel: mirrors the Dashboard's active summarizer model controls.
+struct ModelChannelContent: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        SummarizerModelControls(model: model)
     }
 }
 
