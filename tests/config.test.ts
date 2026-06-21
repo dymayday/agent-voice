@@ -8,69 +8,107 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { defaultConfig, loadConfig, setConfigValue, validateConfig } from "../src/config";
+import {
+	defaultConfig,
+	loadConfig,
+	setConfigValue,
+	validateConfig,
+} from "../src/config";
 import { runCli } from "../src/cli";
 import { resolvePaths } from "../src/paths";
 
 describe("summarizer prompt knobs config", () => {
-  test("defaults are the unchanged one-sentence behavior", () => {
-    expect(defaultConfig.summarizer.promptStyle).toBe("default");
-    expect(defaultConfig.summarizer.maxSentences).toBe(1);
-    expect(defaultConfig.summarizer.maxSummaryChars).toBe(180);
-  });
+	test("defaults are the unchanged one-sentence behavior", () => {
+		expect(defaultConfig.summarizer.promptStyle).toBe("default");
+		expect(defaultConfig.summarizer.maxSentences).toBe(1);
+		expect(defaultConfig.summarizer.maxSummaryChars).toBe(180);
+	});
 
-  test("setConfigValue round-trips all three knobs", () => {
-    const a = setConfigValue(defaultConfig, "summarizer.promptStyle", "triage");
-    expect(a.summarizer.promptStyle).toBe("triage");
-    const b = setConfigValue(defaultConfig, "summarizer.maxSentences", "3");
-    expect(b.summarizer.maxSentences).toBe(3);
-    const c = setConfigValue(defaultConfig, "summarizer.maxSummaryChars", "260");
-    expect(c.summarizer.maxSummaryChars).toBe(260);
-  });
+	test("defaults skip bare done notifications", () => {
+		expect(defaultConfig.ignoreTextPhrases).toEqual(["done"]);
+	});
 
-  test("maxSentences has no upper bound but rejects < 1 and non-integers", () => {
-    expect(setConfigValue(defaultConfig, "summarizer.maxSentences", "9").summarizer.maxSentences).toBe(9);
-    expect(() => setConfigValue(defaultConfig, "summarizer.maxSentences", "0")).toThrow();
-    expect(() => setConfigValue(defaultConfig, "summarizer.maxSentences", "2.5")).toThrow();
-  });
+	test("setConfigValue round-trips all three knobs", () => {
+		const a = setConfigValue(defaultConfig, "summarizer.promptStyle", "triage");
+		expect(a.summarizer.promptStyle).toBe("triage");
+		const b = setConfigValue(defaultConfig, "summarizer.maxSentences", "3");
+		expect(b.summarizer.maxSentences).toBe(3);
+		const c = setConfigValue(
+			defaultConfig,
+			"summarizer.maxSummaryChars",
+			"260",
+		);
+		expect(c.summarizer.maxSummaryChars).toBe(260);
+	});
 
-  test("promptStyle rejects unknown ids", () => {
-    expect(() => setConfigValue(defaultConfig, "summarizer.promptStyle", "shouty")).toThrow();
-  });
+	test("maxSentences has no upper bound but rejects < 1 and non-integers", () => {
+		expect(
+			setConfigValue(defaultConfig, "summarizer.maxSentences", "9").summarizer
+				.maxSentences,
+		).toBe(9);
+		expect(() =>
+			setConfigValue(defaultConfig, "summarizer.maxSentences", "0"),
+		).toThrow();
+		expect(() =>
+			setConfigValue(defaultConfig, "summarizer.maxSentences", "2.5"),
+		).toThrow();
+	});
 
-  test("validateConfig rejects a bad promptStyle on a full config object", () => {
-    const bad = JSON.parse(JSON.stringify(defaultConfig));
-    bad.summarizer.promptStyle = "nope";
-    expect(() => validateConfig(bad)).toThrow(/summarizer.promptStyle/);
-  });
+	test("promptStyle rejects unknown ids", () => {
+		expect(() =>
+			setConfigValue(defaultConfig, "summarizer.promptStyle", "shouty"),
+		).toThrow();
+	});
 
-  test("validateConfig rejects maxSentences < 1 and non-integers on a full config object", () => {
-    const zero = JSON.parse(JSON.stringify(defaultConfig));
-    zero.summarizer.maxSentences = 0;
-    expect(() => validateConfig(zero)).toThrow(/summarizer.maxSentences/);
+	test("validateConfig rejects a bad promptStyle on a full config object", () => {
+		const bad = JSON.parse(JSON.stringify(defaultConfig));
+		bad.summarizer.promptStyle = "nope";
+		expect(() => validateConfig(bad)).toThrow(/summarizer.promptStyle/);
+	});
 
-    const fractional = JSON.parse(JSON.stringify(defaultConfig));
-    fractional.summarizer.maxSentences = 1.5;
-    expect(() => validateConfig(fractional)).toThrow(/summarizer.maxSentences/);
-  });
+	test("validateConfig rejects maxSentences < 1 and non-integers on a full config object", () => {
+		const zero = JSON.parse(JSON.stringify(defaultConfig));
+		zero.summarizer.maxSentences = 0;
+		expect(() => validateConfig(zero)).toThrow(/summarizer.maxSentences/);
 
-  test("speakQuestionsVerbatim defaults false and round-trips a boolean", () => {
-    expect(defaultConfig.summarizer.speakQuestionsVerbatim).toBe(false);
-    const on = setConfigValue(defaultConfig, "summarizer.speakQuestionsVerbatim", "true");
-    expect(on.summarizer.speakQuestionsVerbatim).toBe(true);
-  });
+		const fractional = JSON.parse(JSON.stringify(defaultConfig));
+		fractional.summarizer.maxSentences = 1.5;
+		expect(() => validateConfig(fractional)).toThrow(/summarizer.maxSentences/);
+	});
 
-  test("validateConfig rejects a non-boolean speakQuestionsVerbatim", () => {
-    const bad = JSON.parse(JSON.stringify(defaultConfig));
-    bad.summarizer.speakQuestionsVerbatim = "yes";
-    expect(() => validateConfig(bad)).toThrow(/summarizer.speakQuestionsVerbatim/);
-  });
+	test("speakQuestionsVerbatim defaults false and round-trips a boolean", () => {
+		expect(defaultConfig.summarizer.speakQuestionsVerbatim).toBe(false);
+		const on = setConfigValue(
+			defaultConfig,
+			"summarizer.speakQuestionsVerbatim",
+			"true",
+		);
+		expect(on.summarizer.speakQuestionsVerbatim).toBe(true);
+	});
 
-  test("adaptive is an accepted promptStyle", () => {
-    const updated = setConfigValue(defaultConfig, "summarizer.promptStyle", "adaptive");
-    expect(updated.summarizer.promptStyle).toBe("adaptive");
-    expect(() => validateConfig(updated)).not.toThrow();
-  });
+	test("validateConfig rejects a non-boolean speakQuestionsVerbatim", () => {
+		const bad = JSON.parse(JSON.stringify(defaultConfig));
+		bad.summarizer.speakQuestionsVerbatim = "yes";
+		expect(() => validateConfig(bad)).toThrow(
+			/summarizer.speakQuestionsVerbatim/,
+		);
+	});
+
+	test("validateConfig rejects non-string ignore text phrases", () => {
+		const bad = JSON.parse(JSON.stringify(defaultConfig));
+		bad.ignoreTextPhrases = ["done", 42];
+		expect(() => validateConfig(bad)).toThrow(/ignoreTextPhrases/);
+	});
+
+	test("adaptive is an accepted promptStyle", () => {
+		const updated = setConfigValue(
+			defaultConfig,
+			"summarizer.promptStyle",
+			"adaptive",
+		);
+		expect(updated.summarizer.promptStyle).toBe("adaptive");
+		expect(() => validateConfig(updated)).not.toThrow();
+	});
 });
 
 async function withTempHome<T>(
@@ -155,6 +193,7 @@ describe("agent-voice config and paths", () => {
 				"agents",
 				"enabled",
 				"ignoreCwdPatterns",
+				"ignoreTextPhrases",
 				"speakPolicy",
 				"spool",
 				"summarizer",
@@ -225,6 +264,7 @@ describe("agent-voice config and paths", () => {
 			expect(config.agents.pi.enabled).toBe(false);
 			expect(config.agents.claude.enabled).toBe(true);
 			expect(config.ignoreCwdPatterns).toEqual([]);
+			expect(config.ignoreTextPhrases).toEqual(["done"]);
 			expect(config.summarizer.timeoutSeconds).toBe(9);
 			expect(config.summarizer.maxInputChars).toBe(
 				defaultConfig.summarizer.maxInputChars,
@@ -232,7 +272,9 @@ describe("agent-voice config and paths", () => {
 			expect(config.tts.voice).toBe("af_sky");
 			expect(config.tts.python).toBe("python3");
 			expect(config.spool.maxAttempts).toBe(2);
-			expect(config.spool.retentionDays).toBe(defaultConfig.spool.retentionDays);
+			expect(config.spool.retentionDays).toBe(
+				defaultConfig.spool.retentionDays,
+			);
 		});
 	});
 
@@ -253,12 +295,31 @@ describe("agent-voice config and paths", () => {
 		});
 	});
 
+	test("config set accepts JSON arrays for ignoreTextPhrases", async () => {
+		await withTempHome(async (home) => {
+			const result = await runCli(
+				["config", "set", "ignoreTextPhrases", '["done","ok"]'],
+				{
+					env: { AGENT_VOICE_HOME: home },
+				},
+			);
+
+			expect(result.exitCode).toBe(0);
+			expect(
+				loadConfig(resolvePaths({ AGENT_VOICE_HOME: home })).ignoreTextPhrases,
+			).toEqual(["done", "ok"]);
+		});
+	});
+
 	test("config set rejects invalid scalar values without persisting", async () => {
 		await withTempHome(async (home) => {
 			const env = { AGENT_VOICE_HOME: home };
 			expect(
-				(await runCli(["config", "set", "summarizer.timeoutSeconds", "8"], { env }))
-					.exitCode,
+				(
+					await runCli(["config", "set", "summarizer.timeoutSeconds", "8"], {
+						env,
+					})
+				).exitCode,
 			).toBe(0);
 
 			const invalidNumber = await runCli(

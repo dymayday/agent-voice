@@ -9,8 +9,19 @@ final class SummarizerConfigDecodingTests: XCTestCase {
     func testMissingKnobFieldsFallBackToDefaults() throws {
         let json = """
         {
-          "tts": {"kokoroScript": "", "python": "python3", "voice": "af_heart", "timeoutSeconds": 30},
-          "summarizer": {"thinking": "off", "piModel": "p", "codexModel": "c", "opencodeModel": null, "priority": ["pi-fast","heuristic"]}
+          "tts": {
+            "kokoroScript": "",
+            "python": "python3",
+            "voice": "af_heart",
+            "timeoutSeconds": 30
+          },
+          "summarizer": {
+            "thinking": "off",
+            "piModel": "p",
+            "codexModel": "c",
+            "opencodeModel": null,
+            "priority": ["pi-fast", "heuristic"]
+          }
         }
         """
         let config = try decode(json)
@@ -19,19 +30,83 @@ final class SummarizerConfigDecodingTests: XCTestCase {
         XCTAssertEqual(config.summarizer.maxSummaryChars, 180)
     }
 
+    func testIgnoreTextPhrasesDefaultAndDecodeAtTopLevel() throws {
+        let missing = try decode("""
+        {
+          "tts": {
+            "kokoroScript": "",
+            "python": "python3",
+            "voice": "af_heart",
+            "timeoutSeconds": 30
+          },
+          "summarizer": {
+            "thinking": "off",
+            "piModel": "p",
+            "codexModel": "c",
+            "opencodeModel": null,
+            "priority": ["pi-fast", "heuristic"]
+          }
+        }
+        """)
+        XCTAssertEqual(missing.ignoreTextPhrases, ["done"])
+
+        let present = try decode("""
+        {
+          "ignoreTextPhrases": ["done", "ok"],
+          "tts": {
+            "kokoroScript": "",
+            "python": "python3",
+            "voice": "af_heart",
+            "timeoutSeconds": 30
+          },
+          "summarizer": {
+            "thinking": "off",
+            "piModel": "p",
+            "codexModel": "c",
+            "opencodeModel": null,
+            "priority": ["pi-fast", "heuristic"]
+          }
+        }
+        """)
+        XCTAssertEqual(present.ignoreTextPhrases, ["done", "ok"])
+    }
+
     func testSpeakQuestionsVerbatimDefaultsFalseAndDecodes() throws {
         let missing = try decode("""
         {
-          "tts": {"kokoroScript": "", "python": "python3", "voice": "af_heart", "timeoutSeconds": 30},
-          "summarizer": {"thinking": "off", "piModel": "p", "codexModel": "c", "opencodeModel": null, "priority": ["pi-fast","heuristic"]}
+          "tts": {
+            "kokoroScript": "",
+            "python": "python3",
+            "voice": "af_heart",
+            "timeoutSeconds": 30
+          },
+          "summarizer": {
+            "thinking": "off",
+            "piModel": "p",
+            "codexModel": "c",
+            "opencodeModel": null,
+            "priority": ["pi-fast", "heuristic"]
+          }
         }
         """)
         XCTAssertFalse(missing.summarizer.speakQuestionsVerbatim)
 
         let present = try decode("""
         {
-          "tts": {"kokoroScript": "", "python": "python3", "voice": "af_heart", "timeoutSeconds": 30},
-          "summarizer": {"thinking": "off", "piModel": "p", "codexModel": "c", "opencodeModel": null, "priority": ["pi-fast","heuristic"], "speakQuestionsVerbatim": true}
+          "tts": {
+            "kokoroScript": "",
+            "python": "python3",
+            "voice": "af_heart",
+            "timeoutSeconds": 30
+          },
+          "summarizer": {
+            "thinking": "off",
+            "piModel": "p",
+            "codexModel": "c",
+            "opencodeModel": null,
+            "priority": ["pi-fast", "heuristic"],
+            "speakQuestionsVerbatim": true
+          }
         }
         """)
         XCTAssertTrue(present.summarizer.speakQuestionsVerbatim)
@@ -40,8 +115,22 @@ final class SummarizerConfigDecodingTests: XCTestCase {
     func testKnobFieldsAreDecodedWhenPresent() throws {
         let json = """
         {
-          "tts": {"kokoroScript": "", "python": "python3", "voice": "af_heart", "timeoutSeconds": 30},
-          "summarizer": {"thinking": "off", "piModel": "p", "codexModel": "c", "opencodeModel": null, "priority": ["pi-fast","heuristic"], "promptStyle": "triage", "maxSentences": 3, "maxSummaryChars": 260}
+          "tts": {
+            "kokoroScript": "",
+            "python": "python3",
+            "voice": "af_heart",
+            "timeoutSeconds": 30
+          },
+          "summarizer": {
+            "thinking": "off",
+            "piModel": "p",
+            "codexModel": "c",
+            "opencodeModel": null,
+            "priority": ["pi-fast", "heuristic"],
+            "promptStyle": "triage",
+            "maxSentences": 3,
+            "maxSummaryChars": 260
+          }
         }
         """
         let config = try decode(json)

@@ -29,6 +29,7 @@ export interface AgentVoiceConfig {
 	agents: Record<AgentName, { enabled: boolean; mode: string }>;
 	speakPolicy: "every_turn";
 	ignoreCwdPatterns: string[];
+	ignoreTextPhrases: string[];
 	summarizer: {
 		priority: SummarizerName[];
 		codexModel: string;
@@ -69,6 +70,7 @@ export const defaultConfig: AgentVoiceConfig = {
 	},
 	speakPolicy: "every_turn",
 	ignoreCwdPatterns: [],
+	ignoreTextPhrases: ["done"],
 	summarizer: {
 		priority: ["pi-fast", "codex-fast", "heuristic"],
 		codexModel: "gpt-5.3-codex",
@@ -176,7 +178,10 @@ function assertOneOf<T extends string>(
 	path: string,
 	allowed: readonly T[],
 ): asserts value is T {
-	if (typeof value !== "string" || !(allowed as readonly string[]).includes(value)) {
+	if (
+		typeof value !== "string" ||
+		!(allowed as readonly string[]).includes(value)
+	) {
 		invalidConfig(path, `one of ${allowed.join(", ")}`);
 	}
 }
@@ -196,6 +201,12 @@ export function validateConfig(config: AgentVoiceConfig): AgentVoiceConfig {
 		!config.ignoreCwdPatterns.every((pattern) => typeof pattern === "string")
 	) {
 		invalidConfig("ignoreCwdPatterns", "array of strings");
+	}
+	if (
+		!Array.isArray(config.ignoreTextPhrases) ||
+		!config.ignoreTextPhrases.every((phrase) => typeof phrase === "string")
+	) {
+		invalidConfig("ignoreTextPhrases", "array of strings");
 	}
 
 	if (!isRecord(config.summarizer)) invalidConfig("summarizer", "object");
@@ -229,34 +240,68 @@ export function validateConfig(config: AgentVoiceConfig): AgentVoiceConfig {
 		"summarizer.thinking",
 		SUMMARIZER_THINKING_VALUES,
 	);
-	assertIntegerInRange(config.summarizer.timeoutSeconds, "summarizer.timeoutSeconds", { min: 1 });
-	assertIntegerInRange(config.summarizer.maxInputChars, "summarizer.maxInputChars", { min: 1 });
-	assertIntegerInRange(config.summarizer.maxSummaryChars, "summarizer.maxSummaryChars", { min: 1 });
+	assertIntegerInRange(
+		config.summarizer.timeoutSeconds,
+		"summarizer.timeoutSeconds",
+		{ min: 1 },
+	);
+	assertIntegerInRange(
+		config.summarizer.maxInputChars,
+		"summarizer.maxInputChars",
+		{ min: 1 },
+	);
+	assertIntegerInRange(
+		config.summarizer.maxSummaryChars,
+		"summarizer.maxSummaryChars",
+		{ min: 1 },
+	);
 	assertOneOf(
 		config.summarizer.promptStyle,
 		"summarizer.promptStyle",
 		PROMPT_STYLE_NAMES,
 	);
-	assertIntegerInRange(config.summarizer.maxSentences, "summarizer.maxSentences", {
-		min: 1,
-	});
+	assertIntegerInRange(
+		config.summarizer.maxSentences,
+		"summarizer.maxSentences",
+		{
+			min: 1,
+		},
+	);
 	assertBoolean(
 		config.summarizer.speakQuestionsVerbatim,
 		"summarizer.speakQuestionsVerbatim",
 	);
 
 	if (!isRecord(config.tts)) invalidConfig("tts", "object");
-	assertString(config.tts.kokoroScript, "tts.kokoroScript", { allowEmpty: true });
+	assertString(config.tts.kokoroScript, "tts.kokoroScript", {
+		allowEmpty: true,
+	});
 	assertString(config.tts.python, "tts.python");
 	assertString(config.tts.voice, "tts.voice");
-	assertIntegerInRange(config.tts.timeoutSeconds, "tts.timeoutSeconds", { min: 1 });
+	assertIntegerInRange(config.tts.timeoutSeconds, "tts.timeoutSeconds", {
+		min: 1,
+	});
 
 	if (!isRecord(config.spool)) invalidConfig("spool", "object");
-	assertIntegerInRange(config.spool.processingTimeoutSeconds, "spool.processingTimeoutSeconds", { min: 1 });
-	assertIntegerInRange(config.spool.retentionDays, "spool.retentionDays", { min: 0 });
-	assertIntegerInRange(config.spool.maxEventBytes, "spool.maxEventBytes", { min: 1 });
-	assertIntegerInRange(config.spool.maxAttempts, "spool.maxAttempts", { min: 1 });
-	assertIntegerInRange(config.spool.retryBackoffSeconds, "spool.retryBackoffSeconds", { min: 0 });
+	assertIntegerInRange(
+		config.spool.processingTimeoutSeconds,
+		"spool.processingTimeoutSeconds",
+		{ min: 1 },
+	);
+	assertIntegerInRange(config.spool.retentionDays, "spool.retentionDays", {
+		min: 0,
+	});
+	assertIntegerInRange(config.spool.maxEventBytes, "spool.maxEventBytes", {
+		min: 1,
+	});
+	assertIntegerInRange(config.spool.maxAttempts, "spool.maxAttempts", {
+		min: 1,
+	});
+	assertIntegerInRange(
+		config.spool.retryBackoffSeconds,
+		"spool.retryBackoffSeconds",
+		{ min: 0 },
+	);
 
 	return config;
 }
@@ -297,7 +342,11 @@ export function saveConfig(
 ): void {
 	const validated = validateConfig(cloneConfig(config));
 	ensureConfigDir(paths);
-	writeFileSync(paths.config, `${JSON.stringify(validated, null, 2)}\n`, "utf8");
+	writeFileSync(
+		paths.config,
+		`${JSON.stringify(validated, null, 2)}\n`,
+		"utf8",
+	);
 }
 
 export function loadConfig(
@@ -318,6 +367,17 @@ export function loadConfig(
 }
 
 function parseValue(value: string): unknown {
+	const trimmed = value.trim();
+	if (
+		(trimmed.startsWith("[") && trimmed.endsWith("]")) ||
+		(trimmed.startsWith("{") && trimmed.endsWith("}"))
+	) {
+		try {
+			return JSON.parse(trimmed);
+		} catch {
+			return value;
+		}
+	}
 	if (value === "true") return true;
 	if (value === "false") return false;
 	if (value === "null") return null;
@@ -368,14 +428,22 @@ export function setConfigValue(
 	}
 
 	const currentValue = (cursor as Record<string, unknown>)[finalKey];
+	const parsedValue = parseValue(value);
 	if (Array.isArray(currentValue)) {
-		throw new Error(`Cannot replace config array: ${dottedPath}`);
+		if (dottedPath !== "ignoreTextPhrases") {
+			throw new Error(`Cannot replace config array: ${dottedPath}`);
+		}
+		if (!Array.isArray(parsedValue)) {
+			throw new Error(`Invalid config ${dottedPath}: expected JSON array`);
+		}
+		(cursor as Record<string, unknown>)[finalKey] = parsedValue;
+		return validateConfig(next);
 	}
 	if (currentValue && typeof currentValue === "object") {
 		throw new Error(`Cannot replace config section: ${dottedPath}`);
 	}
 
-	(cursor as Record<string, unknown>)[finalKey] = parseValue(value);
+	(cursor as Record<string, unknown>)[finalKey] = parsedValue;
 	return validateConfig(next);
 }
 

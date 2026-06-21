@@ -31,7 +31,12 @@ import {
 	type KokoroSetupDeps,
 	type KokoroSetupEvent,
 } from "./kokoro-setup";
-import { createEvent, type AgentVoiceEvent, validateEvent } from "./events";
+import {
+	createEvent,
+	shouldIgnoreEventText,
+	type AgentVoiceEvent,
+	validateEvent,
+} from "./events";
 import {
 	buildHistorySnapshot,
 	decodeHistoryCursor,
@@ -299,7 +304,14 @@ export async function runCli(
 	// so these stay convenience entrypoints rather than the install target.
 	if (args[0] === "voice-codex" || args[0] === "voice-opencode") {
 		const aliasAgent = args[0] === "voice-codex" ? "codex" : "opencode";
-		args = ["enqueue", "--format", "text", "--agent", aliasAgent, ...args.slice(1)];
+		args = [
+			"enqueue",
+			"--format",
+			"text",
+			"--agent",
+			aliasAgent,
+			...args.slice(1),
+		];
 	}
 
 	const [command] = args;
@@ -429,9 +441,17 @@ export async function runCli(
 				if (style !== undefined)
 					config = setConfigValue(config, "summarizer.promptStyle", style);
 				if (maxSentences !== undefined)
-					config = setConfigValue(config, "summarizer.maxSentences", maxSentences);
+					config = setConfigValue(
+						config,
+						"summarizer.maxSentences",
+						maxSentences,
+					);
 				if (maxChars !== undefined)
-					config = setConfigValue(config, "summarizer.maxSummaryChars", maxChars);
+					config = setConfigValue(
+						config,
+						"summarizer.maxSummaryChars",
+						maxChars,
+					);
 				const event = createEvent({
 					agent: "claude",
 					text: "[the agent's last message]",
@@ -735,6 +755,15 @@ export async function runCli(
 				"",
 				`${error instanceof Error ? error.message : String(error)}\n`,
 			);
+		}
+
+		if (
+			shouldIgnoreEventText(
+				event.text,
+				loadConfigForEnqueue(paths).ignoreTextPhrases,
+			)
+		) {
+			return result(0, "");
 		}
 
 		try {

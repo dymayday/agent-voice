@@ -21,6 +21,29 @@ export type ValidationResult =
 	| { ok: false; reason: string };
 
 const UNSAFE_KEYS = new Set(["__proto__", "prototype", "constructor"]);
+const TRAILING_IGNORE_PUNCTUATION_PATTERN = /[.!?。！？]+$/u;
+const WHITESPACE_PATTERN = /\s+/g;
+
+function normalizeIgnoredText(value: string): string {
+	return value
+		.trim()
+		.replace(TRAILING_IGNORE_PUNCTUATION_PATTERN, "")
+		.trim()
+		.replace(WHITESPACE_PATTERN, " ")
+		.toLocaleLowerCase();
+}
+
+export function shouldIgnoreEventText(
+	text: string,
+	phrases: string[],
+): boolean {
+	const normalizedText = normalizeIgnoredText(text);
+	if (!normalizedText) return false;
+	return phrases.some((phrase) => {
+		const normalizedPhrase = normalizeIgnoredText(phrase);
+		return normalizedPhrase.length > 0 && normalizedPhrase === normalizedText;
+	});
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return Boolean(value) && typeof value === "object" && !Array.isArray(value);

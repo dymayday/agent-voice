@@ -1,20 +1,6 @@
 import Combine
 import Foundation
 
-public struct SummarizerPromptStyleInfo: Identifiable, Equatable, Sendable {
-    public let id: String
-    public let name: String
-    public let detail: String
-    public let example: String
-
-    public init(id: String, name: String, detail: String, example: String) {
-        self.id = id
-        self.name = name
-        self.detail = detail
-        self.example = example
-    }
-}
-
 @MainActor
 public final class AppModel: ObservableObject {
     @Published public private(set) var status: AgentVoiceStatusSnapshot?
@@ -36,6 +22,7 @@ public final class AppModel: ObservableObject {
     @Published public var draftMaxSentences: String = ""
     @Published public var draftMaxSummaryChars: String = ""
     @Published public var draftSpeakQuestionsVerbatim: Bool = false
+    @Published public var draftIgnoreTextPhrases: String = ""
     @Published public private(set) var summaryVoicePromptPreview: String = ""
 
     public static let defaultAutoRefreshIntervalNanoseconds: UInt64 = 2_000_000_000
@@ -79,43 +66,6 @@ public final class AppModel: ObservableObject {
     // restart or overlapping refresh never spins into a loop.
     private var lastRestartedForBuildId: String?
     private var didSeedSummaryVoiceToggle = false
-
-    public static let kokoroVoicePresets = [
-        "af_heart",
-        "af_sky",
-        "af_bella",
-        "af_nicole",
-        "am_adam",
-        "am_michael",
-        "bf_emma",
-        "bm_george"
-    ]
-
-    public static let summarizerThinkingOptions = ["off", "minimal", "low", "medium", "high", "xhigh"]
-    public nonisolated static let summarizerPromptStyleCatalog: [SummarizerPromptStyleInfo] = [
-        .init(id: "default", name: "Default",
-              detail: "A neutral summary of what happened.",
-              example: "Updated the fee calculation and reran the tests."),
-        .init(id: "terse", name: "Terse",
-              detail: "Fewest words, outcome first.",
-              example: "Fee split done; tests pass."),
-        .init(id: "status-about", name: "Status + topic",
-              detail: "State first, then the subject.",
-              example: "Done — split client and platform fees."),
-        .init(id: "triage", name: "Triage",
-              detail: "Leads with what you need to do.",
-              example: "Need your call — which auth provider?"),
-        .init(id: "conversational", name: "Conversational",
-              detail: "Warm, first person.",
-              example: "I wired up the fee split and it's green."),
-        .init(id: "adaptive", name: "Adaptive",
-              detail: "Picks the best register for each message.",
-              example: "Reads the moment — an ask when you're needed, a quick result otherwise."),
-    ]
-
-    public nonisolated static var summarizerPromptStyleOptions: [String] {
-        summarizerPromptStyleCatalog.map(\.id)
-    }
 
     public let cli: AgentVoiceCLI
 
@@ -260,6 +210,11 @@ extension AppModel {
             if !didSeedSummaryVoiceToggle {
                 draftSpeakQuestionsVerbatim = refreshedConfig.summarizer.speakQuestionsVerbatim
                 didSeedSummaryVoiceToggle = true
+            }
+
+            let currentIgnoreTextPhrases = Self.formatIgnoreTextPhrases(refreshedConfig.ignoreTextPhrases)
+            if draftIgnoreTextPhrases.isEmpty || draftIgnoreTextPhrases == currentIgnoreTextPhrases {
+                draftIgnoreTextPhrases = currentIgnoreTextPhrases
             }
 
             let currentSummarizerModel = summarizerModelBinding(from: refreshedConfig.summarizer)?.current ?? ""
@@ -558,7 +513,8 @@ extension AppModel {
     }
 
     public var summaryVoiceCanSave: Bool {
-        guard let summarizer = config?.summarizer else { return false }
+        guard let config else { return false }
+        let summarizer = config.summarizer
         let style = draftPromptStyle.trimmingCharacters(in: .whitespacesAndNewlines)
         let sentencesText = draftMaxSentences.trimmingCharacters(in: .whitespacesAndNewlines)
         let charsText = draftMaxSummaryChars.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -570,6 +526,7 @@ extension AppModel {
             || sentences != summarizer.maxSentences
             || chars != summarizer.maxSummaryChars
             || draftSpeakQuestionsVerbatim != summarizer.speakQuestionsVerbatim
+            || parsedDraftIgnoreTextPhrases() != config.ignoreTextPhrases
     }
 
     public func saveSummaryVoice() async {
@@ -579,12 +536,14 @@ extension AppModel {
             recomputeLastError()
             return
         }
-        guard let sentences = Int(draftMaxSentences.trimmingCharacters(in: .whitespacesAndNewlines)), sentences >= 1 else {
+        let maxSentencesText = draftMaxSentences.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let sentences = Int(maxSentencesText), sentences >= 1 else {
             lastActionError = "Max sentences must be a whole number of at least 1"
             recomputeLastError()
             return
         }
-        guard let chars = Int(draftMaxSummaryChars.trimmingCharacters(in: .whitespacesAndNewlines)), chars >= 1 else {
+        let maxSummaryCharsText = draftMaxSummaryChars.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let chars = Int(maxSummaryCharsText), chars >= 1 else {
             lastActionError = "Max characters must be a whole number of at least 1"
             recomputeLastError()
             return
@@ -592,12 +551,26 @@ extension AppModel {
         draftMaxSentences = String(sentences)
         draftMaxSummaryChars = String(chars)
         let verbatim = draftSpeakQuestionsVerbatim
+        let ignoreTextPhrases = parsedDraftIgnoreTextPhrases()
+        draftIgnoreTextPhrases = Self.formatIgnoreTextPhrases(ignoreTextPhrases)
         await perform {
             try await self.cli.setSummarizerPromptStyle(style)
             try await self.cli.setSummarizerMaxSentences(sentences)
             try await self.cli.setSummarizerMaxSummaryChars(chars)
             try await self.cli.setSummarizerSpeakQuestionsVerbatim(verbatim)
+            try await self.cli.setIgnoreTextPhrases(ignoreTextPhrases)
         }
+    }
+
+    private static func formatIgnoreTextPhrases(_ phrases: [String]) -> String {
+        phrases.joined(separator: ", ")
+    }
+
+    private func parsedDraftIgnoreTextPhrases() -> [String] {
+        draftIgnoreTextPhrases
+            .split(separator: ",", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
     }
 
     // Fetch the actual prompt the daemon would build for the current draft selection.
@@ -1006,7 +979,8 @@ private struct SummarizerModelRestoreError: Error, CustomStringConvertible {
 
     var description: String {
         if let validationError {
-            return "Validation failed with \(String(describing: validationError)); restore also failed with \(String(describing: restoreError))"
+            return "Validation failed with \(String(describing: validationError)); "
+                + "restore also failed with \(String(describing: restoreError))"
         }
         return "Restore failed after validation: \(String(describing: restoreError))"
     }
