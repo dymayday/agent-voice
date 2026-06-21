@@ -38,18 +38,20 @@ describe("detectAgentInstallStates", () => {
 			writeFile(
 				join(env.HOME, ".codex", "hooks.json"),
 				JSON.stringify({
-					Stop: [
-						{
-							hooks: [
-								{
-									type: "command",
-									command:
-										"agent-voice enqueue --format codex-stop-hook --agent codex",
-									statusMessage: "Agent Voice: queue Codex turn summary",
-								},
-							],
-						},
-					],
+					hooks: {
+						Stop: [
+							{
+								hooks: [
+									{
+										type: "command",
+										command:
+											"agent-voice enqueue --format codex-stop-hook --agent codex",
+										statusMessage: "Agent Voice: queue Codex turn summary",
+									},
+								],
+							},
+						],
+					},
 				}),
 			);
 			expect(detectAgentInstallStates(env).codex).toBe("installed");
@@ -97,7 +99,8 @@ describe("detectAgentInstallStates", () => {
 								hooks: [
 									{
 										type: "command",
-										command: "agent-voice enqueue --format claude-stop-hook --agent claude",
+										command:
+											"agent-voice enqueue --format claude-stop-hook --agent claude",
 										statusMessage: "Agent Voice: queue Claude turn summary",
 									},
 								],
@@ -142,7 +145,10 @@ describe("detectAgentInstallStates", () => {
 	test("claude is not_installed when settings parse but hold no stop hook", () => {
 		withTempHome((env) => {
 			expect(detectAgentInstallStates(env).claude).toBe("not_installed");
-			writeFile(claudeSettingsPath(env), JSON.stringify({ hooks: { Stop: [] } }));
+			writeFile(
+				claudeSettingsPath(env),
+				JSON.stringify({ hooks: { Stop: [] } }),
+			);
 			expect(detectAgentInstallStates(env).claude).toBe("not_installed");
 		});
 	});

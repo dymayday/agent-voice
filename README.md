@@ -204,9 +204,10 @@ AGENT_VOICE_EXECUTABLE=/path/to/agent-voice \
   network access. Unsupported platforms should install `uv` manually or use a
   manual script override.
 - Pi, Claude, Codex, and OpenCode hook installers are available. Codex installs
-  an agent-voice-owned `~/.codex/hooks.json` (`Stop` + `PermissionRequest`) and
-  relies on Codex's default-on `features.hooks`; `doctor` warns if a user has set
-  `features.hooks = false`. OpenCode installs a plugin at
+  agent-voice-owned `Stop` + `PermissionRequest` entries under the top-level
+  `hooks` object in `~/.codex/hooks.json` and relies on Codex's default-on
+  `features.hooks`; `doctor` warns if a user has set `features.hooks = false`.
+  OpenCode installs a plugin at
   `~/.config/opencode/plugin/agent-voice.ts`; turn completions are reliable while
   tool-approval announcements are best-effort across OpenCode versions.
 

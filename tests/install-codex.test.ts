@@ -46,13 +46,15 @@ describe("codex installer", () => {
 		withTempHome((env) => {
 			expect(installCodex(env).message).toContain("hooks.json");
 			const hooks = readHooks(env);
-			const stop = hooks.Stop[0].hooks[0];
+			expect(hooks.Stop).toBeUndefined();
+			expect(hooks.PermissionRequest).toBeUndefined();
+			const stop = hooks.hooks.Stop[0].hooks[0];
 			expect(stop.command).toContain("/repo/bin/agent-voice");
 			expect(stop.command).toContain(
 				"enqueue --format codex-stop-hook --agent codex",
 			);
 			expect(stop.statusMessage).toBe("Agent Voice: queue Codex turn summary");
-			const perm = hooks.PermissionRequest[0].hooks[0];
+			const perm = hooks.hooks.PermissionRequest[0].hooks[0];
 			expect(perm.command).toContain(
 				"enqueue --format codex-permission-hook --agent codex",
 			);
@@ -65,17 +67,62 @@ describe("codex installer", () => {
 			writeHooks(
 				env,
 				JSON.stringify({
-					Stop: [{ hooks: [{ type: "command", command: "/usr/bin/mine.sh" }] }],
+					hooks: {
+						Stop: [
+							{ hooks: [{ type: "command", command: "/usr/bin/mine.sh" }] },
+						],
+					},
 				}),
 			);
 			installCodex(env);
-			const hooks = JSON.stringify(readHooks(env));
-			expect(hooks).toContain("/usr/bin/mine.sh");
-			expect(hooks).toContain("codex-stop-hook");
-			expect(hooks).toContain("codex-permission-hook");
+			const hooks = readHooks(env);
+			expect(hooks.Stop).toBeUndefined();
+			const codexHooks = JSON.stringify(hooks.hooks);
+			expect(codexHooks).toContain("/usr/bin/mine.sh");
+			expect(codexHooks).toContain("codex-stop-hook");
+			expect(codexHooks).toContain("codex-permission-hook");
 		});
 	});
 
+	test("install migrates legacy top-level Codex events into the hooks object", () => {
+		withTempHome((env) => {
+			writeHooks(
+				env,
+				JSON.stringify({
+					hooks: {
+						SessionStart: [
+							{ hooks: [{ type: "command", command: "/usr/bin/session.sh" }] },
+						],
+					},
+					Stop: [{ hooks: [{ type: "command", command: "/usr/bin/mine.sh" }] }],
+					PermissionRequest: [
+						{
+							matcher: "",
+							hooks: [{ type: "command", command: "/usr/bin/perm.sh" }],
+						},
+					],
+				}),
+			);
+			installCodex(env);
+			const hooks = readHooks(env);
+			expect(hooks.Stop).toBeUndefined();
+			expect(hooks.PermissionRequest).toBeUndefined();
+			expect(JSON.stringify(hooks.hooks.SessionStart)).toContain(
+				"/usr/bin/session.sh",
+			);
+			expect(JSON.stringify(hooks.hooks.Stop)).toContain("/usr/bin/mine.sh");
+			expect(JSON.stringify(hooks.hooks.Stop)).toContain("codex-stop-hook");
+			expect(JSON.stringify(hooks.hooks.PermissionRequest)).toContain(
+				"/usr/bin/perm.sh",
+			);
+			expect(JSON.stringify(hooks.hooks.PermissionRequest)).toContain(
+				"codex-permission-hook",
+			);
+		});
+	});
+});
+
+describe("codex installer idempotency", () => {
 	test("install is idempotent for an owned hooks.json", () => {
 		withTempHome((env) => {
 			installCodex(env);
@@ -84,18 +131,24 @@ describe("codex installer", () => {
 			expect(readFileSync(codexHooksPath(env), "utf8")).toBe(first);
 		});
 	});
+});
 
+describe("codex uninstaller and hook state", () => {
 	test("uninstall removes only our hooks", () => {
 		withTempHome((env) => {
 			writeHooks(
 				env,
 				JSON.stringify({
-					Stop: [{ hooks: [{ type: "command", command: "/usr/bin/mine.sh" }] }],
+					hooks: {
+						Stop: [
+							{ hooks: [{ type: "command", command: "/usr/bin/mine.sh" }] },
+						],
+					},
 				}),
 			);
 			installCodex(env);
 			expect(uninstallCodex(env).message).toContain("uninstalled");
-			const hooks = JSON.stringify(readHooks(env));
+			const hooks = JSON.stringify(readHooks(env).hooks);
 			expect(hooks).toContain("/usr/bin/mine.sh");
 			expect(hooks).not.toContain("codex-stop-hook");
 			expect(hooks).not.toContain("codex-permission-hook");
@@ -124,7 +177,9 @@ describe("codex installer", () => {
 			expect(readFileSync(codexHooksPath(env), "utf8")).toBe("{ not json");
 		});
 	});
+});
 
+describe("codex hooks feature flag detection", () => {
 	function writeCodexConfig(env: CodexEnv, contents: string): void {
 		const config = codexConfigPath(env);
 		mkdirSync(dirname(config), { recursive: true });
