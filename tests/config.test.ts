@@ -8,69 +8,97 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { defaultConfig, loadConfig, setConfigValue, validateConfig } from "../src/config";
+import {
+	defaultConfig,
+	loadConfig,
+	setConfigValue,
+	validateConfig,
+} from "../src/config";
 import { runCli } from "../src/cli";
 import { resolvePaths } from "../src/paths";
 
 describe("summarizer prompt knobs config", () => {
-  test("defaults are the unchanged one-sentence behavior", () => {
-    expect(defaultConfig.summarizer.promptStyle).toBe("default");
-    expect(defaultConfig.summarizer.maxSentences).toBe(1);
-    expect(defaultConfig.summarizer.maxSummaryChars).toBe(180);
-  });
+	test("defaults are the unchanged one-sentence behavior", () => {
+		expect(defaultConfig.summarizer.promptStyle).toBe("default");
+		expect(defaultConfig.summarizer.maxSentences).toBe(1);
+		expect(defaultConfig.summarizer.maxSummaryChars).toBe(180);
+	});
 
-  test("setConfigValue round-trips all three knobs", () => {
-    const a = setConfigValue(defaultConfig, "summarizer.promptStyle", "triage");
-    expect(a.summarizer.promptStyle).toBe("triage");
-    const b = setConfigValue(defaultConfig, "summarizer.maxSentences", "3");
-    expect(b.summarizer.maxSentences).toBe(3);
-    const c = setConfigValue(defaultConfig, "summarizer.maxSummaryChars", "260");
-    expect(c.summarizer.maxSummaryChars).toBe(260);
-  });
+	test("setConfigValue round-trips all three knobs", () => {
+		const a = setConfigValue(defaultConfig, "summarizer.promptStyle", "triage");
+		expect(a.summarizer.promptStyle).toBe("triage");
+		const b = setConfigValue(defaultConfig, "summarizer.maxSentences", "3");
+		expect(b.summarizer.maxSentences).toBe(3);
+		const c = setConfigValue(
+			defaultConfig,
+			"summarizer.maxSummaryChars",
+			"260",
+		);
+		expect(c.summarizer.maxSummaryChars).toBe(260);
+	});
 
-  test("maxSentences has no upper bound but rejects < 1 and non-integers", () => {
-    expect(setConfigValue(defaultConfig, "summarizer.maxSentences", "9").summarizer.maxSentences).toBe(9);
-    expect(() => setConfigValue(defaultConfig, "summarizer.maxSentences", "0")).toThrow();
-    expect(() => setConfigValue(defaultConfig, "summarizer.maxSentences", "2.5")).toThrow();
-  });
+	test("maxSentences has no upper bound but rejects < 1 and non-integers", () => {
+		expect(
+			setConfigValue(defaultConfig, "summarizer.maxSentences", "9").summarizer
+				.maxSentences,
+		).toBe(9);
+		expect(() =>
+			setConfigValue(defaultConfig, "summarizer.maxSentences", "0"),
+		).toThrow();
+		expect(() =>
+			setConfigValue(defaultConfig, "summarizer.maxSentences", "2.5"),
+		).toThrow();
+	});
 
-  test("promptStyle rejects unknown ids", () => {
-    expect(() => setConfigValue(defaultConfig, "summarizer.promptStyle", "shouty")).toThrow();
-  });
+	test("promptStyle rejects unknown ids", () => {
+		expect(() =>
+			setConfigValue(defaultConfig, "summarizer.promptStyle", "shouty"),
+		).toThrow();
+	});
 
-  test("validateConfig rejects a bad promptStyle on a full config object", () => {
-    const bad = JSON.parse(JSON.stringify(defaultConfig));
-    bad.summarizer.promptStyle = "nope";
-    expect(() => validateConfig(bad)).toThrow(/summarizer.promptStyle/);
-  });
+	test("validateConfig rejects a bad promptStyle on a full config object", () => {
+		const bad = JSON.parse(JSON.stringify(defaultConfig));
+		bad.summarizer.promptStyle = "nope";
+		expect(() => validateConfig(bad)).toThrow(/summarizer.promptStyle/);
+	});
 
-  test("validateConfig rejects maxSentences < 1 and non-integers on a full config object", () => {
-    const zero = JSON.parse(JSON.stringify(defaultConfig));
-    zero.summarizer.maxSentences = 0;
-    expect(() => validateConfig(zero)).toThrow(/summarizer.maxSentences/);
+	test("validateConfig rejects maxSentences < 1 and non-integers on a full config object", () => {
+		const zero = JSON.parse(JSON.stringify(defaultConfig));
+		zero.summarizer.maxSentences = 0;
+		expect(() => validateConfig(zero)).toThrow(/summarizer.maxSentences/);
 
-    const fractional = JSON.parse(JSON.stringify(defaultConfig));
-    fractional.summarizer.maxSentences = 1.5;
-    expect(() => validateConfig(fractional)).toThrow(/summarizer.maxSentences/);
-  });
+		const fractional = JSON.parse(JSON.stringify(defaultConfig));
+		fractional.summarizer.maxSentences = 1.5;
+		expect(() => validateConfig(fractional)).toThrow(/summarizer.maxSentences/);
+	});
 
-  test("speakQuestionsVerbatim defaults false and round-trips a boolean", () => {
-    expect(defaultConfig.summarizer.speakQuestionsVerbatim).toBe(false);
-    const on = setConfigValue(defaultConfig, "summarizer.speakQuestionsVerbatim", "true");
-    expect(on.summarizer.speakQuestionsVerbatim).toBe(true);
-  });
+	test("speakQuestionsVerbatim defaults false and round-trips a boolean", () => {
+		expect(defaultConfig.summarizer.speakQuestionsVerbatim).toBe(false);
+		const on = setConfigValue(
+			defaultConfig,
+			"summarizer.speakQuestionsVerbatim",
+			"true",
+		);
+		expect(on.summarizer.speakQuestionsVerbatim).toBe(true);
+	});
 
-  test("validateConfig rejects a non-boolean speakQuestionsVerbatim", () => {
-    const bad = JSON.parse(JSON.stringify(defaultConfig));
-    bad.summarizer.speakQuestionsVerbatim = "yes";
-    expect(() => validateConfig(bad)).toThrow(/summarizer.speakQuestionsVerbatim/);
-  });
+	test("validateConfig rejects a non-boolean speakQuestionsVerbatim", () => {
+		const bad = JSON.parse(JSON.stringify(defaultConfig));
+		bad.summarizer.speakQuestionsVerbatim = "yes";
+		expect(() => validateConfig(bad)).toThrow(
+			/summarizer.speakQuestionsVerbatim/,
+		);
+	});
 
-  test("adaptive is an accepted promptStyle", () => {
-    const updated = setConfigValue(defaultConfig, "summarizer.promptStyle", "adaptive");
-    expect(updated.summarizer.promptStyle).toBe("adaptive");
-    expect(() => validateConfig(updated)).not.toThrow();
-  });
+	test("adaptive is an accepted promptStyle", () => {
+		const updated = setConfigValue(
+			defaultConfig,
+			"summarizer.promptStyle",
+			"adaptive",
+		);
+		expect(updated.summarizer.promptStyle).toBe("adaptive");
+		expect(() => validateConfig(updated)).not.toThrow();
+	});
 });
 
 async function withTempHome<T>(
@@ -108,6 +136,7 @@ describe("agent-voice config and paths", () => {
 		expect(defaultConfig.summarizer.thinking).toBe("off");
 		expect(defaultConfig.tts.kokoroScript).not.toContain("/Users/");
 		expect(defaultConfig.tts.kokoroScript).toBe("");
+		expect(defaultConfig.ui.desktopCapsule.enabled).toBe(false);
 	});
 
 	test("setConfigValue updates known dotted leaf paths and rejects unsafe paths", () => {
@@ -159,6 +188,7 @@ describe("agent-voice config and paths", () => {
 				"spool",
 				"summarizer",
 				"tts",
+				"ui",
 			]);
 			expect((config.summarizer as Record<string, unknown>).codexModel).toBe(
 				"gpt-5.3-codex",
@@ -232,7 +262,29 @@ describe("agent-voice config and paths", () => {
 			expect(config.tts.voice).toBe("af_sky");
 			expect(config.tts.python).toBe("python3");
 			expect(config.spool.maxAttempts).toBe(2);
-			expect(config.spool.retentionDays).toBe(defaultConfig.spool.retentionDays);
+			expect(config.spool.retentionDays).toBe(
+				defaultConfig.spool.retentionDays,
+			);
+			expect(config.ui.desktopCapsule.enabled).toBe(false);
+		});
+	});
+
+	test("loadConfig rejects unsafe merge keys without prototype pollution", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			writeFileSync(
+				paths.config,
+				'{"agents":{"__proto__":{"polluted":"yes"}}}',
+			);
+
+			try {
+				expect(() => loadConfig(paths)).toThrow("Unsafe config path");
+				expect(
+					(Object.prototype as Record<string, unknown>).polluted,
+				).toBeUndefined();
+			} finally {
+				delete (Object.prototype as Record<string, unknown>).polluted;
+			}
 		});
 	});
 
@@ -250,6 +302,18 @@ describe("agent-voice config and paths", () => {
 				loadConfig(resolvePaths({ AGENT_VOICE_HOME: home })).summarizer
 					.timeoutSeconds,
 			).toBe(8);
+
+			const capsuleResult = await runCli(
+				["config", "set", "ui.desktopCapsule.enabled", "true"],
+				{
+					env: { AGENT_VOICE_HOME: home },
+				},
+			);
+			expect(capsuleResult.exitCode).toBe(0);
+			expect(
+				loadConfig(resolvePaths({ AGENT_VOICE_HOME: home })).ui.desktopCapsule
+					.enabled,
+			).toBe(true);
 		});
 	});
 
@@ -257,8 +321,11 @@ describe("agent-voice config and paths", () => {
 		await withTempHome(async (home) => {
 			const env = { AGENT_VOICE_HOME: home };
 			expect(
-				(await runCli(["config", "set", "summarizer.timeoutSeconds", "8"], { env }))
-					.exitCode,
+				(
+					await runCli(["config", "set", "summarizer.timeoutSeconds", "8"], {
+						env,
+					})
+				).exitCode,
 			).toBe(0);
 
 			const invalidNumber = await runCli(
