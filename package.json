@@ -14,6 +14,7 @@
     "build:macos": "bash scripts/build-macos-app.sh",
     "clean:cache": "bash scripts/build-macos-app.sh clean-cache",
     "dev:linux": "bun linux/electron/dev-runner.ts electron",
+    "build:linux-main": "bun linux/electron/build-main.ts",
     "build:linux-renderer": "vite build --config linux/electron/vite.config.ts",
     "test:renderer": "vitest run --config linux/electron/vite.config.ts",
     "check:renderer": "svelte-check --tsconfig linux/electron/tsconfig.json"

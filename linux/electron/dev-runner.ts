@@ -3,6 +3,19 @@ import { spawn, type ChildProcess } from "node:child_process";
 const rendererUrl =
 	process.env.AGENT_VOICE_RENDERER_URL ?? "http://127.0.0.1:5173";
 
+function run(command: string, args: string[]): Promise<number> {
+	const child = spawn(command, args, { stdio: "inherit" });
+	return new Promise((resolve) => {
+		child.on("error", () => resolve(1));
+		child.on("exit", (code) => resolve(code ?? 0));
+	});
+}
+
+const buildExit = await run("bun", ["linux/electron/build-main.ts"]);
+if (buildExit !== 0) {
+	process.exit(buildExit);
+}
+
 const vite = spawn(
 	"bun",
 	[
@@ -16,7 +29,7 @@ const vite = spawn(
 	{ stdio: "inherit" },
 );
 
-const electron = spawn("bun", ["x", "electron", "linux/electron/main.ts"], {
+const electron = spawn("bun", ["x", "electron", "dist/linux-electron/main.js"], {
 	stdio: "inherit",
 	env: { ...process.env, AGENT_VOICE_RENDERER_URL: rendererUrl },
 });

@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from "node:fs";
 const pkg = JSON.parse(readFileSync("package.json", "utf8"));
 const tsconfig = JSON.parse(readFileSync("tsconfig.json", "utf8"));
 const viteConfig = readFileSync("linux/electron/vite.config.ts", "utf8");
+const devRunner = readFileSync("linux/electron/dev-runner.ts", "utf8");
 
 describe("linux electron tooling", () => {
 	test("package exposes linux electron dev/test scripts", () => {
@@ -18,8 +19,19 @@ describe("linux electron tooling", () => {
 		expect(tsconfig.include).toContain("linux/electron/**/*.ts");
 	});
 
-	test("linux electron main entry exists", () => {
+	test("linux electron main entry and build script exist", () => {
 		expect(existsSync("linux/electron/main.ts")).toBe(true);
+		expect(existsSync("linux/electron/build-main.ts")).toBe(true);
+		expect(existsSync("linux/electron/service-bridge.ts")).toBe(true);
+		expect(pkg.scripts["build:linux-main"]).toContain(
+			"linux/electron/build-main.ts",
+		);
+	});
+
+	test("dev runner launches built electron main JavaScript", () => {
+		expect(devRunner).toContain("build-main.ts");
+		expect(devRunner).toContain("dist/linux-electron/main.js");
+		expect(devRunner).not.toContain("electron\", \"linux/electron/main.ts");
 	});
 
 	test("renderer Vitest tests stay out of Bun root test discovery", () => {
