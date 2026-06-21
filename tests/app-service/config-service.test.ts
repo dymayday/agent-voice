@@ -75,7 +75,7 @@ describe("app-service config", () => {
 		}
 	});
 
-	test("valid summarizer update persists", () => {
+	test("valid summarizer update persists and returns renderer mode DTO", () => {
 		const { home, paths } = tempPaths();
 		try {
 			const result = updateSummarizerSettings(
@@ -84,7 +84,10 @@ describe("app-service config", () => {
 			);
 
 			expect(result.ok).toBe(true);
+			if (!result.ok) throw new Error(result.error.message);
+			expect(result.value.summarizer.mode).toBe("heuristic");
 			const config = getAppConfig(paths);
+			expect(config.summarizer?.mode).toBe("heuristic");
 			expect(config.summarizer?.thinking).toBe("low");
 			expect(config.summarizer?.priority).toEqual(["heuristic"]);
 		} finally {

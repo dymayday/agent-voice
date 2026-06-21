@@ -8,6 +8,7 @@ export const AGENT_VOICE_PRELOAD_METHODS = [
 	"kokoro.setup.start",
 	"kokoro.setup.cancel",
 	"history.list",
+	"queue.snapshot",
 	"queue.clearActive",
 	"queue.clearFailed",
 	"diagnostics.snapshot",
@@ -17,6 +18,7 @@ export const AGENT_VOICE_PRELOAD_METHODS = [
 	"config.update",
 	"capsule.setEnabled",
 	"capsule.openConsole",
+	"capsule.viewQueue",
 	"events.subscribe",
 ] as const;
 
@@ -30,6 +32,7 @@ export const AGENT_VOICE_CHANNELS = {
 	kokoroSetupStart: "agent-voice:kokoro:setup:start",
 	kokoroSetupCancel: "agent-voice:kokoro:setup:cancel",
 	historyList: "agent-voice:history:list",
+	queueSnapshot: "agent-voice:queue:snapshot",
 	queueClearActive: "agent-voice:queue:clear-active",
 	queueClearFailed: "agent-voice:queue:clear-failed",
 	diagnosticsSnapshot: "agent-voice:diagnostics:snapshot",
@@ -39,6 +42,8 @@ export const AGENT_VOICE_CHANNELS = {
 	configUpdate: "agent-voice:config:update",
 	capsuleSetEnabled: "agent-voice:capsule:set-enabled",
 	capsuleOpenConsole: "agent-voice:capsule:open-console",
+	capsuleViewQueue: "agent-voice:capsule:view-queue",
+	routeNavigate: "agent-voice:route:navigate",
 	eventsSubscribe: "agent-voice:events:subscribe",
 	eventsUnsubscribe: "agent-voice:events:unsubscribe",
 } as const;

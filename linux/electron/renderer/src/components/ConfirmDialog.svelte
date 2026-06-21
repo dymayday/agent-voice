@@ -7,6 +7,7 @@
 		message: string;
 		expectedText: string;
 		confirmLabel?: string;
+		dangerCopy?: string;
 		returnFocusTo?: HTMLElement | null;
 		onConfirm: () => void | Promise<void>;
 		onClose: () => void;
@@ -18,6 +19,7 @@
 		message,
 		expectedText,
 		confirmLabel = "Confirm",
+		dangerCopy = "This is an irreversible removal action.",
 		returnFocusTo = null,
 		onConfirm,
 		onClose,
@@ -94,7 +96,7 @@
 		>
 			<h2 id="confirm-title">{title}</h2>
 			<p>{message}</p>
-			<p class="danger-copy">This is an irreversible removal action.</p>
+			<p class="danger-copy">{dangerCopy}</p>
 			<label>
 				<span>Type {expectedText} to continue</span>
 				<input bind:this={confirmInput} bind:value={typed} />

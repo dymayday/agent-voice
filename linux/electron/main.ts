@@ -1,7 +1,11 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
-import type { BrowserWindowConstructorOptions, IpcMain } from "electron";
+import type {
+	BrowserWindow as ElectronBrowserWindow,
+	BrowserWindowConstructorOptions,
+	IpcMain,
+} from "electron";
 import { ok } from "../../src/app-service/errors";
 import { resolvePaths, type AgentVoicePaths } from "../../src/paths";
 import {
@@ -35,6 +39,7 @@ type AppServiceMethod =
 	| "kokoro.status"
 	| "kokoro.setup.run"
 	| "history.list"
+	| "queue.snapshot"
 	| "queue.clearActive"
 	| "queue.clearFailed"
 	| "diagnostics.snapshot"
@@ -85,11 +90,13 @@ export function validateIpcPayload(
 		case "daemon.stop":
 		case "voice.speakLatest":
 		case "kokoro.status":
+		case "queue.snapshot":
 		case "queue.clearActive":
 		case "queue.clearFailed":
 		case "diagnostics.snapshot":
 		case "config.get":
 		case "capsule.openConsole":
+		case "capsule.viewQueue":
 			if (
 				payload !== undefined &&
 				!(isRecord(payload) && Object.keys(payload).length === 0)
@@ -312,6 +319,30 @@ export function createMainWindowOptions(
 	};
 }
 
+export function createCapsuleWindowOptions(
+	preloadPath: string,
+): BrowserWindowConstructorOptions {
+	return {
+		width: 320,
+		height: 220,
+		resizable: false,
+		alwaysOnTop: true,
+		skipTaskbar: true,
+		title: "Agent Voice Capsule",
+		webPreferences: {
+			contextIsolation: true,
+			nodeIntegration: false,
+			sandbox: true,
+			preload: preloadPath,
+		},
+	};
+}
+
+function appendRendererView(url: string, view: "capsule"): string {
+	const separator = url.includes("?") ? "&" : "?";
+	return `${url}${separator}view=${view}`;
+}
+
 export function createSetupSessionRegistry() {
 	const sessions = new Map<
 		string,
@@ -403,6 +434,7 @@ export function createCapsuleController(hooks: {
 	create: () => void;
 	destroy: () => void;
 	focusConsole: () => void;
+	viewQueue?: () => void;
 }) {
 	let enabled = false;
 	return {
@@ -415,10 +447,74 @@ export function createCapsuleController(hooks: {
 		openConsole() {
 			hooks.focusConsole();
 		},
+		viewQueue() {
+			(hooks.viewQueue ?? hooks.focusConsole)();
+		},
 		allowedActions(): CapsuleAction[] {
 			return [...CAPSULE_ACTIONS];
 		},
 	};
+}
+
+export function createDesktopCapsuleController(options: {
+	BrowserWindow: new (
+		options: BrowserWindowConstructorOptions,
+	) => ElectronBrowserWindow;
+	capsulePreloadPath: string;
+	getMainWindow: () => ElectronBrowserWindow | null;
+	createMainWindow?: () => Promise<ElectronBrowserWindow>;
+	rendererUrl?: string;
+	rendererFile?: string;
+}) {
+	let capsuleWindow: ElectronBrowserWindow | null = null;
+
+	async function focusConsole(route?: "queue-history"): Promise<void> {
+		let mainWindow = options.getMainWindow();
+		if ((!mainWindow || mainWindow.isDestroyed()) && options.createMainWindow) {
+			mainWindow = await options.createMainWindow();
+		}
+		if (!mainWindow || mainWindow.isDestroyed()) return;
+		if (route) {
+			mainWindow.webContents.send(AGENT_VOICE_CHANNELS.routeNavigate, route);
+		}
+		mainWindow.show();
+		mainWindow.focus();
+	}
+
+	return createCapsuleController({
+		create() {
+			if (capsuleWindow && !capsuleWindow.isDestroyed()) {
+				capsuleWindow.show();
+				return;
+			}
+			capsuleWindow = new options.BrowserWindow(
+				createCapsuleWindowOptions(options.capsulePreloadPath),
+			);
+			capsuleWindow.on("closed", () => {
+				capsuleWindow = null;
+			});
+			if (options.rendererUrl) {
+				void capsuleWindow.loadURL(
+					appendRendererView(options.rendererUrl, "capsule"),
+				);
+			} else {
+				void capsuleWindow.loadFile(
+					options.rendererFile ?? resolve("dist/linux-renderer/index.html"),
+					{ query: { view: "capsule" } },
+				);
+			}
+		},
+		destroy() {
+			if (!capsuleWindow || capsuleWindow.isDestroyed()) {
+				capsuleWindow = null;
+				return;
+			}
+			capsuleWindow.close();
+			capsuleWindow = null;
+		},
+		focusConsole: () => void focusConsole(),
+		viewQueue: () => void focusConsole("queue-history"),
+	});
 }
 
 type RegisterOptions = {
@@ -500,6 +596,9 @@ export function registerIpcHandlers(
 		};
 		return appServices.invoke("history.list", input);
 	});
+	ipcMain.handle(AGENT_VOICE_CHANNELS.queueSnapshot, () =>
+		appServices.invoke("queue.snapshot"),
+	);
 	ipcMain.handle(AGENT_VOICE_CHANNELS.queueClearActive, () =>
 		appServices.invoke("queue.clearActive"),
 	);
@@ -548,6 +647,10 @@ export function registerIpcHandlers(
 		capsuleController.openConsole();
 		return ok({ action: "openConsole" });
 	});
+	ipcMain.handle(AGENT_VOICE_CHANNELS.capsuleViewQueue, () => {
+		capsuleController.viewQueue();
+		return ok({ action: "viewQueue" });
+	});
 	ipcMain.handle(AGENT_VOICE_CHANNELS.eventsSubscribe, (event, payload) => {
 		const input = validateIpcPayload("events.subscribe", payload) as {
 			eventName: string;
@@ -586,33 +689,67 @@ export function registerIpcHandlers(
 
 async function createWindow(
 	BrowserWindow: typeof import("electron").BrowserWindow,
-): Promise<void> {
-	const preloadPath = resolve(
-		dirname(fileURLToPath(import.meta.url)),
-		"preload.js",
-	);
+	preloadPath: string,
+): Promise<ElectronBrowserWindow> {
 	const window = new BrowserWindow(createMainWindowOptions(preloadPath));
 	const rendererUrl = process.env.AGENT_VOICE_RENDERER_URL;
 
 	if (rendererUrl) {
 		await window.loadURL(rendererUrl);
-		return;
+		return window;
 	}
 
 	await window.loadFile(resolve("dist/linux-renderer/index.html"));
+	return window;
+}
+
+function capsuleEnabledInConfig(config: unknown): boolean {
+	return (
+		isRecord(config) &&
+		isRecord(config.ui) &&
+		isRecord(config.ui.desktopCapsule) &&
+		config.ui.desktopCapsule.enabled === true
+	);
 }
 
 async function bootstrapElectron(): Promise<void> {
 	if (!process.versions.electron) return;
 	const electron = await import("electron");
 	const { app, BrowserWindow, ipcMain } = electron;
-	registerIpcHandlers(ipcMain);
-	await app.whenReady();
-	await createWindow(BrowserWindow);
-	app.on("activate", () => {
-		if (BrowserWindow.getAllWindows().length === 0)
-			void createWindow(BrowserWindow);
+	const preloadPath = resolve(
+		dirname(fileURLToPath(import.meta.url)),
+		"preload.js",
+	);
+	const capsulePreloadPath = resolve(
+		dirname(fileURLToPath(import.meta.url)),
+		"capsule-preload.js",
+	);
+	let mainWindow: ElectronBrowserWindow | null = null;
+	const appServices = createBridgeAppServiceClient(process.env);
+	const createMain = async () => {
+		mainWindow = await createWindow(BrowserWindow, preloadPath);
+		return mainWindow;
+	};
+	const capsuleController = createDesktopCapsuleController({
+		BrowserWindow,
+		capsulePreloadPath,
+		getMainWindow: () => mainWindow,
+		createMainWindow: createMain,
+		rendererUrl: process.env.AGENT_VOICE_RENDERER_URL,
 	});
+	registerIpcHandlers(ipcMain, { appServices, capsuleController });
+	await app.whenReady();
+	mainWindow = await createMain();
+	try {
+		const config = await appServices.invoke("config.get");
+		if (capsuleEnabledInConfig(config)) capsuleController.setEnabled(true);
+	} catch (error) {
+		console.warn("Unable to restore Desktop Capsule setting", error);
+	}
+	app.on("activate", () => {
+		if (BrowserWindow.getAllWindows().length === 0) void createMain();
+	});
+	app.on("before-quit", () => appServices.dispose?.());
 	app.on("window-all-closed", () => {
 		if (process.platform !== "darwin") app.quit();
 	});

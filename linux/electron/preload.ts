@@ -14,6 +14,13 @@ function assertSupportedEvent(
 	}
 }
 
+ipcRenderer.on(AGENT_VOICE_CHANNELS.routeNavigate, (_event, route: unknown) => {
+	if (typeof route !== "string") return;
+	window.dispatchEvent(
+		new CustomEvent("agent-voice:navigate", { detail: route }),
+	);
+});
+
 const api = {
 	status: { get: () => ipcRenderer.invoke(AGENT_VOICE_CHANNELS.statusGet) },
 	daemon: {
@@ -42,6 +49,7 @@ const api = {
 			ipcRenderer.invoke(AGENT_VOICE_CHANNELS.historyList, options ?? {}),
 	},
 	queue: {
+		snapshot: () => ipcRenderer.invoke(AGENT_VOICE_CHANNELS.queueSnapshot),
 		clearActive: () =>
 			ipcRenderer.invoke(AGENT_VOICE_CHANNELS.queueClearActive),
 		clearFailed: () =>
@@ -67,6 +75,8 @@ const api = {
 			ipcRenderer.invoke(AGENT_VOICE_CHANNELS.capsuleSetEnabled, { enabled }),
 		openConsole: () =>
 			ipcRenderer.invoke(AGENT_VOICE_CHANNELS.capsuleOpenConsole),
+		viewQueue: () =>
+			ipcRenderer.invoke(AGENT_VOICE_CHANNELS.capsuleViewQueue),
 	},
 	events: {
 		subscribe: (

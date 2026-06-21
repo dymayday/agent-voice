@@ -51,10 +51,48 @@ describe("QueueHistory", () => {
 					pageInfo: { limit: 10, hasMore: false, nextCursor: null },
 				}),
 			);
-		installMockAgentVoice({ history: { list: historyList } });
+		const queueSnapshot = vi.fn(async () =>
+			success({
+				version: 1 as const,
+				counts: { pending: 1, processing: 1, done: 0, failed: 1, skipped: 0 },
+				processing: [
+					{
+						id: "active-1",
+						agent: "codex",
+						status: "processing" as const,
+						text: "Speaking current summary",
+						createdAt: "2026-06-21T00:00:01.000Z",
+						claimedAt: "2026-06-21T00:00:02.000Z",
+						attempts: 1,
+					},
+				],
+				pending: [
+					{
+						id: "active-2",
+						agent: "pi",
+						status: "pending" as const,
+						text: "Waiting to speak queued update",
+						createdAt: "2026-06-21T00:00:03.000Z",
+						attempts: 0,
+					},
+				],
+				recent: [],
+			}),
+		);
+		installMockAgentVoice({
+			history: { list: historyList },
+			queue: {
+				snapshot: queueSnapshot,
+				clearActive: async () => success({ cleared: 0 }),
+				clearFailed: async () => success({ cleared: 0 }),
+			},
+		});
 
 		render(QueueHistory);
 
+		expect(await screen.findByText(/speaking current summary/i)).toBeInTheDocument();
+		expect(screen.getByText(/waiting to speak queued update/i)).toBeInTheDocument();
+		expect(screen.getByText(/claimed at/i)).toBeInTheDocument();
 		expect(await screen.findByText(/boom raw error/i)).toBeInTheDocument();
 		expect(screen.getByText(/a failed summary/i)).toBeInTheDocument();
 		expect(screen.getByText(/pi-fast/i)).toBeInTheDocument();
@@ -66,6 +104,15 @@ describe("QueueHistory", () => {
 	test("clear active and failed require confirmation", async () => {
 		const clearActive = vi.fn(async () => success({ cleared: 2 }));
 		const clearFailed = vi.fn(async () => success({ cleared: 1 }));
+		const snapshot = vi.fn(async () =>
+			success({
+				version: 1 as const,
+				counts: { pending: 0, processing: 0, done: 0, failed: 1, skipped: 0 },
+				pending: [],
+				processing: [],
+				recent: [],
+			}),
+		);
 		installMockAgentVoice({
 			history: {
 				list: async () =>
@@ -75,7 +122,7 @@ describe("QueueHistory", () => {
 						pageInfo: { limit: 10, hasMore: false, nextCursor: null },
 					}),
 			},
-			queue: { clearActive, clearFailed },
+			queue: { snapshot, clearActive, clearFailed },
 		});
 
 		render(QueueHistory);

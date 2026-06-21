@@ -3,6 +3,11 @@ import { Database } from "bun:sqlite";
 import { buildAppStatusSnapshot, type AppStatusSnapshot } from "../status";
 import { buildKokoroStatus } from "../kokoro-setup";
 import type { AgentVoicePaths } from "../paths";
+import {
+	detectPlaybackBackendSync,
+	type CommandExistsSync,
+	type PlaybackBackend,
+} from "../platform/playback";
 import type { JobStatus } from "../store";
 import type { DaemonCliDeps } from "../daemon";
 import type { InstallEnv } from "../install";
@@ -18,6 +23,10 @@ export {
 export interface StatusServiceOptions {
 	daemonDeps?: DaemonCliDeps;
 	installEnv?: InstallEnv;
+	playback?: {
+		platform?: NodeJS.Platform;
+		commandExists?: CommandExistsSync;
+	};
 }
 
 export interface QueueSnapshotJob extends QueueJobSummary {
@@ -64,9 +73,25 @@ function emptyCounts(): Record<JobStatus, number> {
 	) as Record<JobStatus, number>;
 }
 
+function mapPlayback(backend: PlaybackBackend): SystemStatus["playback"] {
+	if (backend.kind === "tool") {
+		return {
+			state: "available",
+			backend: backend.name,
+			checked: backend.checked,
+		};
+	}
+	return {
+		state: "missing",
+		checked: backend.checked,
+		message: backend.message,
+	};
+}
+
 function mapStatus(
 	snapshot: AppStatusSnapshot,
 	paths: AgentVoicePaths,
+	playbackBackend: PlaybackBackend,
 ): SystemStatus {
 	const kokoro = buildKokoroStatus(paths);
 	return {
@@ -76,10 +101,7 @@ function mapStatus(
 		kokoro: kokoro.installed
 			? { state: "ready" }
 			: { state: "missing", message: "Managed Kokoro voice is not installed." },
-		playback: {
-			state: "missing",
-			message: "Playback backend has not been probed.",
-		},
+		playback: mapPlayback(playbackBackend),
 		queue: snapshot.queues,
 		attention: snapshot.ui.attention,
 		install: snapshot.install,
@@ -98,7 +120,8 @@ export function getStatus(
 			options.daemonDeps ?? {},
 			options.installEnv ?? (process.env as InstallEnv),
 		);
-		return ok(mapStatus(snapshot, paths));
+		const playbackBackend = detectPlaybackBackendSync(options.playback ?? {});
+		return ok(mapStatus(snapshot, paths, playbackBackend));
 	} catch (error) {
 		return fail(
 			"INTERNAL",

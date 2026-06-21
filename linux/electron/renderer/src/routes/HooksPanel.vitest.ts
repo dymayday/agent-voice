@@ -52,14 +52,26 @@ describe("HooksPanel", () => {
 		expect(screen.getByRole("button", { name: /install codex/i })).toBeDisabled();
 		expect(screen.getByRole("button", { name: /install opencode/i })).toBeDisabled();
 
-		await fireEvent.click(screen.getByRole("button", { name: /install claude/i }));
+		const installClaude = screen.getByRole("button", { name: /install claude/i });
+		await fireEvent.click(installClaude);
 		expect(screen.getByRole("dialog")).toHaveTextContent(/claude hook at/i);
 		expect(screen.getByRole("dialog")).toHaveTextContent(/~\/\.claude\/settings\.json/i);
+		expect(screen.getByRole("button", { name: /confirm install claude/i })).toBeDisabled();
+		await fireEvent.input(screen.getByLabelText(/type install claude/i), {
+			target: { value: "INSTALL CLAUDE" },
+		});
 		await fireEvent.click(screen.getByRole("button", { name: /confirm install claude/i }));
 		await waitFor(() => expect(install).toHaveBeenCalledWith("claude"));
+		await waitFor(() =>
+			expect(screen.getByRole("button", { name: /install claude/i })).toHaveFocus(),
+		);
 
-		await fireEvent.click(screen.getByRole("button", { name: /uninstall pi/i }));
+		const uninstallPi = screen.getByRole("button", { name: /uninstall pi/i });
+		await fireEvent.click(uninstallPi);
 		expect(screen.getByRole("dialog")).toHaveTextContent(/pi hook at/i);
+		await fireEvent.input(screen.getByLabelText(/type uninstall pi/i), {
+			target: { value: "UNINSTALL PI" },
+		});
 		await fireEvent.click(screen.getByRole("button", { name: /confirm uninstall pi/i }));
 		await waitFor(() => expect(uninstall).toHaveBeenCalledWith("pi"));
 

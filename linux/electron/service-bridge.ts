@@ -5,6 +5,7 @@ import {
 	getAppConfig,
 	getDiagnosticsPreview,
 	getHistory,
+	getQueueSnapshot,
 	getKokoroStatus,
 	getStatus,
 	installHook,
@@ -79,6 +80,8 @@ async function handleRequest(request: BridgeRequest): Promise<unknown> {
 				},
 				paths,
 			);
+		case "queue.snapshot":
+			return getQueueSnapshot(paths);
 		case "queue.clearActive":
 			return clearActive(paths);
 		case "queue.clearFailed":

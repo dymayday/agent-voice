@@ -6,7 +6,11 @@ rmSync(outdir, { recursive: true, force: true });
 mkdirSync(outdir, { recursive: true });
 
 const result = await Bun.build({
-	entrypoints: ["linux/electron/main.ts", "linux/electron/preload.ts"],
+	entrypoints: [
+		"linux/electron/main.ts",
+		"linux/electron/preload.ts",
+		"linux/electron/capsule-preload.ts",
+	],
 	outdir,
 	target: "node",
 	format: "esm",

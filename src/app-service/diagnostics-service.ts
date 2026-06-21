@@ -4,6 +4,11 @@ import { buildDoctorReport, type DoctorReport } from "../doctor";
 import type { DaemonCliDeps } from "../daemon";
 import type { InstallEnv } from "../install";
 import type { AgentVoicePaths } from "../paths";
+import {
+	detectPlaybackBackendSync,
+	type CommandExistsSync,
+	type PlaybackBackend,
+} from "../platform/playback";
 import { buildAppStatusSnapshot, type AppStatusSnapshot } from "../status";
 import type { JobStatus } from "../store";
 import { fail, ok } from "./errors";
@@ -41,7 +46,14 @@ export interface DiagnosticsSnapshot {
 	paths: AppStatusSnapshot["paths"];
 	config: AppStatusSnapshot["config"];
 	build: { buildId: string | null; runtime: "bun" | "node" | string };
-	playback: { state: "not_probed"; checked: string[]; message: string };
+	playback:
+		| {
+				state: "available";
+				backend: string;
+				checked: string[];
+				message?: string;
+			}
+		| { state: "missing"; checked: string[]; message: string };
 }
 
 export interface DiagnosticsPreview<T = unknown> {
@@ -57,6 +69,10 @@ export interface DiagnosticsPreviewOptions {
 	installEnv?: InstallEnv;
 	maxTextLength?: number;
 	jobLimit?: number;
+	playback?: {
+		platform?: NodeJS.Platform;
+		commandExists?: CommandExistsSync;
+	};
 }
 
 interface JobRow {
@@ -213,6 +229,21 @@ function runtimeName(): string {
 	return typeof Bun === "object" ? "bun" : "node";
 }
 
+function mapPlaybackDiagnostics(backend: PlaybackBackend): DiagnosticsSnapshot["playback"] {
+	if (backend.kind === "tool") {
+		return {
+			state: "available",
+			backend: backend.name,
+			checked: backend.checked,
+		};
+	}
+	return {
+		state: "missing",
+		checked: backend.checked,
+		message: backend.message,
+	};
+}
+
 export function getDiagnosticsPreview(
 	paths: AgentVoicePaths,
 	options: DiagnosticsPreviewOptions = {},
@@ -227,6 +258,7 @@ export function getDiagnosticsPreview(
 		);
 		const doctor = buildDoctorReport(paths, daemonDeps, env);
 		const status = buildAppStatusSnapshot(paths, daemonDeps, env);
+		const playback = detectPlaybackBackendSync(options.playback ?? {});
 		const snapshot: DiagnosticsSnapshot = {
 			version: 1,
 			createdAt: new Date().toISOString(),
@@ -239,11 +271,7 @@ export function getDiagnosticsPreview(
 			paths: status.paths,
 			config: status.config,
 			build: { buildId: status.buildId, runtime: runtimeName() },
-			playback: {
-				state: "not_probed",
-				checked: [],
-				message: "Playback backend has not been probed by diagnostics preview.",
-			},
+			playback: mapPlaybackDiagnostics(playback),
 		};
 		return ok(previewDiagnosticsSnapshot(snapshot));
 	} catch (error) {

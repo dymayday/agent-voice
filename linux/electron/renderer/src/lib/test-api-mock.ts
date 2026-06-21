@@ -42,6 +42,14 @@ export function createMockAgentVoice(
 				}),
 		},
 		queue: {
+			snapshot: async () =>
+				success({
+					version: 1,
+					counts: { pending: 0, processing: 0, done: 0, failed: 0, skipped: 0 },
+					pending: [],
+					processing: [],
+					recent: [],
+				}),
 			clearActive: async () => success({ cleared: 0 }),
 			clearFailed: async () => success({ cleared: 0 }),
 		},
@@ -66,6 +74,7 @@ export function createMockAgentVoice(
 			setEnabled: async (enabled: boolean) =>
 				success({ ui: { desktopCapsule: { enabled } } }),
 			openConsole: async () => success({ action: "openConsole" }),
+			viewQueue: async () => success({ action: "viewQueue" }),
 		},
 		events: {
 			subscribe: () => () => undefined,

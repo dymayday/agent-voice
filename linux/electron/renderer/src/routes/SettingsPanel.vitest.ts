@@ -55,6 +55,7 @@ describe("SettingsPanel", () => {
 			capsule: {
 				setEnabled,
 				openConsole: vi.fn(async () => ok({ action: "openConsole" as const })),
+				viewQueue: vi.fn(async () => ok({ action: "viewQueue" as const })),
 			},
 		});
 

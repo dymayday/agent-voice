@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { onMount } from "svelte";
+	import { onMount, tick } from "svelte";
+	import ConfirmDialog from "../components/ConfirmDialog.svelte";
 	import { agentVoice } from "../lib/api";
 
 	type AgentId = "pi" | "claude" | "codex" | "opencode";
@@ -23,6 +24,7 @@
 	let error = $state("");
 	let message = $state("");
 	let pendingAction = $state<PendingAction>(null);
+	let returnFocusTo = $state<HTMLElement | null>(null);
 
 	function labelFor(agent: AgentId): string {
 		return agents.find((item) => item.id === agent)?.label ?? agent;
@@ -62,8 +64,13 @@
 		}
 	}
 
-	function requestAction(agent: AgentId, kind: "install" | "uninstall"): void {
+	function requestAction(agent: AgentId, kind: "install" | "uninstall", event: MouseEvent): void {
 		pendingAction = { agent, kind };
+		returnFocusTo = event.currentTarget as HTMLElement;
+	}
+
+	function closeConfirm(): void {
+		pendingAction = null;
 	}
 
 	async function confirmAction(): Promise<void> {
@@ -78,10 +85,36 @@
 		if (result.ok) {
 			message = `${labelFor(agent)} hook ${kind === "install" ? "installed" : "uninstalled"}.`;
 			await loadStates();
+			await tick();
+			const renderedKind = states[agent] === "installed" ? "uninstall" : "install";
+			returnFocusTo = document.querySelector<HTMLElement>(
+				`[data-hook-action="${agent}-${renderedKind}"]`,
+			) ?? returnFocusTo;
 		} else {
 			error = result.error.message;
 		}
 	}
+
+	const confirmTitle = $derived(
+		pendingAction
+			? `Confirm ${pendingAction.kind} for ${labelFor(pendingAction.agent)}`
+			: "Confirm hook change",
+	);
+	const confirmMessage = $derived(
+		pendingAction
+			? `This will ${pendingAction.kind} the ${labelFor(pendingAction.agent)} hook at ${targetFor(pendingAction.agent)}.`
+			: "Confirm hook change.",
+	);
+	const confirmExpected = $derived(
+		pendingAction
+			? `${pendingAction.kind} ${labelFor(pendingAction.agent)}`.toUpperCase()
+			: "CONFIRM",
+	);
+	const confirmLabel = $derived(
+		pendingAction
+			? `Confirm ${pendingAction.kind} ${labelFor(pendingAction.agent)}`
+			: "Confirm hook change",
+	);
 
 	async function copyDiagnostics(agent: AgentId): Promise<void> {
 		const text = `${labelFor(agent)} hook diagnostics\nState: ${stateCopy(states[agent])}\nTarget: ${targetFor(agent)}`;
@@ -120,12 +153,13 @@
 					{/if}
 					<div class="hook-actions">
 						{#if state === "installed"}
-							<button type="button" onclick={() => requestAction(agent.id, "uninstall")}>Uninstall {agent.label}</button>
+							<button type="button" data-hook-action={`${agent.id}-uninstall`} onclick={(event) => requestAction(agent.id, "uninstall", event)}>Uninstall {agent.label}</button>
 						{:else}
 							<button
 								type="button"
 								disabled={state === "unknown" || state === "unsupported"}
-								onclick={() => requestAction(agent.id, "install")}
+								data-hook-action={`${agent.id}-install`}
+								onclick={(event) => requestAction(agent.id, "install", event)}
 							>
 								Install {agent.label}
 							</button>
@@ -137,19 +171,17 @@
 		</div>
 	{/if}
 
-	{#if pendingAction}
-		<div class="confirm-card" role="dialog" aria-modal="true" aria-label="Confirm hook change" tabindex="-1">
-			<h3>Confirm {pendingAction.kind} for {labelFor(pendingAction.agent)}</h3>
-			<p>
-				This will {pendingAction.kind} the {labelFor(pendingAction.agent)} hook at
-				<strong>{targetFor(pendingAction.agent)}</strong>.
-			</p>
-			<div class="hook-actions">
-				<button type="button" onclick={() => (pendingAction = null)}>Cancel</button>
-				<button type="button" onclick={confirmAction}>Confirm {pendingAction.kind} {labelFor(pendingAction.agent)}</button>
-			</div>
-		</div>
-	{/if}
+	<ConfirmDialog
+		open={pendingAction !== null}
+		title={confirmTitle}
+		message={confirmMessage}
+		expectedText={confirmExpected}
+		{confirmLabel}
+		dangerCopy="Review the hook target before changing local agent configuration files."
+		{returnFocusTo}
+		onConfirm={confirmAction}
+		onClose={closeConfirm}
+	/>
 
 	{#if message}
 		<p class="notice" role="status">{message}</p>
@@ -177,7 +209,6 @@
 	}
 
 	.hook-card,
-	.confirm-card,
 	.notice {
 		border: 1px solid rgba(148, 163, 184, 0.22);
 		border-radius: 1rem;
@@ -202,7 +233,6 @@
 	}
 
 	.hook-card h3,
-	.confirm-card h3,
 	.notice {
 		margin: 0;
 	}
@@ -236,9 +266,6 @@
 		cursor: not-allowed;
 	}
 
-	.confirm-card {
-		border-color: rgba(87, 229, 255, 0.4);
-	}
 
 	.notice.danger {
 		border-color: rgba(255, 107, 146, 0.55);

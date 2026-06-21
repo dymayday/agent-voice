@@ -1,12 +1,14 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import type { AppHistoryJob, AppHistoryPageInfo } from "../../../../../src/history";
+	import type { QueueSnapshotJob, UiQueueSnapshot } from "../../../../../src/app-service";
 	import ConfirmDialog from "../components/ConfirmDialog.svelte";
 	import { agentVoice } from "../lib/api";
 
 	type ClearKind = "active" | "failed";
 
 	let jobs = $state<AppHistoryJob[]>([]);
+	let queueSnapshot = $state<UiQueueSnapshot | null>(null);
 	let pageInfo = $state<AppHistoryPageInfo>({ limit: 10, hasMore: false, nextCursor: null });
 	let loading = $state(true);
 	let loadingMore = $state(false);
@@ -14,6 +16,20 @@
 	let message = $state("");
 	let confirmKind = $state<ClearKind | null>(null);
 	let returnFocusTo = $state<HTMLElement | null>(null);
+
+	async function loadQueueSnapshot(): Promise<void> {
+		error = "";
+		try {
+			const result = await agentVoice.queue.snapshot();
+			if (!result.ok) {
+				error = result.error.message;
+				return;
+			}
+			queueSnapshot = result.value;
+		} catch (caught) {
+			error = caught instanceof Error ? caught.message : String(caught);
+		}
+	}
 
 	async function loadHistory(before: string | undefined = undefined): Promise<void> {
 		if (before) loadingMore = true;
@@ -44,6 +60,15 @@
 		confirmKind = null;
 	}
 
+	async function reloadInitial(): Promise<void> {
+		loading = true;
+		try {
+			await Promise.all([loadQueueSnapshot(), loadHistory()]);
+		} finally {
+			loading = false;
+		}
+	}
+
 	async function confirmClear(): Promise<void> {
 		if (!confirmKind) return;
 		const result = confirmKind === "active"
@@ -51,11 +76,16 @@
 			: await agentVoice.queue.clearFailed();
 		if (result.ok) {
 			message = `Cleared ${result.value.cleared} ${confirmKind} job(s).`;
-			await loadHistory();
+			await reloadInitial();
 		} else {
 			error = result.error.message;
 		}
 	}
+
+	const activeJobs = $derived<QueueSnapshotJob[]>([
+		...(queueSnapshot?.processing ?? []),
+		...(queueSnapshot?.pending ?? []),
+	]);
 
 	const confirmTitle = $derived(
 		confirmKind === "active" ? "Clear active queue" : "Clear failed jobs",
@@ -70,7 +100,7 @@
 	);
 
 	onMount(() => {
-		void loadHistory();
+		void reloadInitial();
 	});
 </script>
 
@@ -93,10 +123,38 @@
 
 	{#if loading}
 		<p role="status">Loading queue history…</p>
-	{:else if jobs.length === 0}
-		<p>No completed history yet.</p>
 	{:else}
-		<div class="job-list" aria-label="Queue history rows">
+		<section class="active-queue" aria-labelledby="active-queue-heading">
+			<h3 id="active-queue-heading">Active queue</h3>
+			{#if activeJobs.length === 0}
+				<p>No pending or processing jobs.</p>
+			{:else}
+				<div class="job-list" aria-label="Active queue rows">
+					{#each activeJobs as job}
+						<article class={`job-row ${job.status}`}>
+							<header>
+								<h4>{job.agent} · {job.status}</h4>
+								<span>{job.createdAt}</span>
+							</header>
+							<p>{job.text}</p>
+							<dl>
+								<div><dt>Attempts</dt><dd>{job.attempts}</dd></div>
+								{#if job.cwd}<div><dt>Working directory</dt><dd>{job.cwd}</dd></div>{/if}
+								{#if job.claimedAt}<div><dt>Claimed at</dt><dd>{job.claimedAt}</dd></div>{/if}
+								{#if job.nextAttemptAt}<div><dt>Next attempt</dt><dd>{job.nextAttemptAt}</dd></div>{/if}
+							</dl>
+						</article>
+					{/each}
+				</div>
+			{/if}
+		</section>
+
+		<section class="history-queue" aria-labelledby="history-queue-heading">
+			<h3 id="history-queue-heading">Completed history</h3>
+			{#if jobs.length === 0}
+				<p>No completed history yet.</p>
+			{:else}
+				<div class="job-list" aria-label="Queue history rows">
 			{#each jobs as job}
 				<article class={`job-row ${job.status}`}>
 					<header>
@@ -114,7 +172,9 @@
 					</dl>
 				</article>
 			{/each}
-		</div>
+				</div>
+			{/if}
+		</section>
 	{/if}
 
 	{#if pageInfo.hasMore && pageInfo.nextCursor}
@@ -195,6 +255,7 @@
 	}
 
 	.job-row h3,
+	.job-row h4,
 	.job-row p,
 	.notice {
 		margin: 0;

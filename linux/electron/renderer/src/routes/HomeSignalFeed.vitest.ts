@@ -89,18 +89,20 @@ describe("HomeSignalFeed", () => {
 		expect(testVoice).toHaveBeenCalledWith("Agent Voice Linux sound check.");
 	});
 
-	test("Open Diagnostics shows route-local visual feedback", async () => {
+	test("Open Diagnostics requests Diagnostics route navigation", async () => {
 		installMockAgentVoice({
 			status: { get: vi.fn(async () => ok(statusPayload())) },
 		});
+		const onNavigate = vi.fn();
 
-		render(HomeSignalFeed);
+		render(HomeSignalFeed, { props: { onNavigate } });
 		await screen.findByText("Daemon stopped");
 		await fireEvent.click(screen.getByRole("button", { name: "Open Diagnostics" }));
 
+		expect(onNavigate).toHaveBeenCalledWith("diagnostics");
 		await waitFor(() =>
 			expect(screen.getByRole("status")).toHaveTextContent(
-				"Diagnostics panel requested",
+				"Opening Diagnostics",
 			),
 		);
 	});

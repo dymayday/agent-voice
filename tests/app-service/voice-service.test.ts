@@ -299,6 +299,7 @@ describe("voice app service", () => {
 						kind: "tool",
 						name: "paplay",
 						command: "paplay",
+						checked: ["paplay"],
 					}),
 					synthesize: async (text, voice) => {
 						synthCalls.push({ text, voice });
@@ -428,6 +429,7 @@ describe("voice app service", () => {
 					kind: "tool",
 					name: "paplay",
 					command: "paplay",
+					checked: ["paplay"],
 				}),
 				synthesize: async () => {
 					synthCount += 1;
@@ -492,6 +494,7 @@ describe("voice app service", () => {
 						kind: "tool",
 						name: "aplay",
 						command: "aplay",
+						checked: ["paplay", "aplay"],
 					}),
 					synthesize: async () => wav,
 					playWav: async () => {

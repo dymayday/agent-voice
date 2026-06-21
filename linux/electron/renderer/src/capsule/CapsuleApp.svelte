@@ -13,8 +13,9 @@
 		message = result.ok ? "Speak Latest requested" : result.error.message;
 	}
 
-	function viewQueue(): void {
-		message = "Queue view requested";
+	async function viewQueue(): Promise<void> {
+		const result = await agentVoice.capsule.viewQueue();
+		message = result.ok ? "Queue view requested" : result.error.message;
 	}
 </script>
 

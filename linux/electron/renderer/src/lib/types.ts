@@ -47,6 +47,7 @@ export interface AgentVoiceRendererApi {
 			UnknownResult<AppServiceResult<AppHistorySnapshot>>;
 	};
 	queue: {
+		snapshot: () => UnknownResult<AppServiceResult<UiQueueSnapshot>>;
 		clearActive: () => UnknownResult<AppServiceResult<{ cleared: number }>>;
 		clearFailed: () => UnknownResult<AppServiceResult<{ cleared: number }>>;
 	};
@@ -65,6 +66,7 @@ export interface AgentVoiceRendererApi {
 	capsule: {
 		setEnabled: (enabled: boolean) => UnknownResult<AppServiceResult<AppConfigDraft>>;
 		openConsole: () => UnknownResult<AppServiceResult<{ action: "openConsole" }>>;
+		viewQueue: () => UnknownResult<AppServiceResult<{ action: "viewQueue" }>>;
 	};
 	events: {
 		subscribe: (

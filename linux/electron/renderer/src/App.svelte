@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { tick } from "svelte";
+	import { onMount, tick } from "svelte";
 	import OperatorRail from "./components/OperatorRail.svelte";
 	import { ROUTES, type RouteId } from "./lib/types";
 	import DiagnosticsPanel from "./routes/DiagnosticsPanel.svelte";
@@ -22,10 +22,23 @@
 		pageTitle?.focus();
 	}
 
+	function isRouteId(value: unknown): value is RouteId {
+		return typeof value === "string" && ROUTES.some((route) => route.id === value);
+	}
+
 	function navigate(route: RouteId): void {
 		activeRoute = route;
 		void focusPageTitle();
 	}
+
+	onMount(() => {
+		const listener = (event: Event) => {
+			const route = event instanceof CustomEvent ? event.detail : undefined;
+			if (isRouteId(route)) navigate(route);
+		};
+		window.addEventListener("agent-voice:navigate", listener);
+		return () => window.removeEventListener("agent-voice:navigate", listener);
+	});
 </script>
 
 <div class="app-shell">
@@ -39,7 +52,7 @@
 		</header>
 
 		{#if activeRoute === "home"}
-			<HomeSignalFeed />
+			<HomeSignalFeed onNavigate={navigate} />
 		{:else if activeRoute === "voice-bench"}
 			<VoiceBench />
 		{:else if activeRoute === "queue-history"}

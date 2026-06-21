@@ -6,12 +6,18 @@ import {
 } from "../config";
 import type { SummarizerThinking } from "../config";
 import { resolvePaths, type AgentVoicePaths } from "../paths";
-import { isSummarizerMode, setSummarizerMode } from "../summarizer-mode";
+import {
+	isSummarizerMode,
+	setSummarizerMode,
+	type SummarizerMode,
+} from "../summarizer-mode";
 import { fail, ok } from "./errors";
 import type { AppServiceResult } from "./types";
 
 export type ConfigPaths = AgentVoicePaths;
-export type AppConfig = AgentVoiceConfig;
+export type AppConfig = AgentVoiceConfig & {
+	summarizer: AgentVoiceConfig["summarizer"] & { mode: SummarizerMode };
+};
 
 export interface SummarizerSettingsInput {
 	mode?: string;
@@ -32,6 +38,23 @@ function pathsOrDefault(paths?: ConfigPaths): ConfigPaths {
 	return paths ?? resolvePaths();
 }
 
+function summarizerMode(config: AgentVoiceConfig): SummarizerMode {
+	return config.summarizer.priority.length === 1 &&
+		config.summarizer.priority[0] === "heuristic"
+		? "heuristic"
+		: "default";
+}
+
+function toAppConfig(config: AgentVoiceConfig): AppConfig {
+	return {
+		...config,
+		summarizer: {
+			...config.summarizer,
+			mode: summarizerMode(config),
+		},
+	};
+}
+
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
@@ -45,7 +68,9 @@ function isSummarizerThinking(value: string): value is SummarizerThinking {
 }
 
 export function getAppConfig(paths?: ConfigPaths): AppConfig {
-	return loadConfig(pathsOrDefault(paths), { createIfMissing: false });
+	return toAppConfig(
+		loadConfig(pathsOrDefault(paths), { createIfMissing: false }),
+	);
 }
 
 export function setCapsuleEnabled(
@@ -55,7 +80,7 @@ export function setCapsuleEnabled(
 	try {
 		const resolvedPaths = pathsOrDefault(paths);
 		const config = loadConfig(resolvedPaths);
-		const updated: AppConfig = {
+		const updated: AgentVoiceConfig = {
 			...config,
 			ui: {
 				...config.ui,
@@ -66,7 +91,9 @@ export function setCapsuleEnabled(
 			},
 		};
 		saveConfig(resolvedPaths, updated);
-		return ok(loadConfig(resolvedPaths, { createIfMissing: false }));
+		return ok(
+			toAppConfig(loadConfig(resolvedPaths, { createIfMissing: false })),
+		);
 	} catch (error) {
 		return fail("INTERNAL", errorMessage(error), {
 			details: error,
@@ -104,7 +131,9 @@ export function updateSummarizerSettings(
 		}
 
 		saveConfig(resolvedPaths, config);
-		return ok(loadConfig(resolvedPaths, { createIfMissing: false }));
+		return ok(
+			toAppConfig(loadConfig(resolvedPaths, { createIfMissing: false })),
+		);
 	} catch (error) {
 		return toBadInput(error);
 	}

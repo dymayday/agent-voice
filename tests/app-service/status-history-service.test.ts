@@ -49,6 +49,7 @@ describe("app-service status and history", () => {
 			const result = getStatus(paths, {
 				daemonDeps: { isPidAlive: () => false },
 				installEnv: { HOME: home },
+				playback: { platform: "linux", commandExists: (cmd) => cmd === "paplay" },
 			});
 
 			expect(result.ok).toBe(true);
@@ -63,6 +64,11 @@ describe("app-service status and history", () => {
 			expect(result.value.queue.pending).toBe(1);
 			expect(result.value.queue.failed).toBe(1);
 			expect(result.value.attention).toContain("failed_jobs");
+			expect(result.value.playback).toMatchObject({
+				state: "available",
+				backend: "paplay",
+				checked: ["paplay"],
+			});
 			expect(result.value.install).toBeDefined();
 			expect(Object.keys(result.value.install ?? {}).sort()).toEqual([
 				"claude",

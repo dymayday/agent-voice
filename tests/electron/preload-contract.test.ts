@@ -23,6 +23,7 @@ describe("electron preload contract", () => {
 			"kokoro.setup.start",
 			"kokoro.setup.cancel",
 			"history.list",
+			"queue.snapshot",
 			"queue.clearActive",
 			"queue.clearFailed",
 			"diagnostics.snapshot",
@@ -32,6 +33,7 @@ describe("electron preload contract", () => {
 			"config.update",
 			"capsule.setEnabled",
 			"capsule.openConsole",
+			"capsule.viewQueue",
 			"events.subscribe",
 		]);
 	});

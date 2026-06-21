@@ -33,8 +33,12 @@ describe("electron main build", () => {
 		expect(result.stderr).toBe("");
 		expect(existsSync("dist/linux-electron/main.js")).toBe(true);
 		expect(existsSync("dist/linux-electron/preload.js")).toBe(true);
+		expect(existsSync("dist/linux-electron/capsule-preload.js")).toBe(true);
 		expect(readFileSync("dist/linux-electron/main.js", "utf8")).toContain(
 			"preload.js",
+		);
+		expect(readFileSync("dist/linux-electron/main.js", "utf8")).toContain(
+			"capsule-preload.js",
 		);
 	});
 

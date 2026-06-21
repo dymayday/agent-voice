@@ -3,6 +3,7 @@
 	import type { SystemStatus } from "../../../../../src/app-service";
 	import StatusBadge from "../components/StatusBadge.svelte";
 	import { agentVoice } from "../lib/api";
+	import type { RouteId } from "../lib/types";
 
 	interface FirstRunAction {
 		id: string;
@@ -15,11 +16,16 @@
 		firstRunActions?: FirstRunAction[];
 	};
 
+	interface Props {
+		onNavigate?: (route: RouteId) => void;
+	}
+
+	let { onNavigate }: Props = $props();
+
 	let status = $state<StatusWithActions | null>(null);
 	let loading = $state(true);
 	let error = $state("");
 	let actionMessage = $state("");
-	let diagnosticsRequested = $state(false);
 
 	function titleCase(value: string): string {
 		return value.length > 0 ? value[0].toUpperCase() + value.slice(1) : value;
@@ -73,8 +79,10 @@
 	}
 
 	function openDiagnostics(): void {
-		diagnosticsRequested = true;
-		actionMessage = "Diagnostics panel requested";
+		onNavigate?.("diagnostics");
+		actionMessage = onNavigate
+			? "Opening Diagnostics"
+			: "Diagnostics navigation is unavailable";
 	}
 
 	onMount(() => {
@@ -152,8 +160,6 @@
 
 	{#if actionMessage}
 		<p class="notice" role="status">{actionMessage}</p>
-	{:else if diagnosticsRequested}
-		<p class="notice" role="status">Diagnostics panel requested</p>
 	{/if}
 </section>
 

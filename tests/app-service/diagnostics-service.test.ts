@@ -124,6 +124,7 @@ describe("diagnostics service", () => {
 				daemonDeps: { isPidAlive: () => false },
 				installEnv,
 				maxTextLength: 100,
+				playback: { platform: "linux", commandExists: (cmd) => cmd === "aplay" },
 			});
 
 			expect(result.ok).toBe(true);
@@ -137,6 +138,11 @@ describe("diagnostics service", () => {
 			expect(result.value.snapshot.failedJobs[0].text).toHaveLength(103);
 			expect(result.value.snapshot.failedJobs[0].lastError).toHaveLength(103);
 			expect(result.value.snapshot.skippedJobs[0].text).toBe("skipped text");
+			expect(result.value.snapshot.playback).toMatchObject({
+				state: "available",
+				backend: "aplay",
+				checked: ["paplay", "aplay"],
+			});
 			expect(JSON.stringify(result.value.snapshot)).not.toContain(
 				"must-not-leak",
 			);

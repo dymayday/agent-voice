@@ -20,6 +20,7 @@ describe("playback backend detection", () => {
 			kind: "tool",
 			name: "paplay",
 			command: "paplay",
+			checked: ["paplay"],
 		});
 	});
 
@@ -28,7 +29,12 @@ describe("playback backend detection", () => {
 			platform: "linux",
 			commandExists: exists(["aplay"]),
 		});
-		expect(backend).toEqual({ kind: "tool", name: "aplay", command: "aplay" });
+		expect(backend).toEqual({
+			kind: "tool",
+			name: "aplay",
+			command: "aplay",
+			checked: ["paplay", "aplay"],
+		});
 	});
 
 	test("linux reports missing backend", async () => {
@@ -50,6 +56,7 @@ describe("playback backend detection", () => {
 			kind: "tool",
 			name: "afplay",
 			command: "afplay",
+			checked: ["afplay"],
 		});
 	});
 
