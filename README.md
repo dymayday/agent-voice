@@ -22,9 +22,12 @@ bun install
 ./bin/agent-voice kokoro setup
 ./bin/agent-voice doctor --json
 ./bin/agent-voice test 'hello'
-bash scripts/build-macos-app.sh
-open "dist/Agent Voice.app"
+just run
 ```
+
+`just run` opens the native app for your platform: the Swift menu-bar app on
+macOS and the Electron Operator Console on Linux. Use explicit app targets when
+you want to override that default, such as `just run-electron` on macOS.
 
 The Kokoro setup command is repair-oriented and safe to rerun. It creates or
 reuses the managed local TTS environment, downloads required Python dependencies
@@ -58,7 +61,7 @@ a narrow typed preload IPC surface.
 
 ```bash
 bun install
-bun run dev:linux
+just dev-electron
 ```
 
 The Operator Console includes:
@@ -88,6 +91,7 @@ intentionally hidden in Linux v1.
 - macOS 13+ for the SwiftUI menu-bar app.
 - Linux with `paplay` or `aplay` for the Electron dev app.
 - [Bun](https://bun.sh/) on your `PATH`.
+- [just](https://github.com/casey/just) for the platform-aware workflow commands.
 - Swift/Xcode command-line tools to build the macOS app.
 - Network access and local disk space during Kokoro setup for managed `uv`,
   Python packages, and Kokoro model files.
@@ -248,6 +252,35 @@ AGENT_VOICE_EXECUTABLE=/path/to/agent-voice \
   tool-approval announcements are best-effort across OpenCode versions.
 
 ## Development
+
+Use `just` for platform-aware native app commands:
+
+```bash
+just dev      # macOS: Swift app; Linux: Electron app
+just build    # macOS: Swift app; Linux: Electron app
+just run      # macOS: Swift app; Linux: Electron app
+just verify   # common checks + native app checks
+just ship     # verify + build native app
+```
+
+Use explicit app targets when you do not want platform defaults:
+
+```bash
+just dev-electron
+just build-electron
+just run-electron
+just verify-electron
+just ship-electron
+
+just dev-swift
+just build-swift
+just run-swift
+just test-swift
+just verify-swift
+just ship-swift
+```
+
+The underlying commands remain available for debugging:
 
 ```bash
 bun test
