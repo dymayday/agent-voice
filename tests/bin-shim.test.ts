@@ -76,6 +76,16 @@ describe("agent-voice bin shim", () => {
 		expect(source).toContain('"$CLI_DIR/bin/.bun-path"');
 	});
 
+	test("macOS bundle script installs runtime dependencies for the bundled CLI", () => {
+		const source = readFileSync("scripts/build-macos-app.sh", "utf8");
+		expect(source).toContain('"$PINNED_BUN_BIN" install --production');
+		expect(source).toContain('cd "$CLI_DIR"');
+		expect(source).toContain("cannot install bundled CLI runtime dependencies");
+		expect(source).not.toContain(
+			"bundled CLI runtime dependencies were not installed",
+		);
+	});
+
 	test("macOS bundle script exposes cache cleaning and retries stale Swift caches", () => {
 		const source = readFileSync("scripts/build-macos-app.sh", "utf8");
 		expect(source).toContain("clean-cache");

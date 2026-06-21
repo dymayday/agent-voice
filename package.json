@@ -18,5 +18,8 @@
     "@types/node": "latest",
     "bun-types": "latest",
     "typescript": "latest"
+  },
+  "dependencies": {
+    "@tursodatabase/database": "0.6.1"
   }
 }

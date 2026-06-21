@@ -1,6 +1,10 @@
-import { Database } from "bun:sqlite";
+import {
+	createDb,
+	type AgentVoiceDb,
+	type AgentVoiceDbOptions,
+} from "./db-adapter";
 
-export type AgentVoiceDb = Database;
+export type { AgentVoiceDb };
 
 export const SCHEMA_VERSION = 2;
 
@@ -34,25 +38,33 @@ CREATE INDEX IF NOT EXISTS idx_jobs_agent_created ON jobs(agent, created_at);
 CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value TEXT);
 `;
 
-function hasColumn(db: Database, table: string, column: string): boolean {
+function hasColumn(db: AgentVoiceDb, table: string, column: string): boolean {
 	const rows = db.query(`PRAGMA table_info(${table})`).all() as Array<{
 		name: string;
 	}>;
 	return rows.some((row) => row.name === column);
 }
 
-function migrateSchema(db: Database): void {
+function migrateSchema(db: AgentVoiceDb): void {
 	if (!hasColumn(db, "jobs", "spoken_at")) {
 		db.query("ALTER TABLE jobs ADD COLUMN spoken_at TEXT").run();
 	}
 }
 
-export function openDb(location: string): Database {
-	const db = new Database(location, { create: true });
+export interface OpenDbOptions extends AgentVoiceDbOptions {
+	initialize?: boolean;
+}
+
+export function openDb(
+	location: string,
+	options: OpenDbOptions = {},
+): AgentVoiceDb {
+	const db = createDb(location, options);
+	if (options.readonly || options.initialize === false) return db;
+
 	db.exec("PRAGMA journal_mode = WAL");
 	db.exec("PRAGMA busy_timeout = 5000");
 	db.exec("PRAGMA synchronous = NORMAL");
-	db.exec("PRAGMA auto_vacuum = INCREMENTAL");
 	db.exec(SCHEMA_SQL);
 	migrateSchema(db);
 	db.query(
@@ -61,7 +73,7 @@ export function openDb(location: string): Database {
 	return db;
 }
 
-export function getSchemaVersion(db: Database): number {
+export function getSchemaVersion(db: AgentVoiceDb): number {
 	const row = db
 		.query("SELECT value FROM schema_meta WHERE key = 'schema_version'")
 		.get() as { value: string } | null;

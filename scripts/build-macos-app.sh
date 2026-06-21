@@ -82,7 +82,8 @@ fi
 . "$ROOT_DIR/bin/lib/find-bun.sh"
 PINNED_BUN_BIN="$(find_agent_voice_bun)" || PINNED_BUN_BIN=""
 if [[ -z "$PINNED_BUN_BIN" ]]; then
-	printf '%s\n' "Warning: Bun was not found while building; bundled app will use runtime Bun lookup fallback." >&2
+	printf '%s\n' "Error: Bun was not found while building; cannot install bundled CLI runtime dependencies." >&2
+	exit 1
 fi
 
 set +e
@@ -126,6 +127,10 @@ cp "$ROOT_DIR/package.json" "$CLI_DIR/package.json"
 if [[ -f "$ROOT_DIR/bun.lock" ]]; then
 	cp "$ROOT_DIR/bun.lock" "$CLI_DIR/bun.lock"
 fi
+(
+	cd "$CLI_DIR"
+	"$PINNED_BUN_BIN" install --production --frozen-lockfile
+)
 
 # Stamp a per-build id next to the bundled CLI. The daemon captures it at
 # startup and reports it in status.json; the app compares it against its own
