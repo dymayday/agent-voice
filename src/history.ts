@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { Database } from "bun:sqlite";
+import { openDb } from "./db";
 import type { AgentVoicePaths } from "./paths";
 import type { JobStatus } from "./store";
 
@@ -95,7 +95,11 @@ export function buildHistorySnapshot(
 		return emptyHistorySnapshot(boundedLimit);
 	}
 
-	const db = new Database(paths.db, { readonly: true });
+	const db = openDb(paths.db, {
+		readonly: true,
+		create: false,
+		initialize: false,
+	});
 	try {
 		const params: Record<string, string | number> = {
 			$limit: boundedLimit + 1,

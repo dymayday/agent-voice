@@ -767,7 +767,10 @@ export async function runCli(
 				),
 			);
 		}
-		return result(0, formatDaemonStatus(getDaemonStatus(paths, io.daemonDeps)));
+		return result(
+			0,
+			formatDaemonStatus(getDaemonStatus(paths, io.daemonDeps, { readOnly: true })),
+		);
 	}
 
 	if (command === "start") {

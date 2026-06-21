@@ -1,5 +1,5 @@
-import type { Database } from "bun:sqlite";
 import type { AgentVoiceConfig } from "./config";
+import type { AgentVoiceDb } from "./db";
 import type { AgentVoiceEvent } from "./events";
 import type { SummarizeOutcome } from "./summarizers";
 import { scheduleRetry } from "./queue";
@@ -42,7 +42,7 @@ function fallbackSummarizerLabel(config: AgentVoiceConfig): string {
 }
 
 export async function processNextJob(
-	db: Database,
+	db: AgentVoiceDb,
 	config: AgentVoiceConfig,
 	deps: ProcessorDeps,
 	now: () => Date = () => new Date(),

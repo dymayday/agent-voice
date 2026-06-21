@@ -1,5 +1,6 @@
-import type { Database } from "bun:sqlite";
 import type { AgentVoiceConfig } from "./config";
+import type { AgentVoiceDb } from "./db";
+import { runOptionalMaintenance } from "./db-adapter";
 import type { AgentVoiceEvent } from "./events";
 import { shouldSkipJob, type QueueJob, type SkipReason } from "./queue";
 
@@ -78,7 +79,7 @@ function rowToStoredJob(row: JobRow): StoredJob {
 }
 
 export function enqueue(
-	db: Database,
+	db: AgentVoiceDb,
 	event: AgentVoiceEvent,
 	now = new Date(),
 ): { inserted: boolean } {
@@ -113,7 +114,7 @@ const STATUSES: JobStatus[] = [
 	"skipped",
 ];
 
-export function countByStatus(db: Database): Record<JobStatus, number> {
+export function countByStatus(db: AgentVoiceDb): Record<JobStatus, number> {
 	const counts = Object.fromEntries(STATUSES.map((s) => [s, 0])) as Record<
 		JobStatus,
 		number
@@ -129,7 +130,7 @@ export function countByStatus(db: Database): Record<JobStatus, number> {
 	return counts;
 }
 
-function clearQueueByStatus(db: Database, statuses: JobStatus[]): number {
+function clearQueueByStatus(db: AgentVoiceDb, statuses: JobStatus[]): number {
 	const unique = Array.from(new Set(statuses));
 	if (unique.length === 0) return 0;
 	const placeholder = unique.map((_, index) => `$status${index}`).join(", ");
@@ -138,20 +139,20 @@ function clearQueueByStatus(db: Database, statuses: JobStatus[]): number {
 		unique.map((status, index) => [`$status${index}`, status]),
 	) as Record<string, string>;
 	const res = query.run(params);
-	db.exec("PRAGMA incremental_vacuum");
+	runOptionalMaintenance(db, "PRAGMA incremental_vacuum");
 	return res.changes;
 }
 
-export function clearActiveQueue(db: Database): number {
+export function clearActiveQueue(db: AgentVoiceDb): number {
 	return clearQueueByStatus(db, ["pending", "processing"]);
 }
 
-export function clearFailedJobs(db: Database): number {
+export function clearFailedJobs(db: AgentVoiceDb): number {
 	return clearQueueByStatus(db, ["failed"]);
 }
 
 function markSkippedInternal(
-	db: Database,
+	db: AgentVoiceDb,
 	id: string,
 	reason: SkipReason,
 	now: Date,
@@ -162,7 +163,7 @@ function markSkippedInternal(
 }
 
 export function claimNextDue(
-	db: Database,
+	db: AgentVoiceDb,
 	config: AgentVoiceConfig,
 	now = new Date(),
 ): StoredJob | null {
@@ -208,7 +209,7 @@ const DUE_NOW_SENTINEL = "0000-01-01T00:00:00.000Z";
  * (`next_attempt_at IS NULL OR next_attempt_at <= now`) exactly while avoiding a
  * non-covering `COALESCE`-in-`MIN` scan.
  */
-export function getNextDueTime(db: Database): string | null {
+export function getNextDueTime(db: AgentVoiceDb): string | null {
 	const row = db
 		.query(
 			`SELECT
@@ -228,7 +229,7 @@ export function getNextDueTime(db: Database): string | null {
  * - `0` when work is due now (sentinel), in the past, or unparseable,
  * - otherwise the positive delta in milliseconds.
  */
-export function msUntilNextDue(db: Database, now: Date): number | null {
+export function msUntilNextDue(db: AgentVoiceDb, now: Date): number | null {
 	const m = getNextDueTime(db);
 	if (m === null) return null;
 	const dueMs = Date.parse(m);
@@ -238,7 +239,7 @@ export function msUntilNextDue(db: Database, now: Date): number | null {
 }
 
 export function recoverStale(
-	db: Database,
+	db: AgentVoiceDb,
 	config: AgentVoiceConfig,
 	now = new Date(),
 ): string[] {
@@ -261,7 +262,7 @@ export function recoverStale(
 }
 
 export function markSpoken(
-	db: Database,
+	db: AgentVoiceDb,
 	id: string,
 	summary: string,
 	summarizerUsed: string | null,
@@ -277,7 +278,7 @@ export function markSpoken(
 	});
 }
 
-export function markDone(db: Database, id: string, now = new Date()): void {
+export function markDone(db: AgentVoiceDb, id: string, now = new Date()): void {
 	db.query("UPDATE jobs SET status='done', finished_at=$now WHERE id=$id").run({
 		$now: now.toISOString(),
 		$id: id,
@@ -285,7 +286,7 @@ export function markDone(db: Database, id: string, now = new Date()): void {
 }
 
 export function requeueForRetry(
-	db: Database,
+	db: AgentVoiceDb,
 	id: string,
 	nextAttemptAt: string,
 	lastError: string,
@@ -296,7 +297,7 @@ export function requeueForRetry(
 }
 
 export function markFailed(
-	db: Database,
+	db: AgentVoiceDb,
 	id: string,
 	now: Date,
 	lastError: string,
@@ -307,7 +308,7 @@ export function markFailed(
 }
 
 export function markSkipped(
-	db: Database,
+	db: AgentVoiceDb,
 	id: string,
 	reason: SkipReason,
 	now = new Date(),
@@ -316,7 +317,7 @@ export function markSkipped(
 }
 
 export function pruneRetention(
-	db: Database,
+	db: AgentVoiceDb,
 	retentionDays: number,
 	now = new Date(),
 ): number {
@@ -333,7 +334,7 @@ export function pruneRetention(
            AND finished_at IS NOT NULL AND finished_at < $cutoff`,
 		)
 		.run({ $cutoff: cutoff });
-	db.exec("PRAGMA incremental_vacuum");
+	runOptionalMaintenance(db, "PRAGMA incremental_vacuum");
 	return res.changes;
 }
 
@@ -344,7 +345,7 @@ export interface HistoryFilter {
 }
 
 export function listHistory(
-	db: Database,
+	db: AgentVoiceDb,
 	filter: HistoryFilter = {},
 ): StoredJob[] {
 	const clauses = ["status IN ('done','failed','skipped')"];
@@ -369,8 +370,8 @@ export function listHistory(
 	return rows.map(rowToStoredJob);
 }
 
-export function runMaintenance(db: Database): void {
-	db.exec("PRAGMA optimize");
+export function runMaintenance(db: AgentVoiceDb): void {
+	runOptionalMaintenance(db, "PRAGMA optimize");
 }
 
 export { rowToStoredJob };

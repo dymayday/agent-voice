@@ -111,8 +111,8 @@ A compatible script prints `{"status":"ready"}`, accepts requests like
 
 ## What the app controls
 
-The app shells out to `agent-voice` and preserves the local daemon plus SQLite
-queue architecture. From the app you can:
+The app shells out to `agent-voice` and preserves the local daemon plus
+Turso-backed SQLite-compatible queue architecture. From the app you can:
 
 - Start/stop the daemon.
 - Pause/resume speech.
@@ -168,7 +168,7 @@ State lives in `~/.agent-voice` by default:
 
 ```text
 config.json       # user settings
-queue.db          # SQLite queue and history
+queue.db          # Turso-backed SQLite-compatible queue and history
 kokoro/           # managed .venv, script, bin/uv, models, setup lock
 run/daemon.pid    # daemon lock
 run/audio/        # temporary WAV files

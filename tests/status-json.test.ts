@@ -184,6 +184,27 @@ describe("agent-voice status --json", () => {
 			expect(existsSync(paths.config)).toBe(false);
 			expect(existsSync(paths.db)).toBe(false);
 			expect(existsSync(`${paths.db}-wal`)).toBe(false);
+			expect(existsSync(`${paths.db}-tshm`)).toBe(false);
+		});
+	});
+
+	test("plain status does not create missing config or queue files", async () => {
+		await withTempHome(async (home) => {
+			const paths = resolvePaths({ AGENT_VOICE_HOME: home });
+			expect(existsSync(paths.config)).toBe(false);
+			expect(existsSync(paths.db)).toBe(false);
+
+			const result = await runCli(["status"], {
+				env: { AGENT_VOICE_HOME: home },
+				daemonDeps: { isPidAlive: () => false },
+			});
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("stopped");
+			expect(existsSync(paths.config)).toBe(false);
+			expect(existsSync(paths.db)).toBe(false);
+			expect(existsSync(`${paths.db}-wal`)).toBe(false);
+			expect(existsSync(`${paths.db}-tshm`)).toBe(false);
 		});
 	});
 

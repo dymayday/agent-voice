@@ -12,17 +12,16 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
-import { loadConfig, type AgentVoiceConfig, type AgentName } from "./config";
+import { loadConfig, type AgentVoiceConfig } from "./config";
 import type { AgentVoicePaths } from "./paths";
-import { detectAgentInstallStates, type AgentInstallState, type InstallEnv } from "./install";
+import { detectAgentInstallStates, type InstallEnv } from "./install";
 import { readBuildId } from "./build-info";
 import {
 	processNextJob,
 	type ProcessNextJobResult,
 	type ProcessorDeps,
 } from "./processor";
-import { Database } from "bun:sqlite";
-import { openDb } from "./db";
+import { openDb, type AgentVoiceDb } from "./db";
 import {
 	countByStatus,
 	msUntilNextDue,
@@ -166,7 +165,7 @@ export interface StatusPublisher {
  */
 export function createStatusPublisher(
 	paths: AgentVoicePaths,
-	db: Database,
+	db: AgentVoiceDb,
 	env: InstallEnv,
 	// Captured once, here, at daemon startup — NOT re-read per publish. This is
 	// the whole mechanism: a daemon launched from an older bundle keeps reporting
@@ -296,7 +295,11 @@ function readQueueCounts(
 ): Record<JobStatus, number> {
 	if (options.readOnly) {
 		if (!existsSync(paths.db)) return emptyQueueCounts();
-		const db = new Database(paths.db, { readonly: true });
+		const db = openDb(paths.db, {
+			readonly: true,
+			create: false,
+			initialize: false,
+		});
 		try {
 			return countByStatus(db);
 		} finally {
