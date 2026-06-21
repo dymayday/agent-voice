@@ -3,3 +3,4 @@ export * from "./errors";
 export * from "./config-service";
 export * from "./status-service";
 export * from "./history-service";
+export * from "./voice-service";

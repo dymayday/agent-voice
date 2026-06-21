@@ -97,6 +97,9 @@ describe("app-service contracts", () => {
 		const voiceBench: VoiceBenchResult = {
 			text: "Hello",
 			voice: "af_heart",
+			backend: "paplay",
+			status: "played",
+			durationMs: 500,
 			summarizer: { mode: "heuristic", privacy: "local" },
 			playback: { backend: "paplay", durationMs: 500 },
 		};

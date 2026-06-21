@@ -97,6 +97,9 @@ export interface QueueSnapshot {
 export interface VoiceBenchResult {
 	text: string;
 	voice: string;
+	backend: "paplay" | "aplay" | "afplay" | string;
+	status: "played" | "synthesized";
+	durationMs: number;
 	summarizer: {
 		mode: SummarizerMode;
 		privacy: "local" | "provider";
