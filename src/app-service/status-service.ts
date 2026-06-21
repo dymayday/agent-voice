@@ -8,6 +8,12 @@ import type { DaemonCliDeps } from "../daemon";
 import type { InstallEnv } from "../install";
 import { fail, ok } from "./errors";
 import type { AppServiceResult, QueueJobSummary, SystemStatus } from "./types";
+export {
+	deriveFirstRunActions,
+	FIRST_RUN_ACTIONS,
+	type FirstRunAction,
+	type FirstRunProbeState,
+} from "./first-run-actions";
 
 export interface StatusServiceOptions {
 	daemonDeps?: DaemonCliDeps;
