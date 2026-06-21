@@ -1,4 +1,6 @@
 import type { AgentName, SummarizerName, SummarizerThinking } from "../config";
+import type { AgentInstallState } from "../install";
+import type { StatusConfigView, StatusPaths } from "../status";
 import type { JobStatus } from "../store";
 import type { SummarizerMode } from "../summarizer-mode";
 
@@ -58,6 +60,9 @@ export interface SystemStatus {
 	};
 	queue: QueueCounts;
 	attention: string[];
+	install?: Record<AgentName, AgentInstallState>;
+	paths?: StatusPaths;
+	config?: StatusConfigView;
 	latestEvent?: LatestEventSummary;
 }
 
