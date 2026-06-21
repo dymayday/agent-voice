@@ -25,6 +25,7 @@
 
 	let typed = $state("");
 	let confirmInput = $state<HTMLInputElement | null>(null);
+	let dialogElement = $state<HTMLDivElement | null>(null);
 	const canConfirm = $derived(typed === expectedText);
 
 	async function close(): Promise<void> {
@@ -40,10 +41,35 @@
 		await close();
 	}
 
+	function focusableElements(): HTMLElement[] {
+		if (!dialogElement) return [];
+		return Array.from(
+			dialogElement.querySelectorAll<HTMLElement>(
+				'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+			),
+		);
+	}
+
+	function trapFocus(event: KeyboardEvent): void {
+		const focusable = focusableElements();
+		if (focusable.length === 0) return;
+		const first = focusable[0];
+		const last = focusable[focusable.length - 1];
+		if (event.shiftKey && document.activeElement === first) {
+			event.preventDefault();
+			last.focus();
+		} else if (!event.shiftKey && document.activeElement === last) {
+			event.preventDefault();
+			first.focus();
+		}
+	}
+
 	function onKeydown(event: KeyboardEvent): void {
 		if (event.key === "Escape") {
 			event.preventDefault();
 			void close();
+		} else if (event.key === "Tab") {
+			trapFocus(event);
 		}
 	}
 
@@ -58,6 +84,7 @@
 {#if open}
 	<div class="dialog-backdrop" role="presentation">
 		<div
+			bind:this={dialogElement}
 			class="confirm-dialog"
 			role="dialog"
 			aria-modal="true"
