@@ -50,4 +50,18 @@ describe("electron main build", () => {
 		expect(result.exitCode).toBe(0);
 		expect(result.stderr).not.toContain("ERR_UNSUPPORTED_ESM_URL_SCHEME");
 	});
+
+	test("preload bundles are script-compatible for sandboxed Electron", async () => {
+		const build = await runBuildMain();
+		expect(build.exitCode).toBe(0);
+
+		for (const file of [
+			"dist/linux-electron/preload.js",
+			"dist/linux-electron/capsule-preload.js",
+		]) {
+			const output = readFileSync(file, "utf8");
+			expect(output).not.toMatch(/^import\s/m);
+			expect(output).not.toMatch(/^export\s/m);
+		}
+	});
 });

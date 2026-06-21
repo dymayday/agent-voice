@@ -3,6 +3,7 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
 	root: "linux/electron",
+	base: "./",
 	plugins: [svelte()],
 	resolve: {
 		conditions: ["browser"],

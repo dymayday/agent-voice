@@ -5,12 +5,18 @@ const outdir = resolve("dist/linux-electron");
 rmSync(outdir, { recursive: true, force: true });
 mkdirSync(outdir, { recursive: true });
 
-const result = await Bun.build({
-	entrypoints: [
-		"linux/electron/main.ts",
-		"linux/electron/preload.ts",
-		"linux/electron/capsule-preload.ts",
-	],
+async function buildOrExit(options: Bun.BuildConfig): Promise<void> {
+	const result = await Bun.build(options);
+	if (result.success) return;
+
+	for (const log of result.logs) {
+		console.error(log.message);
+	}
+	process.exit(1);
+}
+
+await buildOrExit({
+	entrypoints: ["linux/electron/main.ts"],
 	outdir,
 	target: "node",
 	format: "esm",
@@ -19,9 +25,15 @@ const result = await Bun.build({
 	splitting: false,
 });
 
-if (!result.success) {
-	for (const log of result.logs) {
-		console.error(log.message);
-	}
-	process.exit(1);
-}
+await buildOrExit({
+	entrypoints: [
+		"linux/electron/preload.ts",
+		"linux/electron/capsule-preload.ts",
+	],
+	outdir,
+	target: "node",
+	format: "cjs",
+	external: ["electron"],
+	sourcemap: "external",
+	splitting: false,
+});
