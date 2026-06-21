@@ -490,13 +490,28 @@ final class AgentVoiceCLITests: XCTestCase {
         XCTAssertEqual(requests.first?.arguments, ["config", "set", "summarizer.speakQuestionsVerbatim", "false"])
     }
 
+    func testSetIgnoreTextPhrasesIssuesConfigSetWithJsonArray() async throws {
+        let runner = RecordingRunner(results: [ProcessResult(exitCode: 0, stdout: "", stderr: "")])
+        let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
+        try await cli.setIgnoreTextPhrases(["done", "ok"])
+        let requests = await runner.capturedRequests()
+        XCTAssertEqual(requests.first?.arguments, [
+            "config", "set", "ignoreTextPhrases", "[\"done\",\"ok\"]"
+        ])
+    }
+
     func testSummarizerPromptIssuesRenderCommand() async throws {
         let runner = RecordingRunner(results: [ProcessResult(exitCode: 0, stdout: "PROMPT TEXT", stderr: "")])
         let cli = AgentVoiceCLI(executableURL: URL(fileURLWithPath: "/repo/bin/agent-voice"), runner: runner)
         let prompt = try await cli.summarizerPrompt(style: "terse", maxSentences: 2, maxSummaryChars: 240)
         XCTAssertEqual(prompt, "PROMPT TEXT")
         let requests = await runner.capturedRequests()
-        XCTAssertEqual(requests.first?.arguments, ["summarizer", "prompt", "--style", "terse", "--max-sentences", "2", "--max-chars", "240"])
+        XCTAssertEqual(requests.first?.arguments, [
+            "summarizer", "prompt",
+            "--style", "terse",
+            "--max-sentences", "2",
+            "--max-chars", "240"
+        ])
     }
 
     func testDefaultExecutablePrefersEnvironmentOverride() throws {

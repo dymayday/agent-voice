@@ -29,6 +29,7 @@ export interface AgentVoiceConfig {
 	agents: Record<AgentName, { enabled: boolean; mode: string }>;
 	speakPolicy: "every_turn";
 	ignoreCwdPatterns: string[];
+	ignoreTextPhrases: string[];
 	summarizer: {
 		priority: SummarizerName[];
 		codexModel: string;
@@ -74,6 +75,7 @@ export const defaultConfig: AgentVoiceConfig = {
 	},
 	speakPolicy: "every_turn",
 	ignoreCwdPatterns: [],
+	ignoreTextPhrases: ["done"],
 	summarizer: {
 		priority: ["pi-fast", "codex-fast", "heuristic"],
 		codexModel: "gpt-5.3-codex",
@@ -219,6 +221,12 @@ export function validateConfig(config: AgentVoiceConfig): AgentVoiceConfig {
 		!config.ignoreCwdPatterns.every((pattern) => typeof pattern === "string")
 	) {
 		invalidConfig("ignoreCwdPatterns", "array of strings");
+	}
+	if (
+		!Array.isArray(config.ignoreTextPhrases) ||
+		!config.ignoreTextPhrases.every((phrase) => typeof phrase === "string")
+	) {
+		invalidConfig("ignoreTextPhrases", "array of strings");
 	}
 
 	if (!isRecord(config.summarizer)) invalidConfig("summarizer", "object");
@@ -388,6 +396,17 @@ export function loadConfig(
 }
 
 function parseValue(value: string): unknown {
+	const trimmed = value.trim();
+	if (
+		(trimmed.startsWith("[") && trimmed.endsWith("]")) ||
+		(trimmed.startsWith("{") && trimmed.endsWith("}"))
+	) {
+		try {
+			return JSON.parse(trimmed);
+		} catch {
+			return value;
+		}
+	}
 	if (value === "true") return true;
 	if (value === "false") return false;
 	if (value === "null") return null;
@@ -426,14 +445,22 @@ export function setConfigValue(
 	}
 
 	const currentValue = (cursor as Record<string, unknown>)[finalKey];
+	const parsedValue = parseValue(value);
 	if (Array.isArray(currentValue)) {
-		throw new Error(`Cannot replace config array: ${dottedPath}`);
+		if (dottedPath !== "ignoreTextPhrases") {
+			throw new Error(`Cannot replace config array: ${dottedPath}`);
+		}
+		if (!Array.isArray(parsedValue)) {
+			throw new Error(`Invalid config ${dottedPath}: expected JSON array`);
+		}
+		(cursor as Record<string, unknown>)[finalKey] = parsedValue;
+		return validateConfig(next);
 	}
 	if (currentValue && typeof currentValue === "object") {
 		throw new Error(`Cannot replace config section: ${dottedPath}`);
 	}
 
-	(cursor as Record<string, unknown>)[finalKey] = parseValue(value);
+	(cursor as Record<string, unknown>)[finalKey] = parsedValue;
 	return validateConfig(next);
 }
 

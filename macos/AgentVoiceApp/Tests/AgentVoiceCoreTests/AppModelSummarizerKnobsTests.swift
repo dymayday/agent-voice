@@ -51,6 +51,7 @@ final class AppModelSummarizerKnobsTests: XCTestCase {
         XCTAssertEqual(model.draftMaxSentences, "1")
         XCTAssertEqual(model.draftMaxSummaryChars, "180")
         XCTAssertFalse(model.draftSpeakQuestionsVerbatim)
+        XCTAssertEqual(model.draftIgnoreTextPhrases, "done")
     }
 
     func testRefreshPreservesInProgressKnobEdits() async throws {
@@ -67,16 +68,19 @@ final class AppModelSummarizerKnobsTests: XCTestCase {
         model.draftPromptStyle = "triage"
         model.draftMaxSentences = "9"
         model.draftMaxSummaryChars = "500"
+        model.draftIgnoreTextPhrases = "done, ok"
 
         await model.refresh()
 
         XCTAssertEqual(model.draftPromptStyle, "triage")
         XCTAssertEqual(model.draftMaxSentences, "9")
         XCTAssertEqual(model.draftMaxSummaryChars, "500")
+        XCTAssertEqual(model.draftIgnoreTextPhrases, "done, ok")
     }
 
     func testSaveSummaryVoiceIssuesAllFourSetsThenRefreshes() async throws {
         let runner = RecordingRunner(results: [
+            ProcessResult(exitCode: 0, stdout: "", stderr: ""),
             ProcessResult(exitCode: 0, stdout: "", stderr: ""),
             ProcessResult(exitCode: 0, stdout: "", stderr: ""),
             ProcessResult(exitCode: 0, stdout: "", stderr: ""),
@@ -92,15 +96,17 @@ final class AppModelSummarizerKnobsTests: XCTestCase {
         model.draftMaxSentences = "2"
         model.draftMaxSummaryChars = "240"
         model.draftSpeakQuestionsVerbatim = false
+        model.draftIgnoreTextPhrases = "done, ok"
 
         await model.saveSummaryVoice()
 
         let requests = await runner.capturedRequests()
-        XCTAssertEqual(Array(requests.prefix(4)).map(\.arguments), [
+        XCTAssertEqual(Array(requests.prefix(5)).map(\.arguments), [
             ["config", "set", "summarizer.promptStyle", "triage"],
             ["config", "set", "summarizer.maxSentences", "2"],
             ["config", "set", "summarizer.maxSummaryChars", "240"],
-            ["config", "set", "summarizer.speakQuestionsVerbatim", "false"]
+            ["config", "set", "summarizer.speakQuestionsVerbatim", "false"],
+            ["config", "set", "ignoreTextPhrases", "[\"done\",\"ok\"]"]
         ])
     }
 
@@ -131,7 +137,12 @@ final class AppModelSummarizerKnobsTests: XCTestCase {
 
         XCTAssertEqual(model.summaryVoicePromptPreview, "RENDERED PROMPT")
         let requests = await runner.capturedRequests()
-        XCTAssertEqual(requests.first?.arguments, ["summarizer", "prompt", "--style", "terse", "--max-sentences", "2", "--max-chars", "240"])
+        XCTAssertEqual(requests.first?.arguments, [
+            "summarizer", "prompt",
+            "--style", "terse",
+            "--max-sentences", "2",
+            "--max-chars", "240"
+        ])
     }
 
     func testRefreshSummaryVoicePromptSkipsWhenInputsInvalid() async throws {
@@ -169,5 +180,9 @@ final class AppModelSummarizerKnobsTests: XCTestCase {
         XCTAssertFalse(model.summaryVoiceCanSave)              // back to clean
         model.draftSpeakQuestionsVerbatim = true
         XCTAssertTrue(model.summaryVoiceCanSave)               // toggle is part of dirty check
+        model.draftSpeakQuestionsVerbatim = false
+        XCTAssertFalse(model.summaryVoiceCanSave)
+        model.draftIgnoreTextPhrases = "done, ok"
+        XCTAssertTrue(model.summaryVoiceCanSave)               // ignored phrases are part of dirty check
     }
 }

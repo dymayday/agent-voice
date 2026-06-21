@@ -21,21 +21,29 @@ public struct AgentSummary: Codable, Equatable, Sendable {
 public struct AgentVoiceFullConfig: Codable, Equatable, Sendable {
     public let tts: TTSConfig
     public let summarizer: SummarizerConfig
+    public let ignoreTextPhrases: [String]
 
-    public init(tts: TTSConfig, summarizer: SummarizerConfig = SummarizerConfig()) {
+    public init(
+        tts: TTSConfig,
+        summarizer: SummarizerConfig = SummarizerConfig(),
+        ignoreTextPhrases: [String] = ["done"]
+    ) {
         self.tts = tts
         self.summarizer = summarizer
+        self.ignoreTextPhrases = ignoreTextPhrases
     }
 
     private enum CodingKeys: String, CodingKey {
         case tts
         case summarizer
+        case ignoreTextPhrases
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         tts = try container.decode(TTSConfig.self, forKey: .tts)
         summarizer = try container.decodeIfPresent(SummarizerConfig.self, forKey: .summarizer) ?? SummarizerConfig()
+        ignoreTextPhrases = try container.decodeIfPresent([String].self, forKey: .ignoreTextPhrases) ?? ["done"]
     }
 }
 

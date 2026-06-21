@@ -97,6 +97,35 @@ describe("agent-voice enqueue CLI", () => {
 		});
 	});
 
+	test("format text skips configured exact ignore phrases", async () => {
+		await withTempHome(async (home) => {
+			const skipped = await runCli(
+				["enqueue", "--format", "text", "--agent", "pi", "--cwd", "/repo"],
+				{
+					env: { AGENT_VOICE_HOME: home },
+					stdin: "  Done!  \n",
+				},
+			);
+
+			expect(skipped.exitCode).toBe(0);
+			expect(skipped.stderr).toBe("");
+			expect(pendingCount(home)).toBe(0);
+
+			const informative = await runCli(
+				["enqueue", "--format", "text", "--agent", "pi", "--cwd", "/repo"],
+				{
+					env: { AGENT_VOICE_HOME: home },
+					stdin: "Done — updated the tests.",
+				},
+			);
+
+			expect(informative.exitCode).toBe(0);
+			const events = pendingJobs(home);
+			expect(events).toHaveLength(1);
+			expect(events[0].text).toBe("Done — updated the tests.");
+		});
+	});
+
 	test("format event-json accepts matching agent and rejects mismatched agent", async () => {
 		await withTempHome(async (home) => {
 			const event = createEvent({ agent: "pi", text: "Pi finished." });
@@ -793,10 +822,10 @@ describe("agent-voice enqueue CLI", () => {
 			};
 			const env = { AGENT_VOICE_HOME: home };
 
-			const setVoice = await runCli(
-				["config", "set", "tts.voice", "af_sky"],
-				{ env, daemonDeps },
-			);
+			const setVoice = await runCli(["config", "set", "tts.voice", "af_sky"], {
+				env,
+				daemonDeps,
+			});
 			expect(setVoice.exitCode).toBe(0);
 
 			const disable = await runCli(["disable", "codex"], { env, daemonDeps });
@@ -812,12 +841,7 @@ describe("agent-voice enqueue CLI", () => {
 			expect(mode.exitCode).toBe(0);
 
 			// Each successful config write wakes the daemon via SIGUSR1.
-			expect(signals).toEqual([
-				"SIGUSR1",
-				"SIGUSR1",
-				"SIGUSR1",
-				"SIGUSR1",
-			]);
+			expect(signals).toEqual(["SIGUSR1", "SIGUSR1", "SIGUSR1", "SIGUSR1"]);
 		});
 	});
 

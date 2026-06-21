@@ -24,6 +24,10 @@ describe("summarizer prompt knobs config", () => {
 		expect(defaultConfig.summarizer.maxSummaryChars).toBe(180);
 	});
 
+	test("defaults skip bare done notifications", () => {
+		expect(defaultConfig.ignoreTextPhrases).toEqual(["done"]);
+	});
+
 	test("setConfigValue round-trips all three knobs", () => {
 		const a = setConfigValue(defaultConfig, "summarizer.promptStyle", "triage");
 		expect(a.summarizer.promptStyle).toBe("triage");
@@ -88,6 +92,12 @@ describe("summarizer prompt knobs config", () => {
 		expect(() => validateConfig(bad)).toThrow(
 			/summarizer.speakQuestionsVerbatim/,
 		);
+	});
+
+	test("validateConfig rejects non-string ignore text phrases", () => {
+		const bad = JSON.parse(JSON.stringify(defaultConfig));
+		bad.ignoreTextPhrases = ["done", 42];
+		expect(() => validateConfig(bad)).toThrow(/ignoreTextPhrases/);
 	});
 
 	test("adaptive is an accepted promptStyle", () => {
@@ -184,6 +194,7 @@ describe("agent-voice config and paths", () => {
 				"agents",
 				"enabled",
 				"ignoreCwdPatterns",
+				"ignoreTextPhrases",
 				"speakPolicy",
 				"spool",
 				"summarizer",
@@ -255,6 +266,7 @@ describe("agent-voice config and paths", () => {
 			expect(config.agents.pi.enabled).toBe(false);
 			expect(config.agents.claude.enabled).toBe(true);
 			expect(config.ignoreCwdPatterns).toEqual([]);
+			expect(config.ignoreTextPhrases).toEqual(["done"]);
 			expect(config.summarizer.timeoutSeconds).toBe(9);
 			expect(config.summarizer.maxInputChars).toBe(
 				defaultConfig.summarizer.maxInputChars,
@@ -314,6 +326,22 @@ describe("agent-voice config and paths", () => {
 				loadConfig(resolvePaths({ AGENT_VOICE_HOME: home })).ui.desktopCapsule
 					.enabled,
 			).toBe(true);
+		});
+	});
+
+	test("config set accepts JSON arrays for ignoreTextPhrases", async () => {
+		await withTempHome(async (home) => {
+			const result = await runCli(
+				["config", "set", "ignoreTextPhrases", '["done","ok"]'],
+				{
+					env: { AGENT_VOICE_HOME: home },
+				},
+			);
+
+			expect(result.exitCode).toBe(0);
+			expect(
+				loadConfig(resolvePaths({ AGENT_VOICE_HOME: home })).ignoreTextPhrases,
+			).toEqual(["done", "ok"]);
 		});
 	});
 

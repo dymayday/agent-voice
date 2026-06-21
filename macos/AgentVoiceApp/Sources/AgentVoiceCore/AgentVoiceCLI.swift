@@ -222,6 +222,17 @@ public struct AgentVoiceCLI: Sendable {
         try await setConfigValue("summarizer.speakQuestionsVerbatim", to: value ? "true" : "false")
     }
 
+    public func setIgnoreTextPhrases(_ phrases: [String]) async throws {
+        let data = try JSONEncoder().encode(phrases)
+        guard let json = String(data: data, encoding: .utf8) else {
+            throw EncodingError.invalidValue(
+                phrases,
+                EncodingError.Context(codingPath: [], debugDescription: "Unable to encode ignoreTextPhrases")
+            )
+        }
+        try await setConfigValue("ignoreTextPhrases", to: json)
+    }
+
     public func summarizerPrompt(style: String, maxSentences: Int, maxSummaryChars: Int) async throws -> String {
         let result = try await run([
             "summarizer", "prompt",

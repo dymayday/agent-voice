@@ -364,6 +364,17 @@ struct SummaryVoiceSection: View {
                     .foregroundStyle(.secondary)
             }
 
+            VStack(alignment: .leading, spacing: 8) {
+                Text("IGNORED PHRASES")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                TextField("done, ok", text: $model.draftIgnoreTextPhrases)
+                    .textFieldStyle(.roundedBorder)
+                Text("Comma-separated exact matches. Done — updated tests still speaks.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             DisclosureGroup("What the model is told", isExpanded: $promptExpanded) {
                 VStack(alignment: .leading, spacing: 8) {
                     if model.summaryVoicePromptPreview.isEmpty {
