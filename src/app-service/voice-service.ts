@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { Database } from "bun:sqlite";
 import { loadConfig, type AgentVoiceConfig } from "../config";
 import type { AgentVoicePaths } from "../paths";
 import {
@@ -22,6 +24,20 @@ export interface TestSpeechInput {
 	play?: boolean;
 }
 
+export interface SpeakableSummary {
+	jobId: string;
+	summary: string;
+	summarizerUsed?: string;
+	finishedAt?: string;
+}
+
+interface SpeakableSummaryRow {
+	id: string;
+	summary: string;
+	summarizer_used: string | null;
+	finished_at: string | null;
+}
+
 export interface VoiceServiceDeps {
 	loadConfig?: (paths: AgentVoicePaths) => AgentVoiceConfig;
 	synthesize?: (
@@ -40,6 +56,10 @@ export interface VoiceServiceDeps {
 	platform?: NodeJS.Platform;
 	commandExists?: CommandExists;
 	now?: () => number;
+	synthesizeAndPlay?: (
+		text: string,
+		summary: SpeakableSummary,
+	) => Promise<void>;
 }
 
 const DEFAULT_MAX_TEST_TEXT_CHARS = 2_000;
@@ -103,6 +123,93 @@ async function defaultSynthesize(
 		return await client.speak(text, voice);
 	} finally {
 		client.dispose();
+	}
+}
+
+async function defaultSynthesizeAndPlay(
+	text: string,
+	_summary: SpeakableSummary,
+	paths: AgentVoicePaths,
+	config: AgentVoiceConfig,
+): Promise<void> {
+	const client = new KokoroClient(config);
+	try {
+		const audio = await client.speak(text, config.tts.voice);
+		await playWav(audio, paths, undefined, {
+			timeoutMs: config.tts.timeoutSeconds * 1000,
+		});
+	} finally {
+		client.dispose();
+	}
+}
+
+function isPlaybackUnavailable(error: unknown): boolean {
+	const message = errorMessage(error).toLowerCase();
+	return (
+		message.includes("no supported audio playback tool") ||
+		message.includes("no playback backend") ||
+		message.includes("playback backend")
+	);
+}
+
+export function findLatestSpeakableSummary(
+	paths: AgentVoicePaths,
+): SpeakableSummary | null {
+	if (!existsSync(paths.db)) return null;
+	let db: Database | null = null;
+	try {
+		db = new Database(paths.db, { readonly: true, create: false });
+		const row = db
+			.query(
+				`SELECT id, summary, summarizer_used, finished_at
+				 FROM jobs
+				 WHERE status = 'done'
+				   AND summary IS NOT NULL
+				   AND LENGTH(TRIM(summary, char(9) || char(10) || char(11) || char(12) || char(13) || ' ')) > 0
+				 ORDER BY COALESCE(finished_at, created_at) DESC, created_at DESC, id DESC
+				 LIMIT 1`,
+			)
+			.get() as SpeakableSummaryRow | null;
+		if (!row) return null;
+		return {
+			jobId: row.id,
+			summary: row.summary,
+			...(row.summarizer_used ? { summarizerUsed: row.summarizer_used } : {}),
+			...(row.finished_at ? { finishedAt: row.finished_at } : {}),
+		};
+	} catch {
+		return null;
+	} finally {
+		db?.close();
+	}
+}
+
+export async function speakLatest(
+	paths: AgentVoicePaths,
+	deps: VoiceServiceDeps = {},
+): Promise<AppServiceResult<SpeakableSummary>> {
+	try {
+		const latest = findLatestSpeakableSummary(paths);
+		if (!latest) {
+			return fail("NOT_FOUND", "No completed summary is available to speak", {
+				recoverable: true,
+			});
+		}
+
+		const config = (deps.loadConfig ?? loadConfig)(paths);
+		const synthesizeAndPlay = deps.synthesizeAndPlay
+			? (text: string, summary: SpeakableSummary) =>
+					deps.synthesizeAndPlay?.(text, summary) ?? Promise.resolve()
+			: (text: string, summary: SpeakableSummary) =>
+					defaultSynthesizeAndPlay(text, summary, paths, config);
+		await synthesizeAndPlay(latest.summary, latest);
+		return ok(latest);
+	} catch (error) {
+		const message = boundedMessage(errorMessage(error));
+		if (isPlaybackUnavailable(error)) {
+			return fail("UNAVAILABLE", message, { recoverable: true });
+		}
+		return fail("INTERNAL", message, { recoverable: true });
 	}
 }
 
