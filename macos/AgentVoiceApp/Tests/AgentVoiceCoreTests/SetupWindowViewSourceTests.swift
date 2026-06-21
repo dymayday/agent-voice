@@ -107,17 +107,34 @@ final class SetupWindowViewSourceTests: XCTestCase {
         XCTAssertTrue(performFix.contains("case SetupReadiness.kokoroScriptCheckID"))
     }
 
-    func testAgentsChannelOffersHookControlsForEverySupportedAgent() throws {
+    func testAgentsChannelMirrorsDashboardInstallStateBehavior() throws {
         let source = try appSource("SetupBoardView.swift")
         let agentsChannel = try sourceSlice(in: source, from: "struct AgentsChannelContent", to: "/// Daemon channel")
+        let badge = try functionBody(named: "installBadge", in: agentsChannel)
+        let controls = try functionBody(named: "agentHookControls", in: agentsChannel)
 
-        XCTAssertTrue(agentsChannel.contains("supportedHookAgents"))
-        XCTAssertTrue(agentsChannel.contains("\"claude\", \"codex\", \"pi\", \"opencode\""))
-        XCTAssertTrue(agentsChannel.contains("Self.supportedHookAgents.contains(item.name)"))
-        XCTAssertFalse(
-            agentsChannel.contains("item.name == \"pi\" || item.name == \"claude\""),
-            "Codex and OpenCode hook installers are supported and must not fall through to 'coming later'."
-        )
+        XCTAssertTrue(agentsChannel.contains("let installState = model.status?.install?[item.name] ?? .unknown"))
+        XCTAssertTrue(agentsChannel.contains("installBadge(installState)"))
+        XCTAssertTrue(agentsChannel.contains("installState == .installed && item.enabled == false"))
+        XCTAssertTrue(agentsChannel.contains("Text(\"Voice disabled\")"))
+        XCTAssertTrue(agentsChannel.contains("Text(item.mode)"))
+
+        XCTAssertTrue(badge.contains("Label(\"Installed\", systemImage: \"checkmark.circle.fill\")"))
+        XCTAssertTrue(badge.contains("Label(\"Not installed\", systemImage: \"xmark.circle\")"))
+        XCTAssertTrue(badge.contains("Label(\"Not available yet\", systemImage: \"clock\")"))
+        XCTAssertTrue(badge.contains("Label(\"Checking…\", systemImage: \"circle.dotted\")"))
+
+        XCTAssertTrue(controls.contains("case .notInstalled:"))
+        XCTAssertTrue(controls.contains("Button(\"Install \\(name.capitalized) Hook\")"))
+        XCTAssertTrue(controls.contains("case .installed:"))
+        XCTAssertTrue(controls.contains("Button(\"Uninstall \\(name.capitalized) Hook\", role: .destructive)"))
+        XCTAssertTrue(controls.contains("Hook install coming later"))
+        XCTAssertTrue(controls.contains("case .unknown:"))
+        XCTAssertTrue(controls.contains("EmptyView()"))
+
+        XCTAssertFalse(agentsChannel.contains("Button(\"Install Hook\")"))
+        XCTAssertFalse(agentsChannel.contains("Button(\"Uninstall Hook\")"))
+        XCTAssertFalse(agentsChannel.contains("supportedHookAgents"))
     }
 
     func testClimaxGatesCelebrationOnTestSuccessAndAnnouncesToVoiceOver() throws {

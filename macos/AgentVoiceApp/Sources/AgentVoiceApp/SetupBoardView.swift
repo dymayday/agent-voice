@@ -365,43 +365,89 @@ struct SummaryVoiceSection: View {
 struct AgentsChannelContent: View {
     @ObservedObject var model: AppModel
 
-    private static let supportedHookAgents: Set<String> = ["claude", "codex", "pi", "opencode"]
+    private struct AgentSummary: Identifiable {
+        let name: String
+        let enabled: Bool
+        let mode: String
 
-    private var agentSummaries: [(name: String, summary: String)] {
+        var id: String { name }
+    }
+
+    private var agentSummaries: [AgentSummary] {
         let agents = model.status?.config.agents ?? [:]
         let names = agents.isEmpty ? ["claude", "codex", "pi", "opencode"] : agents.keys.sorted()
         return names.map { name in
             let summary = agents[name]
-            let enabled = summary?.enabled ?? false
-            let mode = summary?.mode ?? "Not loaded"
-            return (name, enabled ? "Enabled · \(mode)" : "Disabled · \(mode)")
+            return AgentSummary(
+                name: name,
+                enabled: summary?.enabled ?? false,
+                mode: summary?.mode ?? "Mode unavailable"
+            )
         }
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            ForEach(agentSummaries, id: \.name) { item in
-                HStack {
-                    VStack(alignment: .leading) {
+            ForEach(agentSummaries) { item in
+                let installState = model.status?.install?[item.name] ?? .unknown
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 4) {
                         Text(item.name.capitalized).font(.headline)
-                        Text(item.summary).font(.caption).foregroundStyle(.secondary)
+                        installBadge(installState)
+                        if installState == .installed && item.enabled == false {
+                            Text("Voice disabled")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Text(item.mode).font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    if Self.supportedHookAgents.contains(item.name) {
-                        VStack(alignment: .trailing, spacing: 4) {
-                            Button("Install Hook") { Task { await model.installAgentHook(item.name) } }
-                            Button("Uninstall Hook") { Task { await model.uninstallAgentHook(item.name) } }
-                        }
-                    } else {
-                        Text("Hook install coming later")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                    agentHookControls(name: item.name, state: installState)
                 }
             }
             Text("Use CLI enable/disable for now")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private func installBadge(_ state: InstallState) -> some View {
+        switch state {
+        case .installed:
+            Label("Installed", systemImage: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+        case .notInstalled:
+            Label("Not installed", systemImage: "xmark.circle")
+                .foregroundStyle(.orange)
+        case .unsupported:
+            Label("Not available yet", systemImage: "clock")
+                .foregroundStyle(.secondary)
+        case .unknown:
+            Label("Checking…", systemImage: "circle.dotted")
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private func agentHookControls(name: String, state: InstallState) -> some View {
+        switch state {
+        case .notInstalled:
+            Button("Install \(name.capitalized) Hook") {
+                Task { await model.installAgentHook(name) }
+            }
+            .font(.caption)
+        case .installed:
+            Button("Uninstall \(name.capitalized) Hook", role: .destructive) {
+                Task { await model.uninstallAgentHook(name) }
+            }
+            .font(.caption)
+        case .unsupported:
+            Text("Hook install coming later")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        case .unknown:
+            EmptyView()
         }
     }
 }
