@@ -361,9 +361,11 @@ struct SummaryVoiceSection: View {
     }
 }
 
-/// Agents channel: per-agent enable state + hook install/uninstall (pi/claude).
+/// Agents channel: per-agent enable state + hook install/uninstall.
 struct AgentsChannelContent: View {
     @ObservedObject var model: AppModel
+
+    private static let supportedHookAgents: Set<String> = ["claude", "codex", "pi", "opencode"]
 
     private var agentSummaries: [(name: String, summary: String)] {
         let agents = model.status?.config.agents ?? [:]
@@ -385,7 +387,7 @@ struct AgentsChannelContent: View {
                         Text(item.summary).font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    if item.name == "pi" || item.name == "claude" {
+                    if Self.supportedHookAgents.contains(item.name) {
                         VStack(alignment: .trailing, spacing: 4) {
                             Button("Install Hook") { Task { await model.installAgentHook(item.name) } }
                             Button("Uninstall Hook") { Task { await model.uninstallAgentHook(item.name) } }

@@ -107,6 +107,19 @@ final class SetupWindowViewSourceTests: XCTestCase {
         XCTAssertTrue(performFix.contains("case SetupReadiness.kokoroScriptCheckID"))
     }
 
+    func testAgentsChannelOffersHookControlsForEverySupportedAgent() throws {
+        let source = try appSource("SetupBoardView.swift")
+        let agentsChannel = try sourceSlice(in: source, from: "struct AgentsChannelContent", to: "/// Daemon channel")
+
+        XCTAssertTrue(agentsChannel.contains("supportedHookAgents"))
+        XCTAssertTrue(agentsChannel.contains("\"claude\", \"codex\", \"pi\", \"opencode\""))
+        XCTAssertTrue(agentsChannel.contains("Self.supportedHookAgents.contains(item.name)"))
+        XCTAssertFalse(
+            agentsChannel.contains("item.name == \"pi\" || item.name == \"claude\""),
+            "Codex and OpenCode hook installers are supported and must not fall through to 'coming later'."
+        )
+    }
+
     func testClimaxGatesCelebrationOnTestSuccessAndAnnouncesToVoiceOver() throws {
         let source = try appSource("SoundcheckView.swift")
         // Celebration is gated on the Bool result, not flipped unconditionally.
