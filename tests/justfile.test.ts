@@ -35,14 +35,14 @@ describe("Justfile developer workflow", () => {
 		const justfile = readJustfile();
 
 		expect(justfile).toContain('case "$(uname -s)" in');
-		expect(justfile).toContain('Darwin) just dev-swift ;;');
-		expect(justfile).toContain('Linux) just dev-electron ;;');
-		expect(justfile).toContain('Darwin) just build-swift ;;');
-		expect(justfile).toContain('Linux) just build-electron ;;');
-		expect(justfile).toContain('Darwin) just run-swift ;;');
-		expect(justfile).toContain('Linux) just run-electron ;;');
-		expect(justfile).toContain('Darwin) just ship-swift ;;');
-		expect(justfile).toContain('Linux) just ship-electron ;;');
+		expect(justfile).toContain("Darwin) just dev-swift ;;");
+		expect(justfile).toContain("Linux) just dev-electron ;;");
+		expect(justfile).toContain("Darwin) just build-swift ;;");
+		expect(justfile).toContain("Linux) just build-electron ;;");
+		expect(justfile).toContain("Darwin) just run-swift ;;");
+		expect(justfile).toContain("Linux) just run-electron ;;");
+		expect(justfile).toContain("Darwin) just ship-swift ;;");
+		expect(justfile).toContain("Linux) just ship-electron ;;");
 	});
 
 	test("electron targets build renderer and main before running built Electron", () => {
