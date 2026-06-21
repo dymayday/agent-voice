@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "types": ["bun-types", "node", "svelte", "vite/client", "vitest/globals"],
+    "allowJs": true,
+    "checkJs": true,
+    "isolatedModules": true
+  },
+  "include": [
+    "vite.config.ts",
+    "dev-runner.ts",
+    "renderer/src/**/*.ts",
+    "renderer/src/**/*.svelte"
+  ]
+}
