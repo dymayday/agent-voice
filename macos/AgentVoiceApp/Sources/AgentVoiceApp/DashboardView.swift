@@ -263,8 +263,7 @@ private extension DashboardView {
                 summaryVoiceRow("Prompt style", model.config?.summarizer.promptStyle ?? "Unknown")
                 summaryVoiceRow("Max sentences", model.config.map { String($0.summarizer.maxSentences) } ?? "Unknown")
                 summaryVoiceRow("Max characters", model.config.map { String($0.summarizer.maxSummaryChars) } ?? "Unknown")
-                labeledRow(model.summarizerModelInUseLabel, model.summarizerModelInUseValue)
-                summarizerModelControls
+                SummarizerModelControls(model: model)
                 labeledRow("Kokoro script", model.config?.tts.kokoroScript ?? "Unknown")
                 labeledRow("Agent Voice home", model.status?.paths.home ?? "Unknown")
                 labeledRow("Config", model.status?.paths.config ?? "Unknown")
@@ -348,52 +347,6 @@ private extension DashboardView {
                 Task { await model.saveThinking() }
             }
             .disabled(!options.contains(model.draftThinking.trimmingCharacters(in: .whitespacesAndNewlines)))
-        }
-    }
-
-    @ViewBuilder
-    private var summarizerModelControls: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                TextField("Model identifier", text: $model.draftSummarizerModel)
-                    .textFieldStyle(.roundedBorder)
-
-                Button("Save") {
-                    Task { await model.saveSummarizerModel() }
-                }
-                .disabled(
-                    !model.isSummarizerModelEditable
-                        || model.draftSummarizerModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                )
-
-                Button("Validate") {
-                    Task { await model.validateSummarizerModel() }
-                }
-                .disabled(
-                    !model.isSummarizerModelEditable
-                        || model.draftSummarizerModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                )
-            }
-            if !model.availableSummarizerModels.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Choose from models discovered at startup")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Menu("Use known model") {
-                        ForEach(model.availableSummarizerModels, id: \.self) { availableModel in
-                            Button(availableModel) {
-                                self.model.draftSummarizerModel = availableModel
-                            }
-                        }
-                    }
-                    .disabled(!model.isSummarizerModelEditable)
-                }
-            }
-            if !model.isSummarizerModelEditable {
-                Text("Summarizer model cannot be determined from current config")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
         }
     }
 

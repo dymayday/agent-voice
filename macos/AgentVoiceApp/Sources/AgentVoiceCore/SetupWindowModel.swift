@@ -60,6 +60,7 @@ public enum SetupConcern: String, CaseIterable, Identifiable, Sendable {
     case engine
     case voice
     case summaries
+    case model
     case agents
     case daemon
 
@@ -70,6 +71,7 @@ public enum SetupConcern: String, CaseIterable, Identifiable, Sendable {
         case .engine: "Voice engine"
         case .voice: "Voice"
         case .summaries: "Summaries"
+        case .model: "Model"
         case .agents: "Agents"
         case .daemon: "Daemon"
         }
@@ -82,6 +84,7 @@ public enum SetupConcern: String, CaseIterable, Identifiable, Sendable {
         case .engine: "shippingbox"
         case .voice: "waveform"
         case .summaries: "text.bubble"
+        case .model: "cpu"
         case .agents: "person.2"
         case .daemon: "bolt.horizontal.circle"
         }
@@ -115,7 +118,9 @@ public enum SetupConcernHealth {
         for concern: SetupConcern,
         readiness: SetupReadiness,
         status: AgentVoiceStatusSnapshot?,
-        doctor: DoctorReport?
+        doctor: DoctorReport?,
+        summarizerModelEditable: Bool = true,
+        summarizerModelValue: String = ""
     ) -> SetupConcernStatus {
         switch concern {
         case .engine:
@@ -129,11 +134,18 @@ public enum SetupConcernHealth {
         case .summaries:
             let paused = status?.ui.attention.contains("system_paused") == true
             return paused ? .attention : .ok
+        case .model:
+            return summarizerModelEditable && hasUsableSummarizerModelValue(summarizerModelValue) ? .ok : .attention
         case .agents:
             // Informational: agent enable/disable is an explicit user choice,
             // not a broken state.
             return .ok
         }
+    }
+
+    public static func hasUsableSummarizerModelValue(_ value: String) -> Bool {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmed.isEmpty && trimmed != "Unknown"
     }
 
     /// All items for the single bottom repair rail: the concern-mapped checks

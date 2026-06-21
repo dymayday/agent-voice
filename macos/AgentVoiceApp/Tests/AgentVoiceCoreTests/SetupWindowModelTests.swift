@@ -140,6 +140,61 @@ final class SetupWindowModelTests: XCTestCase {
         XCTAssertEqual(SetupConcernHealth.status(for: .summaries, readiness: ready, status: healthy, doctor: nil), .ok)
     }
 
+    func testModelHealthOkForEditableKnownValue() {
+        let ready = SetupReadiness(enginePresent: true, voiceSet: true, daemonHealthy: true)
+        XCTAssertEqual(
+            SetupConcernHealth.status(
+                for: .model,
+                readiness: ready,
+                status: nil,
+                doctor: nil,
+                summarizerModelEditable: true,
+                summarizerModelValue: "openai-codex/gpt-5.5"
+            ),
+            .ok
+        )
+    }
+
+    func testModelHealthAttentionWhenModelUnavailable() {
+        let ready = SetupReadiness(enginePresent: true, voiceSet: true, daemonHealthy: true)
+        XCTAssertEqual(
+            SetupConcernHealth.status(
+                for: .model,
+                readiness: ready,
+                status: nil,
+                doctor: nil,
+                summarizerModelEditable: false,
+                summarizerModelValue: "openai-codex/gpt-5.5"
+            ),
+            .attention
+        )
+    }
+
+    func testModelHealthAttentionForEmptyOrUnknownValue() {
+        let ready = SetupReadiness(enginePresent: true, voiceSet: true, daemonHealthy: true)
+        for value in ["", "   ", "Unknown"] {
+            XCTAssertEqual(
+                SetupConcernHealth.status(
+                    for: .model,
+                    readiness: ready,
+                    status: nil,
+                    doctor: nil,
+                    summarizerModelEditable: true,
+                    summarizerModelValue: value
+                ),
+                .attention,
+                "Expected attention for value: \(value.debugDescription)"
+            )
+        }
+    }
+
+    func testUsableSummarizerModelValueRejectsEmptyAndUnknown() {
+        XCTAssertTrue(SetupConcernHealth.hasUsableSummarizerModelValue("openai-codex/gpt-5.5"))
+        XCTAssertFalse(SetupConcernHealth.hasUsableSummarizerModelValue(""))
+        XCTAssertFalse(SetupConcernHealth.hasUsableSummarizerModelValue("   "))
+        XCTAssertFalse(SetupConcernHealth.hasUsableSummarizerModelValue("Unknown"))
+    }
+
     // MARK: - Repair items + catch-all
 
     func testRepairItemsIncludeMappedChecks() {
