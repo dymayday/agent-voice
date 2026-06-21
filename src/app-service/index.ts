@@ -6,3 +6,6 @@ export * from "./status-service";
 export * from "./history-service";
 export * from "./voice-service";
 export * from "./daemon-service";
+export * from "./diagnostics-service";
+export * from "./hook-service";
+export * from "./kokoro-service";
