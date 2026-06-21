@@ -258,11 +258,15 @@ private extension DashboardView {
             VStack(alignment: .leading, spacing: 12) {
                 labeledRow("Voice", model.config?.tts.voice ?? "Unknown")
                 voiceControls
-                labeledRow("Summarizer thinking", model.config?.summarizer.thinking ?? "Unknown")
-                thinkingControls
                 summaryVoiceRow("Prompt style", model.config?.summarizer.promptStyle ?? "Unknown")
-                summaryVoiceRow("Max sentences", model.config.map { String($0.summarizer.maxSentences) } ?? "Unknown")
-                summaryVoiceRow("Max characters", model.config.map { String($0.summarizer.maxSummaryChars) } ?? "Unknown")
+                summaryVoiceRow(
+                    "Max sentences",
+                    model.config.map { String($0.summarizer.maxSentences) } ?? "Unknown"
+                )
+                summaryVoiceRow(
+                    "Max characters",
+                    model.config.map { String($0.summarizer.maxSummaryChars) } ?? "Unknown"
+                )
                 SummarizerModelControls(model: model)
                 labeledRow("Kokoro script", model.config?.tts.kokoroScript ?? "Unknown")
                 labeledRow("Agent Voice home", model.status?.paths.home ?? "Unknown")
@@ -329,24 +333,6 @@ private extension DashboardView {
                 }
                 .disabled(model.draftVoice.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
-        }
-    }
-
-    @ViewBuilder
-    private var thinkingControls: some View {
-        let options = AppModel.summarizerThinkingOptions
-        VStack(alignment: .leading, spacing: 8) {
-            Picker("Thinking effort", selection: $model.draftThinking) {
-                ForEach(options, id: \.self) { effort in
-                    Text(effort).tag(effort)
-                }
-            }
-            .pickerStyle(.menu)
-
-            Button("Save Thinking") {
-                Task { await model.saveThinking() }
-            }
-            .disabled(!options.contains(model.draftThinking.trimmingCharacters(in: .whitespacesAndNewlines)))
         }
     }
 

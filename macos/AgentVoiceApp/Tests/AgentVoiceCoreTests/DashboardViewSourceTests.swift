@@ -34,7 +34,7 @@ final class DashboardViewSourceTests: XCTestCase {
         let source = try appSources()
 
         XCTAssertTrue(source.contains("TextField(\"Kokoro voice id\""))
-        XCTAssertTrue(source.contains("labeledRow(\"Summarizer thinking\""))
+        XCTAssertTrue(source.contains("Summarizer thinking"))
         XCTAssertTrue(source.contains("Picker(\"Thinking effort"))
         XCTAssertTrue(source.contains("Button(\"Save Thinking\")"))
         XCTAssertTrue(source.contains("model.saveThinking()"))

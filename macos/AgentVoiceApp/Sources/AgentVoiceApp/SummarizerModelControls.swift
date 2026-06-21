@@ -1,8 +1,8 @@
 import AgentVoiceCore
 import SwiftUI
 
-/// Shared summarizer model editor used by Dashboard and Setup. Business logic
-/// stays in AppModel; this view only binds the draft field and invokes actions.
+/// Shared summarizer model and thinking editor used by Dashboard and Setup.
+/// Business logic stays in AppModel; this view only binds draft fields and invokes actions.
 struct SummarizerModelControls: View {
     @ObservedObject var model: AppModel
 
@@ -62,6 +62,40 @@ struct SummarizerModelControls: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            labeledValueRow("Summarizer thinking", model.config?.summarizer.thinking ?? "Unknown")
+            thinkingControls
+        }
+    }
+
+    private func labeledValueRow(_ title: String, _ value: String) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(title)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 12)
+            Text(value)
+                .multilineTextAlignment(.trailing)
+                .lineLimit(2)
+        }
+        .font(.subheadline)
+        .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder
+    private var thinkingControls: some View {
+        let options = AppModel.summarizerThinkingOptions
+        VStack(alignment: .leading, spacing: 8) {
+            Picker("Thinking effort", selection: $model.draftThinking) {
+                ForEach(options, id: \.self) { effort in
+                    Text(effort).tag(effort)
+                }
+            }
+            .pickerStyle(.menu)
+
+            Button("Save Thinking") {
+                Task { await model.saveThinking() }
+            }
+            .disabled(!options.contains(model.draftThinking.trimmingCharacters(in: .whitespacesAndNewlines)))
         }
     }
 }

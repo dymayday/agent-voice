@@ -32,7 +32,12 @@ final class SetupWindowViewSourceTests: XCTestCase {
     // MARK: Inline Kokoro install (two-window collapse for the Setup surface)
 
     func testSetupViewsDoNotOpenASeparateKokoroWindow() throws {
-        for file in ["SetupWindowView.swift", "SoundcheckView.swift", "SetupBoardView.swift", "KokoroInstallInlineView.swift"] {
+        for file in [
+            "SetupWindowView.swift",
+            "SoundcheckView.swift",
+            "SetupBoardView.swift",
+            "KokoroInstallInlineView.swift"
+        ] {
             let source = try appSource(file)
             XCTAssertFalse(
                 source.contains("openWindow(id: AgentVoiceWindowID.kokoroSetup)"),
@@ -113,7 +118,9 @@ final class SetupWindowViewSourceTests: XCTestCase {
 
     func testBoardIncludesDedicatedModelChannel() throws {
         let source = try appSource("SetupBoardView.swift")
-        XCTAssertTrue(source.contains("private var channels: [SetupConcern] { [.voice, .summaries, .model, .agents, .daemon] }"))
+        XCTAssertTrue(source.contains(
+            "private var channels: [SetupConcern] { [.voice, .summaries, .model, .agents, .daemon] }"
+        ))
         XCTAssertTrue(source.contains("case .model:"))
         XCTAssertTrue(source.contains("ModelChannelContent(model: model)"))
     }
@@ -138,6 +145,7 @@ final class SetupWindowViewSourceTests: XCTestCase {
         let dashboard = try appSource("DashboardView.swift")
         XCTAssertTrue(dashboard.contains("SummarizerModelControls(model: model)"))
         XCTAssertFalse(dashboard.contains("private var summarizerModelControls"))
+        XCTAssertFalse(dashboard.contains("private var thinkingControls"))
     }
 
     func testSharedSummarizerModelControlsMirrorDashboardBehavior() throws {
@@ -151,6 +159,11 @@ final class SetupWindowViewSourceTests: XCTestCase {
         XCTAssertTrue(source.contains("model.validateSummarizerModel()"))
         XCTAssertTrue(source.contains("model.availableSummarizerModels"))
         XCTAssertTrue(source.contains("Use known model"))
+        XCTAssertTrue(source.contains("model.config?.summarizer.thinking ?? \"Unknown\""))
+        XCTAssertTrue(source.contains("AppModel.summarizerThinkingOptions"))
+        XCTAssertTrue(source.contains("Picker(\"Thinking effort\", selection: $model.draftThinking)"))
+        XCTAssertTrue(source.contains("model.saveThinking()"))
+        XCTAssertTrue(source.contains("Save Thinking"))
         XCTAssertTrue(source.contains(".textSelection(.enabled)"))
         XCTAssertTrue(source.contains(".accessibilityElement(children: .combine)"))
         XCTAssertTrue(source.contains("Summarizer model cannot be determined from current config"))
