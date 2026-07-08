@@ -13,7 +13,10 @@ async function runBuildMain(): Promise<{ exitCode: number; stderr: string }> {
 	return { exitCode, stderr };
 }
 
-async function runBuiltMainWithNode(): Promise<{ exitCode: number; stderr: string }> {
+async function runBuiltMainWithNode(): Promise<{
+	exitCode: number;
+	stderr: string;
+}> {
 	const proc = Bun.spawn(["node", "dist/linux-electron/main.js"], {
 		stdout: "pipe",
 		stderr: "pipe",
