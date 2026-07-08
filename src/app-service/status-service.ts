@@ -8,7 +8,7 @@ import {
 	type CommandExistsSync,
 	type PlaybackBackend,
 } from "../platform/playback";
-import type { JobStatus } from "../store";
+import { getDoneTotal, type JobStatus } from "../store";
 import type { DaemonCliDeps } from "../daemon";
 import type { InstallEnv } from "../install";
 import { fail, ok } from "./errors";
@@ -159,6 +159,9 @@ function readCounts(db: Database): Record<JobStatus, number> {
 			counts[row.status as JobStatus] = row.c;
 		}
 	}
+	// `done` reports the monotonic lifetime total (matching the status snapshot),
+	// so it never decreases when retention prunes completed rows.
+	counts.done = getDoneTotal(db);
 	return counts;
 }
 

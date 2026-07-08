@@ -1,4 +1,5 @@
 import { Database } from "bun:sqlite";
+import { seedDoneTotal } from "./store";
 
 export type AgentVoiceDb = Database;
 
@@ -58,6 +59,9 @@ export function openDb(location: string): Database {
 	db.query(
 		"INSERT INTO schema_meta(key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
 	).run(String(SCHEMA_VERSION));
+	// Seed the lifetime done counter from existing rows so an upgraded DB keeps
+	// its completion count instead of resetting the "Done" tile to zero.
+	seedDoneTotal(db);
 	return db;
 }
 
