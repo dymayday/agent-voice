@@ -24,7 +24,7 @@ import {
 import { Database } from "bun:sqlite";
 import { openDb } from "./db";
 import {
-	countByStatus,
+	countsForSnapshot,
 	msUntilNextDue,
 	pruneRetention,
 	runMaintenance,
@@ -183,13 +183,13 @@ export function createStatusPublisher(
 		},
 		publish(config: AgentVoiceConfig): void {
 			// The WHOLE body is best-effort: nothing here — snapshot composition,
-			// the countByStatus read, the dedup stat, or the write — may crash the
-			// job-processing daemon, because a status snapshot is purely cosmetic.
+			// the countsForSnapshot read, the dedup stat, or the write — may crash
+			// the job-processing daemon, because a status snapshot is purely cosmetic.
 			try {
 				const json = formatAppStatusJson(
 					composeStatusSnapshot({
 						daemon: { running: true, pid: process.pid },
-						queues: countByStatus(db),
+						queues: countsForSnapshot(db),
 						config: { enabled: config.enabled, agents: config.agents },
 						install: detectAgentInstallStates(env),
 						paths: { home: paths.home, config: paths.config, db: paths.db },
@@ -298,7 +298,7 @@ function readQueueCounts(
 		if (!existsSync(paths.db)) return emptyQueueCounts();
 		const db = new Database(paths.db, { readonly: true });
 		try {
-			return countByStatus(db);
+			return countsForSnapshot(db);
 		} finally {
 			db.close();
 		}
@@ -306,7 +306,7 @@ function readQueueCounts(
 
 	const db = openDb(paths.db);
 	try {
-		return countByStatus(db);
+		return countsForSnapshot(db);
 	} finally {
 		db.close();
 	}

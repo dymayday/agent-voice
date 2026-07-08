@@ -129,6 +129,62 @@ export function countByStatus(db: Database): Record<JobStatus, number> {
 	return counts;
 }
 
+// Persisted lifetime count of successfully-completed jobs. Stored in
+// `schema_meta` so it survives `pruneRetention` deleting the underlying rows:
+// the "Done" tile reads this, and a completion count must never go backwards.
+const DONE_TOTAL_KEY = "done_total";
+
+function liveDoneCount(db: Database): number {
+	const row = db
+		.query("SELECT COUNT(*) AS c FROM jobs WHERE status='done'")
+		.get() as { c: number };
+	return row.c;
+}
+
+function readMetaInt(db: Database, key: string): number | null {
+	const row = db
+		.query("SELECT value FROM schema_meta WHERE key=$key")
+		.get({ $key: key }) as { value: string } | null;
+	if (!row) return null;
+	const value = Number(row.value);
+	return Number.isFinite(value) ? value : null;
+}
+
+/**
+ * Seed the lifetime done counter from the current done-row count when it has
+ * never been written. Idempotent: a no-op once the key exists. Called from
+ * `openDb`, so a database upgraded from before this counter keeps continuity
+ * (its existing completions are counted) instead of resetting the tile to 0.
+ */
+export function seedDoneTotal(db: Database): void {
+	if (readMetaInt(db, DONE_TOTAL_KEY) !== null) return;
+	db.query(
+		"INSERT INTO schema_meta(key, value) VALUES ($key, $value) ON CONFLICT(key) DO NOTHING",
+	).run({ $key: DONE_TOTAL_KEY, $value: String(liveDoneCount(db)) });
+}
+
+/**
+ * Lifetime number of completed jobs. Returns the persisted counter, falling
+ * back to the live done-row count when unseeded — the read-only status paths
+ * open the DB without going through `openDb`, and a pre-feature DB has no key.
+ * The persisted counter is monotonic; the fallback is not (it drops after a
+ * prune), but every writable handle is seeded in `openDb`, so the path that
+ * publishes the "Done" tile always reads the monotonic value.
+ */
+export function getDoneTotal(db: Database): number {
+	const stored = readMetaInt(db, DONE_TOTAL_KEY);
+	return stored ?? liveDoneCount(db);
+}
+
+/**
+ * Status counts for the published status snapshot: live gauges for every
+ * status except `done`, which reports the persisted lifetime total so the
+ * "Done" tile does not decrease when retention prunes old completed rows.
+ */
+export function countsForSnapshot(db: Database): Record<JobStatus, number> {
+	return { ...countByStatus(db), done: getDoneTotal(db) };
+}
+
 function clearQueueByStatus(db: Database, statuses: JobStatus[]): number {
 	const unique = Array.from(new Set(statuses));
 	if (unique.length === 0) return 0;
@@ -278,10 +334,24 @@ export function markSpoken(
 }
 
 export function markDone(db: Database, id: string, now = new Date()): void {
-	db.query("UPDATE jobs SET status='done', finished_at=$now WHERE id=$id").run({
-		$now: now.toISOString(),
-		$id: id,
-	});
+	// Transition and lifetime-counter bump run in one transaction: a crash
+	// between the two statements must not commit `status='done'` while dropping
+	// the increment, which would permanently undercount. The `status != 'done'`
+	// guard makes re-marking an already-done job a no-op for the counter
+	// (idempotent); `schema_meta` is seeded in openDb, so this writable handle
+	// always has the row to increment.
+	db.transaction(() => {
+		const res = db
+			.query(
+				"UPDATE jobs SET status='done', finished_at=$now WHERE id=$id AND status != 'done'",
+			)
+			.run({ $now: now.toISOString(), $id: id });
+		if (res.changes > 0) {
+			db.query(
+				"UPDATE schema_meta SET value = CAST(value AS INTEGER) + $delta WHERE key=$key",
+			).run({ $delta: res.changes, $key: DONE_TOTAL_KEY });
+		}
+	})();
 }
 
 export function requeueForRetry(

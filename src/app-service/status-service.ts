@@ -8,7 +8,7 @@ import {
 	type CommandExistsSync,
 	type PlaybackBackend,
 } from "../platform/playback";
-import type { JobStatus } from "../store";
+import { countsForSnapshot, type JobStatus } from "../store";
 import type { DaemonCliDeps } from "../daemon";
 import type { InstallEnv } from "../install";
 import { fail, ok } from "./errors";
@@ -149,18 +149,6 @@ function rowToQueueJob(row: QueueRow): QueueSnapshotJob {
 	};
 }
 
-function readCounts(db: Database): Record<JobStatus, number> {
-	const counts = emptyCounts();
-	const rows = db
-		.query("SELECT status, COUNT(*) AS c FROM jobs GROUP BY status")
-		.all() as { status: string; c: number }[];
-	for (const row of rows) {
-		if ((STATUS_ORDER as string[]).includes(row.status)) {
-			counts[row.status as JobStatus] = row.c;
-		}
-	}
-	return counts;
-}
 
 export function getQueueSnapshot(
 	paths: AgentVoicePaths,
@@ -210,7 +198,7 @@ export function getQueueSnapshot(
 				.all({ $limit: recentLimit }) as QueueRow[];
 			return ok({
 				version: 1,
-				counts: readCounts(db),
+				counts: countsForSnapshot(db),
 				pending: pending.map(rowToQueueJob),
 				processing: processing.map(rowToQueueJob),
 				recent: recent.map(rowToQueueJob),
