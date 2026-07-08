@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 
-async function runBuildRenderer(): Promise<{ exitCode: number; stderr: string }> {
+async function runBuildRenderer(): Promise<{
+	exitCode: number;
+	stderr: string;
+}> {
 	const proc = Bun.spawn(["bun", "run", "build:linux-renderer"], {
 		stdout: "pipe",
 		stderr: "pipe",
