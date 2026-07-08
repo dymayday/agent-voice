@@ -183,8 +183,8 @@ export function createStatusPublisher(
 		},
 		publish(config: AgentVoiceConfig): void {
 			// The WHOLE body is best-effort: nothing here — snapshot composition,
-			// the countByStatus read, the dedup stat, or the write — may crash the
-			// job-processing daemon, because a status snapshot is purely cosmetic.
+			// the countsForSnapshot read, the dedup stat, or the write — may crash
+			// the job-processing daemon, because a status snapshot is purely cosmetic.
 			try {
 				const json = formatAppStatusJson(
 					composeStatusSnapshot({

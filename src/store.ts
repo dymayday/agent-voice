@@ -167,6 +167,9 @@ export function seedDoneTotal(db: Database): void {
  * Lifetime number of completed jobs. Returns the persisted counter, falling
  * back to the live done-row count when unseeded — the read-only status paths
  * open the DB without going through `openDb`, and a pre-feature DB has no key.
+ * The persisted counter is monotonic; the fallback is not (it drops after a
+ * prune), but every writable handle is seeded in `openDb`, so the path that
+ * publishes the "Done" tile always reads the monotonic value.
  */
 export function getDoneTotal(db: Database): number {
 	const stored = readMetaInt(db, DONE_TOTAL_KEY);
@@ -175,8 +178,8 @@ export function getDoneTotal(db: Database): number {
 
 /**
  * Status counts for the published status snapshot: live gauges for every
- * status except `done`, which reports the monotonic lifetime total so the
- * "Done" tile never decreases when retention prunes old completed rows.
+ * status except `done`, which reports the persisted lifetime total so the
+ * "Done" tile does not decrease when retention prunes old completed rows.
  */
 export function countsForSnapshot(db: Database): Record<JobStatus, number> {
 	return { ...countByStatus(db), done: getDoneTotal(db) };
@@ -331,19 +334,24 @@ export function markSpoken(
 }
 
 export function markDone(db: Database, id: string, now = new Date()): void {
-	// Guard on `status != 'done'` so re-marking an already-done job is a no-op
-	// for the lifetime counter (idempotent). `schema_meta` is seeded in openDb,
-	// so this writable handle always has the row to increment.
-	const res = db
-		.query(
-			"UPDATE jobs SET status='done', finished_at=$now WHERE id=$id AND status != 'done'",
-		)
-		.run({ $now: now.toISOString(), $id: id });
-	if (res.changes > 0) {
-		db.query(
-			"UPDATE schema_meta SET value = CAST(value AS INTEGER) + $delta WHERE key=$key",
-		).run({ $delta: res.changes, $key: DONE_TOTAL_KEY });
-	}
+	// Transition and lifetime-counter bump run in one transaction: a crash
+	// between the two statements must not commit `status='done'` while dropping
+	// the increment, which would permanently undercount. The `status != 'done'`
+	// guard makes re-marking an already-done job a no-op for the counter
+	// (idempotent); `schema_meta` is seeded in openDb, so this writable handle
+	// always has the row to increment.
+	db.transaction(() => {
+		const res = db
+			.query(
+				"UPDATE jobs SET status='done', finished_at=$now WHERE id=$id AND status != 'done'",
+			)
+			.run({ $now: now.toISOString(), $id: id });
+		if (res.changes > 0) {
+			db.query(
+				"UPDATE schema_meta SET value = CAST(value AS INTEGER) + $delta WHERE key=$key",
+			).run({ $delta: res.changes, $key: DONE_TOTAL_KEY });
+		}
+	})();
 }
 
 export function requeueForRetry(
