@@ -60,7 +60,12 @@ describe("agent-voice summarizer fallback chain", () => {
 
 		const summary = await summarize(
 			event,
-			config({ summarizer: { priority: ["codex-fast", "heuristic"] } }),
+			config({
+				summarizer: {
+					priority: ["codex-fast", "heuristic"],
+					thinking: "high",
+				},
+			}),
 			runner,
 		);
 
@@ -72,7 +77,18 @@ describe("agent-voice summarizer fallback chain", () => {
 			"-m",
 			"gpt-5.3-codex",
 			"-c",
-			"service_tier='\"fast\"'",
+			'service_tier="fast"',
+			"-c",
+			'model_reasoning_effort="high"',
+			"--ignore-user-config",
+			"--disable",
+			"plugins",
+			"--disable",
+			"skill_search",
+			"--disable",
+			"hooks",
+			"--disable",
+			"memories",
 			"--skip-git-repo-check",
 			"--ephemeral",
 			"-",
@@ -83,6 +99,22 @@ describe("agent-voice summarizer fallback chain", () => {
 		expect(calls[0].timeoutMs).toBe(
 			defaultConfig.summarizer.timeoutSeconds * 1000,
 		);
+	});
+
+	test("Codex maps configured off thinking to its none effort", async () => {
+		const event = createEvent({ agent: "claude", text: "Done." });
+		const { calls, runner } = recordingRunner(() => ({
+			ok: true,
+			stdout: "Done.",
+		}));
+
+		await summarize(
+			event,
+			config({ summarizer: { priority: ["codex-fast", "heuristic"] } }),
+			runner,
+		);
+
+		expect(calls[0].args).toContain('model_reasoning_effort="none"');
 	});
 
 	test("Pi fast passes the prompt via stdin, never argv", async () => {
