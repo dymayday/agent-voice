@@ -1,419 +1,609 @@
-# Graph Report - .  (2026-06-20)
+# Graph Report - .  (2026-07-21)
 
 ## Corpus Check
-- 13 files · ~672,025 words
+- 118 files · ~708,865 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 1391 nodes · 2752 edges · 88 communities (68 shown, 20 thin omitted)
-- Extraction: 98% EXTRACTED · 2% INFERRED · 0% AMBIGUOUS · INFERRED: 64 edges (avg confidence: 0.8)
-- Token cost: 0 input · 0 output
+- 2120 nodes · 4544 edges · 141 communities (106 shown, 35 thin omitted)
+- Extraction: 95% EXTRACTED · 5% INFERRED · 0% AMBIGUOUS · INFERRED: 246 edges (avg confidence: 0.81)
+- Token cost: 552,280 input · 0 output
 
 ## Community Hubs (Navigation)
-- [[_COMMUNITY_Swift CLI Wrapper|Swift CLI Wrapper]]
-- [[_COMMUNITY_CLI Commands & Path Safety|CLI Commands & Path Safety]]
-- [[_COMMUNITY_CLI Process Runner Tests|CLI Process Runner Tests]]
-- [[_COMMUNITY_Config Coding Keys|Config Coding Keys]]
-- [[_COMMUNITY_Diagnostic Snapshot Models|Diagnostic Snapshot Models]]
-- [[_COMMUNITY_Kokoro TTS Session|Kokoro TTS Session]]
-- [[_COMMUNITY_Dock Menu Controller|Dock Menu Controller]]
-- [[_COMMUNITY_Database & Schema|Database & Schema]]
-- [[_COMMUNITY_Kokoro Setup Progress UI|Kokoro Setup Progress UI]]
-- [[_COMMUNITY_Kokoro Setup Model Tests|Kokoro Setup Model Tests]]
-- [[_COMMUNITY_TS Config Validation|TS Config Validation]]
-- [[_COMMUNITY_Summarizer Prompt Building|Summarizer Prompt Building]]
-- [[_COMMUNITY_Job Processor & Store|Job Processor & Store]]
-- [[_COMMUNITY_Menu Bar Sentinel View|Menu Bar Sentinel View]]
-- [[_COMMUNITY_Swift Config Models|Swift Config Models]]
-- [[_COMMUNITY_AppModel Kokoro Actions|AppModel Kokoro Actions]]
-- [[_COMMUNITY_Kokoro Setup Events|Kokoro Setup Events]]
-- [[_COMMUNITY_Attention Detail View|Attention Detail View]]
-- [[_COMMUNITY_Summarizer Config Keys|Summarizer Config Keys]]
-- [[_COMMUNITY_CLI Snapshot Tests|CLI Snapshot Tests]]
-- [[_COMMUNITY_CLI Entry & Hook Parsing|CLI Entry & Hook Parsing]]
-- [[_COMMUNITY_App Source Tests|App Source Tests]]
-- [[_COMMUNITY_Summarizer Action Tests|Summarizer Action Tests]]
-- [[_COMMUNITY_Package Manifest|Package Manifest]]
-- [[_COMMUNITY_Queue & Retry Logic|Queue & Retry Logic]]
-- [[_COMMUNITY_Swift History Models|Swift History Models]]
-- [[_COMMUNITY_Kokoro Setup Models|Kokoro Setup Models]]
-- [[_COMMUNITY_Kokoro Setup View Tests|Kokoro Setup View Tests]]
-- [[_COMMUNITY_Dashboard View Helpers|Dashboard View Helpers]]
-- [[_COMMUNITY_UI Source Test Helpers|UI Source Test Helpers]]
-- [[_COMMUNITY_AppModel Diagnostics Actions|AppModel Diagnostics Actions]]
-- [[_COMMUNITY_Doctor Report Models|Doctor Report Models]]
-- [[_COMMUNITY_Kokoro Setup Contract Tests|Kokoro Setup Contract Tests]]
-- [[_COMMUNITY_Claude Hook Extraction|Claude Hook Extraction]]
-- [[_COMMUNITY_AppModel Queue Actions|AppModel Queue Actions]]
-- [[_COMMUNITY_Kokoro Python Service|Kokoro Python Service]]
-- [[_COMMUNITY_History View|History View]]
-- [[_COMMUNITY_AppModel Core|AppModel Core]]
-- [[_COMMUNITY_History Snapshot (TS)|History Snapshot (TS)]]
-- [[_COMMUNITY_Dashboard Agent Controls|Dashboard Agent Controls]]
-- [[_COMMUNITY_History Status Filter|History Status Filter]]
-- [[_COMMUNITY_Setup Assistant View|Setup Assistant View]]
-- [[_COMMUNITY_Setup Assistant Tests|Setup Assistant Tests]]
-- [[_COMMUNITY_Daemon Processor Tests|Daemon Processor Tests]]
-- [[_COMMUNITY_UI State Enums|UI State Enums]]
-- [[_COMMUNITY_AppModel Action Tests|AppModel Action Tests]]
-- [[_COMMUNITY_Clear Failed Jobs Tests|Clear Failed Jobs Tests]]
-- [[_COMMUNITY_Summarizer Knobs Tests|Summarizer Knobs Tests]]
-- [[_COMMUNITY_Dashboard View Tests|Dashboard View Tests]]
-- [[_COMMUNITY_TypeScript Config|TypeScript Config]]
-- [[_COMMUNITY_App Entry & Windows|App Entry & Windows]]
-- [[_COMMUNITY_Menu Bar Smart Actions|Menu Bar Smart Actions]]
-- [[_COMMUNITY_Setup Assistant Model|Setup Assistant Model]]
-- [[_COMMUNITY_Dock Menu Tests|Dock Menu Tests]]
-- [[_COMMUNITY_Summarizer Config Decode Tests|Summarizer Config Decode Tests]]
-- [[_COMMUNITY_AppModel Daemon Refresh|AppModel Daemon Refresh]]
-- [[_COMMUNITY_Settings Action Tests|Settings Action Tests]]
-- [[_COMMUNITY_Bun Locator Script|Bun Locator Script]]
-- [[_COMMUNITY_History Pagination|History Pagination]]
-- [[_COMMUNITY_Setup Step Enum|Setup Step Enum]]
-- [[_COMMUNITY_Draft Preservation Tests|Draft Preservation Tests]]
-- [[_COMMUNITY_History Focus Tests|History Focus Tests]]
-- [[_COMMUNITY_History View Tests|History View Tests]]
-- [[_COMMUNITY_Event Validation|Event Validation]]
-- [[_COMMUNITY_Auto-Refresh Loop Control|Auto-Refresh Loop Control]]
-- [[_COMMUNITY_Summary Voice Refresh|Summary Voice Refresh]]
-- [[_COMMUNITY_Dashboard Warnings|Dashboard Warnings]]
-- [[_COMMUNITY_Attention Detail Tests|Attention Detail Tests]]
-- [[_COMMUNITY_Executable Path Resolution|Executable Path Resolution]]
-- [[_COMMUNITY_Dashboard View Shell|Dashboard View Shell]]
-- [[_COMMUNITY_Kokoro Event Application|Kokoro Event Application]]
-- [[_COMMUNITY_Setup Actions|Setup Actions]]
-- [[_COMMUNITY_Daemon Signal Waiter|Daemon Signal Waiter]]
-- [[_COMMUNITY_Bin Shim Tests|Bin Shim Tests]]
-- [[_COMMUNITY_Kokoro Resources Tests|Kokoro Resources Tests]]
-- [[_COMMUNITY_Attention Detail Shell|Attention Detail Shell]]
-- [[_COMMUNITY_Summarizer Mode|Summarizer Mode]]
-- [[_COMMUNITY_macOS Icon Script|macOS Icon Script]]
-- [[_COMMUNITY_Swift Package Manifest|Swift Package Manifest]]
-- [[_COMMUNITY_Voice Orb Icon|Voice Orb Icon]]
-- [[_COMMUNITY_Voice Orb Icon (alt)|Voice Orb Icon (alt)]]
-- [[_COMMUNITY_Hearth Lens Icon|Hearth Lens Icon]]
-- [[_COMMUNITY_Kokoro Requirements|Kokoro Requirements]]
-- [[_COMMUNITY_Clean Orb Icon|Clean Orb Icon]]
-- [[_COMMUNITY_Orb Heart Core Icon|Orb Heart Core Icon]]
-- [[_COMMUNITY_Quiet Beacon Icon|Quiet Beacon Icon]]
-- [[_COMMUNITY_Kokoro Protocol|Kokoro Protocol]]
+- Kokoro Setup Infrastructure
+- Application State Orchestration
+- Menu Diagnostics Interface
+- Setup Readiness Evaluation
+- macOS Interface Source Tests
+- Database Integration Tests
+- Voice Playback Service
+- Project Package Tooling
+- Swift CLI Command Tests
+- Daemon Command Services
+- Configuration Service Validation
+- Streaming Process Integration
+- Setup Interface Source Tests
+- Diagnostics Serialization Keys
+- Dock Menu Controller
+- Queue Job Processing
+- Kokoro Setup Data Models
+- Kokoro Speech Client
+- Electron Service Bridge
+- Swift CLI Operations
+- Swift Process Runners
+- Setup Board Components
+- Summary Generation Pipeline
+- Daemon Runtime Loop
+- Kokoro App Model Tests
+- Electron Main Process
+- History Window Interface
+- Setup Assistant Model
+- System Status Services
+- Codex Hook Installation
+- Voice Setup Experience
+- Configuration Coding Keys
+- Swift Configuration Models
+- Daemon Snapshot Tests
+- Dashboard Interface Tests
+- CLI Streaming Tests
+- Capsule Window Lifecycle
+- Electron Renderer Routes
+- Renderer Component Tests
+- Renderer Service API
+- Electron TypeScript Configuration
+- Setup Window Navigation
+- Privacy Safe Diagnostics
+- Application Service Types
+- Diagnostics Snapshot Models
+- History Data Models
+- Electron Build Contracts
+- Preload Event Subscriptions
+- Renderer Navigation Types
+- Root TypeScript Configuration
+- History Pagination Service
+- Agent Hook Service
+- Queue Retry Scheduling
+- Kokoro Model Contract Tests
+- Claude Event Extraction
+- Doctor Report Models
+- Python Speech Service
+- Kokoro Progress Window
+- Preload IPC Contract
+- macOS Application Views
+- Dashboard Status Components
+- Diagnostics Configuration Snapshot
+- Application Runtime States
+- Failed History Cleanup Tests
+- Event Input Validation
+- Voice Meter Animation
+- Setup Session Consent
+- Renderer Privacy Controls
+- Trusted Status Snapshot
+- Summarizer Model Action Tests
+- Settings Action Tests
+- Bun Executable Discovery
+- Inline Kokoro Installer
+- Diagnostics Snapshot Structure
+- Diagnostics Refresh Tests
+- Prompt Style Catalog
+- Application Command Action Tests
+- Draft Preservation Tests
+- History Focus Tests
+- History View Source Tests
+- Setup Assistant Tests
+- Setup IPC Test Doubles
+- Diagnostics Encoding Methods
+- Dashboard Warning Management
+- Prompt Catalog Tests
+- Hook Confirmation Interface
+- Guarded Destructive Actions
+- Summarizer Decoding Tests
+- Lifetime Completion Counter
+- Electron Development Runner
+- Accessible Renderer Shell
+- Setup Repair Route Tests
+- Executable Path Resolution
+- Renderer Application Entry
+- Daemon Work Signaling
+- Shell Shim Tests
+- Electron Script Tests
+- Bridge Protocol Tests
+- Kokoro Resource Tests
+- Queue History Loading
+- Summarizer Mode Settings
+- Hook Installation Detection
+- Development Launch Tests
+- Electron Main Builder
+- Home Status Feed
+- Settings Panel Actions
+- Voice Bench Configuration
+- macOS Icon Generator
+- Native Workflow Contracts
+- Platform Boundary Tests
+- Swift Package Definition
+- Hook Panel Actions
+- Settings Panel Interface
+- Application Voice Orb
+- Generated Voice Orb
+- Hearth Lens Artwork
+- Diagnostics Check Reader
+- Hook Target Reader
+- Status Action Derivation
+- Home Status Loader
+- Home Voice Testing
+- Latest Summary Playback
+- Status Tone Mapping
+- Hook Diagnostics Copying
+- Voice Bench Testing
+- Clean Voice Orb
+- Orb Heart Artwork
+- Quiet Beacon Artwork
+- Kokoro Python Requirements
+- Kokoro Protocol Types
+- Built Main Entry Test
+- Electron Tooling Contract
+- Renderer Test Discovery
 
 ## God Nodes (most connected - your core abstractions)
-1. `AppModel` - 81 edges
-2. `CodingKeys` - 43 edges
-3. `AgentVoiceCLI` - 41 edges
-4. `RecordingRunner` - 30 edges
-5. `String` - 28 edges
-6. `AgentVoiceCLITests` - 28 edges
-7. `AgentVoiceDockMenuDelegate` - 25 edges
-8. `MenuBarSentinelView` - 21 edges
-9. `runCli()` - 21 edges
-10. `Data` - 20 edges
+1. `AppModel` - 94 edges
+2. `AgentVoiceCLI` - 76 edges
+3. `CodingKeys` - 43 edges
+4. `runCli()` - 42 edges
+5. `RecordingRunner` - 36 edges
+6. `SetupWindowModelTests` - 33 edges
+7. `openDb()` - 33 edges
+8. `AgentVoiceCLITests` - 31 edges
+9. `ok` - 31 edges
+10. `fail` - 29 edges
 
 ## Surprising Connections (you probably didn't know these)
-- `counts()` --calls--> `countByStatus()`  [EXTRACTED]
-  tests/daemon.test.ts → src/store.ts
-- `pendingCount()` --calls--> `openDb()`  [EXTRACTED]
-  tests/enqueue-cli.test.ts → src/db.ts
-- `pendingJobs()` --calls--> `openDb()`  [EXTRACTED]
-  tests/enqueue-cli.test.ts → src/db.ts
-- `withDb()` --calls--> `openDb()`  [EXTRACTED]
-  tests/processor.test.ts → src/db.ts
-- `pendingCount()` --calls--> `resolvePaths()`  [EXTRACTED]
-  tests/enqueue-cli.test.ts → src/paths.ts
+- `createMainWindowOptions` --rationale_for--> `Narrow Typed Preload IPC Surface`  [INFERRED]
+  linux/electron/main.ts → README.md
+- `createSetupSessionRegistry` --implements--> `Consent-Gated Kokoro Setup`  [INFERRED]
+  linux/electron/main.ts → README.md
+- `handleRequest` --implements--> `Local-First Voice Pipeline`  [INFERRED]
+  linux/electron/service-bridge.ts → README.md
+- `createCapsuleWindowOptions` --rationale_for--> `Narrow Typed Preload IPC Surface`  [INFERRED]
+  linux/electron/main.ts → README.md
+- `Main Renderer Preload API` --implements--> `Narrow Typed Preload IPC Surface`  [INFERRED]
+  linux/electron/preload.ts → README.md
 
 ## Import Cycles
 - None detected.
 
-## Communities (88 total, 20 thin omitted)
+## Hyperedges (group relationships)
+- **Linux Electron IPC Request Flow** — linux_electron_preload_api, linux_electron_ipc_contract_agent_voice_channels, linux_electron_main_registeripchandlers, linux_electron_main_createbridgeappserviceclient, linux_electron_service_bridge_dispatch, linux_electron_service_bridge_handlerequest [EXTRACTED 1.00]
+- **Desktop Capsule Safe Action Flow** — linux_electron_renderer_src_capsule_capsuleapp_safe_capsule_actions, linux_electron_capsule_preload_capsuleapi, linux_electron_main_registeripchandlers, linux_electron_main_createdesktopcapsulecontroller [EXTRACTED 1.00]
+- **Renderer Accessibility Pattern** — linux_electron_renderer_src_app_accessible_route_focus, linux_electron_renderer_src_components_confirmdialog_accessible_focus_trap, src_accessibility_renderer_accessibility_contract [EXTRACTED 1.00]
+- **Diagnostics privacy preview flow** — linux_electron_renderer_src_routes_diagnosticspanel_loaddiagnostics, linux_electron_renderer_src_routes_diagnosticspanel_normalizepreview, linux_electron_renderer_src_routes_diagnosticspanel_truncatediagnosticstrings, linux_electron_renderer_src_routes_diagnosticspanel_copypreview, linux_electron_renderer_src_routes_diagnosticspanel_privacy_safe_diagnostics [EXTRACTED 1.00]
+- **Managed Kokoro setup session flow** — linux_electron_renderer_src_routes_setuprepair_startsetup, linux_electron_renderer_src_routes_setuprepair_handlesetupenvelope, linux_electron_renderer_src_routes_setuprepair_handlesetupevent, linux_electron_renderer_src_routes_setuprepair_cancelsetup, linux_electron_renderer_src_routes_setuprepair_session_scoped_progress [EXTRACTED 1.00]
+- **Guarded destructive action pattern** — linux_electron_renderer_src_components_confirmdialog_vitest_confirmdialog_tests, linux_electron_renderer_src_routes_hookspanel_guarded_hook_changes, linux_electron_renderer_src_routes_queuehistory_typed_queue_cleanup [INFERRED 0.85]
+- **Derived Two-Face Setup Flow** — macos_agentvoiceapp_sources_agentvoiceapp_setupwindowview_setupwindowview, macos_agentvoiceapp_sources_agentvoiceapp_soundcheckview_soundcheckview, macos_agentvoiceapp_sources_agentvoiceapp_setupboardview_setupboardview, macos_agentvoiceapp_sources_agentvoicecore_setupwindowmodel_setupreadiness [EXTRACTED 1.00]
+- **Kokoro Install Progress Flow** — macos_agentvoiceapp_sources_agentvoicecore_appmodel_appmodel, macos_agentvoiceapp_sources_agentvoicecore_agentvoicecli_agentvoicecli, macos_agentvoiceapp_sources_agentvoicecore_kokorosetupprogress_kokorosetupprogress, macos_agentvoiceapp_sources_agentvoiceapp_kokoroinstallinlineview_kokoroinstallinlineview, macos_agentvoiceapp_sources_agentvoiceapp_kokorosetupprogressview_kokorosetupprogressview [INFERRED 0.95]
+- **Summarizer Configuration Flow** — macos_agentvoiceapp_sources_agentvoicecore_agentvoiceconfig_summarizerconfig, macos_agentvoiceapp_sources_agentvoicecore_appmodel_appmodel, macos_agentvoiceapp_sources_agentvoiceapp_setupboardview_summaryvoicesection, macos_agentvoiceapp_sources_agentvoiceapp_summarizermodelcontrols_summarizermodelcontrols, macos_agentvoiceapp_sources_agentvoicecore_agentvoicecli_agentvoicecli [INFERRED 0.95]
+- **Agent Event to Speech Pipeline** — src_cli_runcli, src_events_createevent, src_store_enqueue, src_daemon_rundaemonloop, src_summarizers_summarizewithsource, src_tts_kokoroclient, src_tts_playwav [INFERRED 0.95]
+- **App Service Result Contract** — src_app_service_types_appserviceresult, src_app_service_errors_ok, src_app_service_errors_fail, src_app_service_daemon_service_startdaemonservice, src_app_service_status_service_getstatus, src_app_service_voice_service_testspeech [INFERRED 0.95]
+- **Monotonic Done Status Flow** — src_db_opendb, src_store_seeddonetotal, src_store_markdone, src_store_countsforsnapshot, src_daemon_createstatuspublisher, src_app_service_status_service_getqueuesnapshot [INFERRED 0.95]
+- **Summarization Pipeline Contracts** — tests_config_test_summarizer_prompt_knobs_config, tests_summarizers_test_summarizer_fallback_chain, tests_app_service_voice_service_test_voice_app_service [INFERRED 0.85]
+- **Desktop Application Service Flow** — tests_app_service_config_service_test_app_service_config, tests_app_service_status_history_service_test_status_and_history_service, tests_app_service_voice_service_test_voice_app_service, tests_electron_capsule_lifecycle_test_capsule_lifecycle [INFERRED 0.75]
+- **Audio Delivery Flow** — tests_tts_test_kokoro_tts_bridge, tests_playback_test_playback_backend_detection, tests_app_service_voice_service_test_voice_app_service [INFERRED 0.85]
+- **Preload subscription cleanup flow** — tests_electron_preload_subscriptions_test_unsubscribe_before_subscribe_resolves, tests_electron_preload_subscriptions_test_idempotent_unsubscribe, tests_electron_preload_contract_test_preload_unsubscribe_cleanup, tests_electron_setup_session_ipc_test_explicit_main_process_unsubscribe [INFERRED 0.95]
+- **Setup session lifecycle contract** — tests_electron_setup_session_ipc_test_setup_consent_requirement, tests_electron_setup_session_ipc_test_best_effort_session_cancel, tests_electron_setup_session_ipc_test_buffered_setup_events, tests_electron_setup_session_ipc_test_cancelled_session_event_suppression, tests_electron_setup_session_ipc_test_nonblocking_setup_start [INFERRED 0.85]
+- **Electron security boundary contract** — tests_electron_main_security_test_sandboxed_isolated_renderer, tests_electron_main_security_test_ipc_payload_validation, tests_electron_preload_contract_test_allowlisted_preload_methods, tests_electron_preload_contract_test_no_generic_shell_or_filesystem_channels, tests_electron_no_swift_touch_test_linux_electron_sibling_boundaries [INFERRED 0.85]
 
-### Community 0 - "Swift CLI Wrapper"
+## Communities (141 total, 35 thin omitted)
+
+### Community 0 - "Kokoro Setup Infrastructure"
 Cohesion: 0.05
-Nodes (38): AgentVoiceCLI, AgentVoiceCLIError, PipeReader, ProcessRequest, ProcessResult, ProcessRunning, ProcessStream, ProcessStreaming (+30 more)
+Nodes (80): commandDescription(), emitLogs(), KokoroCommandDeps, KokoroLogEmitter, runChecked(), assertExistingPathSafe(), assertManagedChild(), assertManagedRoot() (+72 more)
 
-### Community 1 - "CLI Commands & Path Safety"
+### Community 1 - "Application State Orchestration"
 Cohesion: 0.05
-Nodes (78): commandDescription(), emitLogs(), KokoroCommandDeps, KokoroLogEmitter, runChecked(), assertExistingPathSafe(), assertManagedChild(), assertManagedRoot() (+70 more)
+Nodes (25): Combine, CustomStringConvertible, KokoroSetupSnapshot, AppModel, SummarizerModelBinding, SummarizerModelRestoreError, AgentVoiceHistoryJob, AgentVoiceHistorySnapshot (+17 more)
 
-### Community 2 - "CLI Process Runner Tests"
+### Community 2 - "Menu Diagnostics Interface"
+Cohesion: 0.06
+Nodes (35): AttentionDetailView, MenuBarSentinelView, SmartActionMenuMode, daemonStopped, daily, needsAttention, unavailable, String (+27 more)
+
+### Community 3 - "Setup Readiness Evaluation"
+Cohesion: 0.10
+Nodes (20): AgentVoiceUIState, Foundation, KokoroSetupPhase, SetupConcernHealth, SetupConcernStatus, attention, critical, ok (+12 more)
+
+### Community 4 - "macOS Interface Source Tests"
+Cohesion: 0.06
+Nodes (19): AgentVoiceAppSourceTests, AttentionDetailViewSourceTests, DockMenuSourceTests, appSource(), appSources(), attentionBody(), dashboardBody(), dashboardViewSource() (+11 more)
+
+### Community 5 - "Database Integration Tests"
+Cohesion: 0.10
+Nodes (20): AgentVoiceDb, getSchemaVersion(), hasColumn(), migrateSchema(), openDb(), createEvent(), resolvePaths(), countByStatus() (+12 more)
+
+### Community 6 - "Voice Playback Service"
+Cohesion: 0.10
+Nodes (36): backendName(), boundedMessage(), defaultSynthesizeAndPlay(), errorMessage(), findLatestSpeakableSummary, isPlaybackUnavailable(), SpeakableSummary, SpeakableSummaryRow (+28 more)
+
+### Community 7 - "Project Package Tooling"
+Cohesion: 0.05
+Nodes (43): bun-types, electron, jsdom, bin, agent-voice, voice-codex, voice-opencode, devDependencies (+35 more)
+
+### Community 8 - "Swift CLI Command Tests"
+Cohesion: 0.15
+Nodes (6): AgentVoiceCLI, ProcessResult, AgentVoiceCLITests, RecordingRunner, Int32, AppModelSummarizerKnobsTests
+
+### Community 9 - "Daemon Command Services"
+Cohesion: 0.11
+Nodes (39): DaemonActionResult, messageFromError(), startDaemonService, startFailureCode(), stopDaemonService, availableSummarizerModels(), ClaudeHookPayloadContext, CliIo (+31 more)
+
+### Community 10 - "Configuration Service Validation"
+Cohesion: 0.12
+Nodes (35): AppConfig, ConfigPaths, errorMessage(), getAppConfig, isSummarizerThinking(), pathsOrDefault(), setCapsuleEnabled, SUMMARIZER_THINKING_VALUES (+27 more)
+
+### Community 11 - "Streaming Process Integration"
+Cohesion: 0.10
+Nodes (17): HistoryModelsTests, Data, FileHandle, FoundationStreamingProcessRunner, PipeReader, ProcessStream, StreamingLineDecoder, StreamingProcessState (+9 more)
+
+### Community 12 - "Setup Interface Source Tests"
 Cohesion: 0.09
-Nodes (18): FoundationProcessRunner, AgentVoiceCLITests, RecordingRunner, RecordingStreamingRunner, RecordingStreamState, ResultBox, AgentVoiceCore, AsyncThrowingStream (+10 more)
+Nodes (4): KokoroSetupProgressViewSourceTests, String, SetupWindowViewSourceTests, XCTest
 
-### Community 3 - "Config Coding Keys"
-Cohesion: 0.04
-Nodes (43): CodingKeys, action, agent, agents, agentVoiceHome, attempts, attention, config (+35 more)
+### Community 13 - "Diagnostics Serialization Keys"
+Cohesion: 0.05
+Nodes (39): CodingKeys, action, agent, agents, agentVoiceHome, attempts, attention, config (+31 more)
 
-### Community 4 - "Diagnostic Snapshot Models"
-Cohesion: 0.08
-Nodes (31): AgentVoiceDiagnosticSnapshot, Daemon, DiagnosticConfig, DiagnosticDoctorCheck, DiagnosticHistoryPageInfo, DiagnosticJob, Paths, Daemon (+23 more)
-
-### Community 5 - "Kokoro TTS Session"
-Cohesion: 0.08
-Nodes (16): KokoroProtocolSession, messageToAudio(), audioDir(), BunKokoroSession, defaultPlaybackRunner(), KokoroClient, KokoroSession, KokoroSessionFactory (+8 more)
-
-### Community 6 - "Dock Menu Controller"
+### Community 14 - "Dock Menu Controller"
 Cohesion: 0.10
 Nodes (19): AgentVoiceDockMenuDelegate, DockMenuWindowBridge, AgentVoiceCore, AppKit, AppModel, Bool, Never, String (+11 more)
 
-### Community 7 - "Database & Schema"
-Cohesion: 0.13
-Nodes (15): AgentVoiceDb, getSchemaVersion(), hasColumn(), migrateSchema(), openDb(), createEvent(), resolvePaths(), countByStatus() (+7 more)
+### Community 15 - "Queue Job Processing"
+Cohesion: 0.11
+Nodes (27): AgentVoiceEvent, errorMessage(), fallbackSummarizerLabel(), processNextJob(), ProcessNextJobResult, ProcessorDeps, claimNextDue(), getNextDueTime() (+19 more)
 
-### Community 8 - "Kokoro Setup Progress UI"
+### Community 16 - "Kokoro Setup Data Models"
+Cohesion: 0.10
+Nodes (28): CodingKeys, error, id, message, ok, status, stream, title (+20 more)
+
+### Community 17 - "Kokoro Speech Client"
 Cohesion: 0.09
-Nodes (17): KokoroSetupProgressView, FoundationStreamingProcessRunner, AgentVoiceCLIStreamingTests, Double, KokoroSetupStepDefinition, AgentVoiceCore, AppKit, AppModel (+9 more)
+Nodes (12): defaultSynthesize(), defaultProcessorDeps(), BunKokoroSession, KokoroClient, KokoroSession, PlaybackRunRequest, Kokoro Setup Consent, Voice App Service (+4 more)
 
-### Community 9 - "Kokoro Setup Model Tests"
+### Community 18 - "Electron Service Bridge"
+Cohesion: 0.16
+Nodes (26): BridgeRequest, dispatch, emitEvent(), handleRequest, installEnv(), isRecord(), writeProtocol(), fail (+18 more)
+
+### Community 19 - "Swift CLI Operations"
+Cohesion: 0.11
+Nodes (6): AgentVoiceCLIError, AgentVoiceHistorySnapshot, DoctorReport, Int, Int32, String
+
+### Community 20 - "Swift Process Runners"
+Cohesion: 0.13
+Nodes (14): Darwin, FoundationProcessRunner, ProcessRequest, ProcessRunning, ProcessStreaming, StreamingOutputError, invalidUTF8, RecordingStreamingRunner (+6 more)
+
+### Community 21 - "Setup Board Components"
+Cohesion: 0.15
+Nodes (20): AgentsChannelContent, AgentSummary, DaemonChannelContent, ModelChannelContent, SetupBoardView, SummariesChannelContent, SummaryVoiceSection, AppModel (+12 more)
+
+### Community 22 - "Summary Generation Pipeline"
+Cohesion: 0.14
+Nodes (27): defaultConfig, SummarizerPromptStyle, baseRequest(), buildPrompt(), cleanForSpeech(), describeFailure(), envWithoutUndefined(), firstNSentences() (+19 more)
+
+### Community 23 - "Daemon Runtime Loop"
+Cohesion: 0.11
+Nodes (24): clearIntentionalStop(), createStatusPublisher(), currentDaemonConfig(), daemonEntrypointPath(), DaemonLoopResult, DaemonStatusOptions, DetachedDaemonRequest, emptyQueueCounts() (+16 more)
+
+### Community 24 - "Kokoro App Model Tests"
 Cohesion: 0.14
 Nodes (10): AppModelKokoroSetupTests, ThrowingProcessRunner, AgentVoiceCore, Error, Int, ProcessRequest, ProcessResult, RecordingStreamingRunner (+2 more)
 
-### Community 10 - "TS Config Validation"
-Cohesion: 0.16
-Nodes (25): AGENT_NAMES, AgentName, assertBoolean(), assertIntegerInRange(), assertOneOf(), assertSafePath(), assertString(), cloneConfig() (+17 more)
+### Community 25 - "Electron Main Process"
+Cohesion: 0.12
+Nodes (24): AppServiceClient, AppServiceEventEmitter, AppServiceMethod, assertNoUnexpectedKeys(), bootstrapElectron, CAPSULE_ACTIONS, CapsuleAction, capsuleEnabledInConfig() (+16 more)
 
-### Community 11 - "Summarizer Prompt Building"
-Cohesion: 0.14
-Nodes (23): AgentVoiceConfig, SummarizerPromptStyle, baseRequest(), buildPrompt(), cleanForSpeech(), describeFailure(), envWithoutUndefined(), firstNSentences() (+15 more)
+### Community 26 - "History Window Interface"
+Cohesion: 0.11
+Nodes (18): HistoryStatusFilter, all, done, failed, skipped, HistoryView, CaseIterable, HistoryJobStatus (+10 more)
 
-### Community 12 - "Job Processor & Store"
-Cohesion: 0.16
-Nodes (24): errorMessage(), fallbackSummarizerLabel(), processNextJob(), ProcessNextJobResult, claimNextDue(), clearActiveQueue(), clearFailedJobs(), clearQueueByStatus() (+16 more)
-
-### Community 13 - "Menu Bar Sentinel View"
-Cohesion: 0.13
-Nodes (13): MenuBarSentinelView, ButtonRole, AgentVoiceHistoryJob, AppModel, Bool, Color, Content, DoctorCheck (+5 more)
-
-### Community 14 - "Swift Config Models"
-Cohesion: 0.21
-Nodes (16): AgentSummary, AgentSummary, AgentVoiceFullConfig, ConfigSummary, SummarizerConfig, TTSConfig, Decoder, Equatable (+8 more)
-
-### Community 15 - "AppModel Kokoro Actions"
-Cohesion: 0.13
-Nodes (12): AgentVoiceCLI, AppModel, AgentVoiceFullConfig, DoctorReport, AgentVoiceFullConfig, DoctorReport, Never, SetupStep (+4 more)
-
-### Community 16 - "Kokoro Setup Events"
-Cohesion: 0.13
-Nodes (18): CodingKeys, error, id, message, ok, status, stream, title (+10 more)
-
-### Community 17 - "Attention Detail View"
-Cohesion: 0.20
-Nodes (10): AttentionDetailView, text, AgentVoiceHistoryJob, AppModel, Color, Content, DoctorCheck, HistoryJobStatus (+2 more)
-
-### Community 18 - "Summarizer Config Keys"
+### Community 27 - "Setup Assistant Model"
 Cohesion: 0.10
-Nodes (20): CodingKeys, codexModel, maxSentences, maxSummaryChars, opencodeModel, piModel, priority, promptStyle (+12 more)
+Nodes (19): SetupAction, disableAgent, enableAgent, summarizerMode, SetupAssistantModel, SetupCheck, SetupStep, agents (+11 more)
 
-### Community 19 - "CLI Snapshot Tests"
+### Community 28 - "System Status Services"
+Cohesion: 0.13
+Nodes (21): deriveFirstRunActions, FirstRunAction, FirstRunProbeState, FirstRunStatus, emptyCounts(), getQueueSnapshot, getStatus, mapPlayback() (+13 more)
+
+### Community 29 - "Codex Hook Installation"
+Cohesion: 0.18
+Nodes (22): AGENT_VOICE_HOOK_EVENTS, CODEX_HOOK_EVENT_KEYS, codexConfigPath(), codexHooksDisabled, codexHooksPath(), codexHookState, dropAgentVoiceGroups(), ensureEventGroups() (+14 more)
+
+### Community 30 - "Voice Setup Experience"
+Cohesion: 0.13
+Nodes (16): SetupAccessibility, SetupNarration, String, Panel, engine, speak, voice, SoundcheckView (+8 more)
+
+### Community 31 - "Configuration Coding Keys"
+Cohesion: 0.10
+Nodes (21): CodingKeys, hasMore, jobs, limit, nextCursor, pageInfo, version, CodingKey (+13 more)
+
+### Community 32 - "Swift Configuration Models"
+Cohesion: 0.29
+Nodes (14): AgentSummary, Codable, Decoder, Equatable, SummarizerModelsResponse, AgentSummary, AgentVoiceFullConfig, ConfigSummary (+6 more)
+
+### Community 33 - "Daemon Snapshot Tests"
 Cohesion: 0.21
 Nodes (8): AgentVoiceCLISnapshotTests, AgentVoiceCLI, AgentVoiceCore, Bool, Int, RecordingRunner, URL, XCTest
 
-### Community 20 - "CLI Entry & Hook Parsing"
-Cohesion: 0.20
-Nodes (19): availableSummarizerModels(), ClaudeHookPayloadContext, CliIo, CliResult, createClaudeHookEvent(), defaultProcessorDeps(), defaultProcessorDepsFactory(), getOption() (+11 more)
+### Community 34 - "Dashboard Interface Tests"
+Cohesion: 0.12
+Nodes (5): DashboardView, AppModel, InstallState, String, DashboardViewSourceTests
 
-### Community 21 - "App Source Tests"
+### Community 35 - "CLI Streaming Tests"
 Cohesion: 0.15
-Nodes (3): AgentVoiceAppSourceTests, sourceSlice(), XCTest
+Nodes (8): AgentVoiceCLIStreamingTests, AgentVoiceCore, Int, ProcessRequest, RecordingStreamingRunner, String, UInt64, XCTest
 
-### Community 22 - "Summarizer Action Tests"
+### Community 36 - "Capsule Window Lifecycle"
+Cohesion: 0.14
+Nodes (5): createCapsuleController, createDesktopCapsuleController, BrowserWindowFake, Capsule Lifecycle, FakeBrowserWindow
+
+### Community 37 - "Electron Renderer Routes"
+Cohesion: 0.19
+Nodes (5): active, ../lib/api, ./lib/types, ../../../../../src/app-service, ../../../../../src/history
+
+### Community 38 - "Renderer Component Tests"
+Cohesion: 0.16
+Nodes (6): createMockAgentVoice, installMockAgentVoice, success(), diagnosticsPreview, failedJob, config()
+
+### Community 39 - "Renderer Service API"
+Cohesion: 0.14
+Nodes (17): agentVoice proxy, getAgentVoice, requireAgentVoice, loadDiagnostics, normalizePreview, resultValue, cancelSetup, failForSession (+9 more)
+
+### Community 40 - "Electron TypeScript Configuration"
 Cohesion: 0.11
-Nodes (7): AppModelSummarizerActionTests, SetupAssistantViewSourceTests, SummarizerPromptStyleCatalogTests, XCTest, AgentVoiceCore, XCTest, XCTestCase
+Nodes (17): compilerOptions, allowJs, checkJs, isolatedModules, types, extends, include, bun-types (+9 more)
 
-### Community 23 - "Package Manifest"
-Cohesion: 0.11
-Nodes (17): bin, agent-voice, voice-codex, voice-opencode, devDependencies, bun-types, @types/node, typescript (+9 more)
+### Community 41 - "Setup Window Navigation"
+Cohesion: 0.12
+Nodes (13): Face, board, soundcheck, SetupWindowView, AppModel, SetupConcern, agents, daemon (+5 more)
 
-### Community 24 - "Queue & Retry Logic"
+### Community 42 - "Privacy Safe Diagnostics"
 Cohesion: 0.18
-Nodes (15): AgentVoiceEvent, isDue(), markAttempt(), matchesPattern(), matchesSegment(), matchesSegments(), QueueJob, RetryDecision (+7 more)
+Nodes (17): DiagnosticsPreview, DiagnosticsPreviewOptions, DiagnosticsSnapshot, getDiagnosticsPreview, hasKey(), hasPathLikeValue(), JobRow, mapPlaybackDiagnostics() (+9 more)
 
-### Community 25 - "Swift History Models"
+### Community 43 - "Application Service Types"
+Cohesion: 0.18
+Nodes (15): QueueSnapshotJob, APP_SERVICE_ERROR_CODES, AppConfigDraft, AppServiceError, AppServiceErrorCode, IsoDateString, LatestEventSummary, QueueCounts (+7 more)
+
+### Community 44 - "Diagnostics Snapshot Models"
+Cohesion: 0.21
+Nodes (13): Daemon, DiagnosticDoctorCheck, DiagnosticHistoryPageInfo, DiagnosticJob, Paths, Encodable, AgentVoiceHistoryJob, AgentVoiceHistoryPageInfo (+5 more)
+
+### Community 45 - "History Data Models"
 Cohesion: 0.21
 Nodes (13): AgentVoiceHistoryJob, AgentVoiceHistoryPageInfo, AgentVoiceHistorySnapshot, HistoryJobStatus, done, failed, skipped, AgentVoiceHistoryJob (+5 more)
 
-### Community 26 - "Kokoro Setup Models"
-Cohesion: 0.22
-Nodes (11): KokoroSetupPhase, cancelled, failed, idle, running, succeeded, KokoroSetupSnapshot, KokoroSetupStepDefinition (+3 more)
+### Community 46 - "Electron Build Contracts"
+Cohesion: 0.15
+Nodes (15): Linux Renderer Build and Test Configuration, Electron Main and Preload Build Pipeline, AgentVoiceCapsulePreloadApi, Capsule Preload API, Linux Electron Development Orchestration, Agent Voice IPC Channels, createCapsuleWindowOptions, Main Renderer Preload API (+7 more)
 
-### Community 27 - "Kokoro Setup View Tests"
-Cohesion: 0.21
-Nodes (3): KokoroSetupProgressViewSourceTests, String, XCTest
+### Community 47 - "Preload Event Subscriptions"
+Cohesion: 0.24
+Nodes (11): eventChannel, PreloadIpcRenderer, subscribeToAgentVoiceEvent, subscriptionIdFromResult(), Preload unsubscribe cleanup contract, deferred, FakeIpcRenderer, Idempotent unsubscribe after subscription (+3 more)
 
-### Community 28 - "Dashboard View Helpers"
-Cohesion: 0.21
-Nodes (11): DashboardView, Content, DoctorCheck, AgentVoiceHistoryJob, Bool, Color, Content, DoctorCheck (+3 more)
-
-### Community 29 - "UI Source Test Helpers"
-Cohesion: 0.22
-Nodes (11): appSource(), appSources(), attentionBody(), dashboardBody(), dashboardViewSource(), offset(), offsets(), propertyBody() (+3 more)
-
-### Community 30 - "AppModel Diagnostics Actions"
+### Community 48 - "Renderer Navigation Types"
 Cohesion: 0.17
-Nodes (7): SummarizerModelRestoreError, CustomStringConvertible, Error, Error, SummarizerConfig, SummarizerConfig, SummarizerModelBinding
+Nodes (11): Operator Rail, activeRoute store, routeLabel, AgentVoiceRendererApi, RouteDefinition, RouteId, Renderer routes, UnknownResult (+3 more)
 
-### Community 31 - "Doctor Report Models"
-Cohesion: 0.21
-Nodes (12): DoctorCheck, DoctorReport, Severity, error, info, warning, Codable, Bool (+4 more)
+### Community 49 - "Root TypeScript Configuration"
+Cohesion: 0.12
+Nodes (15): linux/electron/**/*.ts, src/**/*.ts, tests/**/*.ts, compilerOptions, allowImportingTsExtensions, module, moduleResolution, noEmit (+7 more)
 
-### Community 32 - "Kokoro Setup Contract Tests"
+### Community 50 - "History Pagination Service"
+Cohesion: 0.15
+Nodes (12): DiagnosticsJobContext, QueueRow, DaemonStatus, AppHistoryJob, AppHistoryPageInfo, AppHistorySnapshot, buildHistorySnapshot(), emptyHistorySnapshot() (+4 more)
+
+### Community 51 - "Agent Hook Service"
+Cohesion: 0.28
+Nodes (13): assertSupportedAgent(), getHookStates, HookAgentState, HookMutationResult, HookStatesSnapshot, hookTargetLabel(), installAgent(), installHook (+5 more)
+
+### Community 52 - "Queue Retry Scheduling"
+Cohesion: 0.20
+Nodes (13): isDue(), markAttempt(), matchesPattern(), matchesSegment(), matchesSegments(), QueueJob, RetryDecision, scheduleRetry() (+5 more)
+
+### Community 53 - "Kokoro Model Contract Tests"
 Cohesion: 0.16
 Nodes (4): KokoroSetupModelTests, AgentVoiceCore, String, XCTest
 
-### Community 33 - "Claude Hook Extraction"
+### Community 54 - "Claude Event Extraction"
 Cohesion: 0.25
 Nodes (11): ClaudeExtractionResult, ClaudeQuestionResult, extractClaudeQuestion(), extractClaudeStopHook(), findText(), findTextValue(), formatOptionList(), isRecord() (+3 more)
 
-### Community 35 - "Kokoro Python Service"
+### Community 55 - "Doctor Report Models"
+Cohesion: 0.21
+Nodes (11): DoctorCheck, DoctorReport, Severity, error, info, warning, Bool, DoctorCheck (+3 more)
+
+### Community 56 - "Python Speech Service"
 Cohesion: 0.29
 Nodes (13): Any, audio_chunk_to_array(), audio_to_base64_wav(), error_message(), load_pipeline(), main(), parse_request(), Write a single JSON object to stdout. (+5 more)
 
-### Community 36 - "History View"
-Cohesion: 0.23
-Nodes (8): HistoryView, AgentVoiceHistoryJob, AppModel, Color, Never, Task, Void, ScrollViewProxy
+### Community 57 - "Kokoro Progress Window"
+Cohesion: 0.22
+Nodes (9): App, AgentVoiceApplication, AppModel, KokoroSetupProgressView, AppModel, Double, KokoroSetupStepDefinition, String (+1 more)
 
-### Community 37 - "AppModel Core"
+### Community 58 - "Preload IPC Contract"
 Cohesion: 0.18
-Nodes (6): SummarizerModelBinding, SummarizerPromptStyleInfo, Combine, Foundation, Foundation, String
+Nodes (10): Agent Voice Events, Agent Voice Preload Methods, AgentVoiceChannel, AgentVoiceEventName, AgentVoicePreloadMethod, AgentVoicePreloadApi, IPC payload validation before service calls, Allowlisted preload methods (+2 more)
 
-### Community 38 - "History Snapshot (TS)"
-Cohesion: 0.19
-Nodes (11): AppHistoryJob, AppHistoryPageInfo, AppHistorySnapshot, buildHistorySnapshot(), decodeHistoryCursor(), emptyHistorySnapshot(), encodeHistoryCursor(), formatHistoryJson() (+3 more)
+### Community 59 - "macOS Application Views"
+Cohesion: 0.29
+Nodes (5): AgentVoiceCore, AppKit, AgentVoiceWindowID, StatusBarIconLabel, SwiftUI
 
-### Community 39 - "Dashboard Agent Controls"
+### Community 60 - "Dashboard Status Components"
 Cohesion: 0.27
-Nodes (5): DashboardView, InstallState, AppModel, String, View
+Nodes (8): DashboardView, AgentVoiceHistoryJob, Bool, Color, Content, DoctorCheck, Int, String
 
-### Community 40 - "History Status Filter"
-Cohesion: 0.17
-Nodes (10): HistoryStatusFilter, all, done, failed, skipped, CaseIterable, HistoryJobStatus, AgentVoiceCore (+2 more)
+### Community 61 - "Diagnostics Configuration Snapshot"
+Cohesion: 0.20
+Nodes (9): DiagnosticConfig, AgentSummary, AgentVoiceFullConfig, AgentVoiceHistorySnapshot, AgentVoiceStatusSnapshot, ConfigSummary, DoctorReport, SummarizerConfig (+1 more)
 
-### Community 41 - "Setup Assistant View"
-Cohesion: 0.18
-Nodes (10): AgentSetupSummary, SetupAssistantView, Identifiable, AgentVoiceCore, AppKit, AppModel, Bool, SetupStep (+2 more)
-
-### Community 42 - "Setup Assistant Tests"
-Cohesion: 0.17
-Nodes (5): SetupAssistantModelTests, QueueCounts, AgentVoiceCore, XCTest, QueueCounts
-
-### Community 43 - "Daemon Processor Tests"
-Cohesion: 0.17
-Nodes (6): SummarizerName, ProcessorDeps, SummarizeOptions, SummarizeOutcome, ConfigOverrides, JobRecord
-
-### Community 44 - "UI State Enums"
+### Community 62 - "Application Runtime States"
 Cohesion: 0.18
 Nodes (10): AgentVoiceUIState, daemonStopped, needsAttention, paused, processing, ready, DaemonRunState, running (+2 more)
 
-### Community 45 - "AppModel Action Tests"
-Cohesion: 0.18
-Nodes (3): AppModelActionTests, AgentVoiceCore, XCTest
-
-### Community 46 - "Clear Failed Jobs Tests"
+### Community 63 - "Failed History Cleanup Tests"
 Cohesion: 0.27
 Nodes (9): AppModelClearFailedJobsTests, clearFailedHistoryJobJSON(), clearFailedHistoryPageJSON(), clearFailedStatusJSON(), AgentVoiceCore, Bool, Int, String (+1 more)
 
-### Community 47 - "Summarizer Knobs Tests"
-Cohesion: 0.18
-Nodes (3): AppModelSummarizerKnobsTests, AgentVoiceCore, XCTest
-
-### Community 49 - "TypeScript Config"
-Cohesion: 0.18
-Nodes (10): compilerOptions, allowImportingTsExtensions, module, moduleResolution, noEmit, skipLibCheck, strict, target (+2 more)
-
-### Community 50 - "App Entry & Windows"
-Cohesion: 0.22
-Nodes (8): AgentVoiceApplication, AgentVoiceWindowID, StatusBarIconLabel, App, AgentVoiceCore, AppModel, SwiftUI, Scene
-
-### Community 51 - "Menu Bar Smart Actions"
-Cohesion: 0.20
-Nodes (9): SmartActionMenuMode, daemonStopped, daily, needsAttention, unavailable, String, AgentVoiceCore, AppKit (+1 more)
-
-### Community 52 - "Setup Assistant Model"
+### Community 64 - "Event Input Validation"
 Cohesion: 0.29
-Nodes (6): SetupAssistantModel, SetupCheck, AgentVoiceStatusSnapshot, Bool, DoctorCheck, DoctorReport
+Nodes (9): AGENT_NAMES, AgentVoiceEventName, hasUnsafeKey(), isRecord(), normalizeIgnoredText(), shouldIgnoreEventText(), UNSAFE_KEYS, validateEvent() (+1 more)
 
-### Community 54 - "Summarizer Config Decode Tests"
-Cohesion: 0.27
-Nodes (5): SummarizerConfigDecodingTests, AgentVoiceCore, AgentVoiceFullConfig, String, XCTest
+### Community 65 - "Voice Meter Animation"
+Cohesion: 0.22
+Nodes (9): CGFloat, SetupConcernStatus, SoundwaveBloom, Bool, Color, Double, Int, VoiceMeter (+1 more)
 
-### Community 55 - "AppModel Daemon Refresh"
-Cohesion: 0.36
-Nodes (3): TerminalQueueCounts, AgentVoiceStatusSnapshot, AgentVoiceStatusSnapshot
+### Community 66 - "Setup Session Consent"
+Cohesion: 0.24
+Nodes (10): createSetupSessionRegistry, Agent Voice, Consent-Gated Kokoro Setup, Linux Electron Operator Console, Local-First Voice Pipeline, Allowlisted session-scoped setup events, Best-effort setup session cancellation, Buffered setup events for late subscribers (+2 more)
 
-### Community 57 - "Bun Locator Script"
+### Community 67 - "Renderer Privacy Controls"
+Cohesion: 0.24
+Nodes (10): Privacy Label, copyPreview, Diagnostics Panel, Privacy-safe diagnostics preview, truncateDiagnosticStrings, truncateText, Diagnostics privacy and copy tests, Summarizer privacy matrix (+2 more)
+
+### Community 68 - "Trusted Status Snapshot"
+Cohesion: 0.22
+Nodes (3): AgentVoiceStatusSnapshot, Bool, URL
+
+### Community 69 - "Summarizer Model Action Tests"
+Cohesion: 0.22
+Nodes (3): AppModelSummarizerActionTests, AgentVoiceCore, XCTest
+
+### Community 71 - "Bun Executable Discovery"
 Cohesion: 0.39
 Nodes (6): _agent_voice_cache_bun(), _agent_voice_use_bun(), _agent_voice_use_bun_path_file(), _agent_voice_use_cached_bun(), find_agent_voice_bun(), find-bun.sh script
 
-### Community 58 - "History Pagination"
-Cohesion: 0.32
-Nodes (4): AgentVoiceHistoryJob, AgentVoiceHistorySnapshot, AgentVoiceHistoryJob, AgentVoiceHistorySnapshot
+### Community 72 - "Inline Kokoro Installer"
+Cohesion: 0.39
+Nodes (5): KokoroInstallInlineView, AppModel, Double, KokoroSetupStepDefinition, String
 
-### Community 59 - "Setup Step Enum"
+### Community 73 - "Diagnostics Snapshot Structure"
 Cohesion: 0.25
-Nodes (8): SetupStep, agents, daemon, finish, kokoro, summaries, summaryVoice, welcome
+Nodes (8): AgentVoiceDiagnosticSnapshot, Daemon, DiagnosticConfig, DiagnosticDoctorCheck, DiagnosticHistoryPageInfo, DiagnosticJob, QueueCounts, Paths
 
-### Community 60 - "Draft Preservation Tests"
+### Community 74 - "Diagnostics Refresh Tests"
+Cohesion: 0.25
+Nodes (4): historyPageInfo, AppModelDiagnosticSnapshotTests, AgentVoiceCore, XCTest
+
+### Community 75 - "Prompt Style Catalog"
+Cohesion: 0.36
+Nodes (5): KokoroSetupStepDefinition, Identifiable, AppModel, SummarizerPromptStyleInfo, String
+
+### Community 77 - "Draft Preservation Tests"
 Cohesion: 0.36
 Nodes (6): AppModelDraftPreservationTests, draftFullConfigJSON(), draftStatusJSON(), AgentVoiceCore, String, XCTest
 
-### Community 61 - "History Focus Tests"
+### Community 78 - "History Focus Tests"
 Cohesion: 0.32
 Nodes (4): AppModelHistoryFocusTests, AgentVoiceCore, AppModel, XCTest
 
-### Community 63 - "Event Validation"
-Cohesion: 0.36
-Nodes (6): AgentVoiceEventName, hasUnsafeKey(), isRecord(), UNSAFE_KEYS, validateEvent(), ValidationResult
+### Community 80 - "Setup Assistant Tests"
+Cohesion: 0.25
+Nodes (3): SetupAssistantModelTests, AgentVoiceCore, XCTest
 
-### Community 66 - "Dashboard Warnings"
+### Community 83 - "Dashboard Warning Management"
 Cohesion: 0.33
 Nodes (4): AppModel, Bool, Foundation, String
 
-### Community 67 - "Attention Detail Tests"
-Cohesion: 0.33
-Nodes (3): AttentionDetailViewSourceTests, functionBody(), XCTest
+### Community 84 - "Prompt Catalog Tests"
+Cohesion: 0.29
+Nodes (4): SummarizerPromptStyleCatalogTests, AgentVoiceCore, XCTest, XCTestCase
 
-### Community 68 - "Executable Path Resolution"
+### Community 85 - "Hook Confirmation Interface"
+Cohesion: 0.29
+Nodes (4): confirmExpected, confirmLabel, confirmMessage, confirmTitle
+
+### Community 86 - "Guarded Destructive Actions"
+Cohesion: 0.29
+Nodes (7): ConfirmDialog confirmation and focus tests, Guarded hook configuration changes, Hooks Panel, Hook state and guarded action tests, Queue and History Panel, Typed confirmation for destructive queue cleanup, Queue history and cleanup tests
+
+### Community 88 - "Lifetime Completion Counter"
+Cohesion: 0.43
+Nodes (7): countsForSnapshot(), getDoneTotal(), Lifetime Completion Counter, liveDoneCount(), readMetaInt(), seedDoneTotal(), Lifetime Done Total
+
+### Community 89 - "Electron Development Runner"
+Cohesion: 0.40
+Nodes (4): electron, kill(), shutdown(), vite
+
+### Community 90 - "Accessible Renderer Shell"
+Cohesion: 0.33
+Nodes (6): Accessible Route Focus Management, Operator Console Shell, Accessible Dialog Focus Trap, Typed Destructive Confirmation, Renderer View Router, Renderer Accessibility Contract
+
+### Community 91 - "Setup Repair Route Tests"
+Cohesion: 0.40
+Nodes (3): ok(), setupApi(), SetupStartResult
+
+### Community 92 - "Executable Path Resolution"
 Cohesion: 0.47
 Nodes (4): ExecutablePathInput, ExecutablePaths, realpathOrResolved(), resolveExecutablePaths()
 
-### Community 69 - "Dashboard View Shell"
+### Community 93 - "Renderer Application Entry"
 Cohesion: 0.40
-Nodes (4): AppKit, AgentVoiceCore, AppKit, SwiftUI
+Nodes (3): app, target, view
 
-### Community 71 - "Setup Actions"
-Cohesion: 0.40
-Nodes (4): SetupAction, disableAgent, enableAgent, summarizerMode
-
-### Community 72 - "Daemon Signal Waiter"
+### Community 94 - "Daemon Work Signaling"
 Cohesion: 0.60
 Nodes (3): createSignalWorkWaiter(), SignalWorkWaiter, WorkWaiter
 
-### Community 75 - "Attention Detail Shell"
-Cohesion: 0.50
-Nodes (3): AgentVoiceCore, AppKit, SwiftUI
+### Community 96 - "Electron Script Tests"
+Cohesion: 0.40
+Nodes (4): devRunner, pkg, tsconfig, viteConfig
 
-### Community 76 - "Summarizer Mode"
+### Community 97 - "Bridge Protocol Tests"
 Cohesion: 0.50
-Nodes (3): isSummarizerMode(), setSummarizerMode(), SummarizerMode
+Nodes (4): BridgeResponse, isRecord, Narrow JSON-line app-service protocol, readProtocolResponse
+
+### Community 99 - "Queue History Loading"
+Cohesion: 0.50
+Nodes (4): confirmClear, loadHistory, loadQueueSnapshot, reloadInitial
+
+### Community 101 - "Hook Installation Detection"
+Cohesion: 0.50
+Nodes (4): Hook Service, Codex Hooks Feature Flag Detection, Codex Installer, Agent Install State Detection
+
+### Community 102 - "Development Launch Tests"
+Cohesion: 0.50
+Nodes (3): devRunner, main, pkg
+
+### Community 104 - "Home Status Feed"
+Cohesion: 0.67
+Nodes (3): Status Badge, Home Signal Feed, Home signal feed action tests
+
+### Community 105 - "Settings Panel Actions"
+Cohesion: 0.67
+Nodes (3): applyConfig, loadConfig, toggleCapsule
+
+### Community 106 - "Voice Bench Configuration"
+Cohesion: 0.67
+Nodes (3): applyConfig, loadConfig, saveConfig
+
+### Community 109 - "Native Workflow Contracts"
+Cohesion: 1.00
+Nodes (3): Electron Dev Launch Contract, Electron Main Build, Native Developer Workflow
 
 ## Knowledge Gaps
-- **351 isolated node(s):** `find-bun.sh script`, `PackageDescription`, `AgentVoiceCore`, `SwiftUI`, `AgentVoiceWindowID` (+346 more)
+- **462 isolated node(s):** `find-bun.sh script`, `PackageDescription`, `AgentVoiceCore`, `AppKit`, `SwiftUI` (+457 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **20 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **35 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `CodingKeys` connect `Config Coding Keys` to `Attention Detail View`, `Summarizer Config Keys`, `Diagnostic Snapshot Models`?**
-  _High betweenness centrality (0.086) - this node is a cross-community bridge._
-- **Why does `AppModel` connect `AppModel Kokoro Actions` to `Auto-Refresh Loop Control`, `Summary Voice Refresh`, `AppModel Queue Actions`, `AppModel Core`, `Kokoro Event Application`, `AppModel Daemon Refresh`, `History Pagination`, `AppModel Diagnostics Actions`?**
-  _High betweenness centrality (0.065) - this node is a cross-community bridge._
-- **Why does `SummarizerPromptStyleInfo` connect `AppModel Core` to `Swift CLI Wrapper`, `Setup Assistant View`, `Swift Config Models`, `AppModel Kokoro Actions`?**
-  _High betweenness centrality (0.060) - this node is a cross-community bridge._
+- **Why does `AppModel` connect `Application State Orchestration` to `Swift Configuration Models`, `Dashboard Interface Tests`, `Setup Readiness Evaluation`, `Inline Kokoro Installer`, `Swift CLI Command Tests`, `Setup Board Components`, `Kokoro Progress Window`, `Voice Setup Experience`?**
+  _High betweenness centrality (0.049) - this node is a cross-community bridge._
+- **Why does `CodingKeys` connect `Diagnostics Serialization Keys` to `Diagnostics Refresh Tests`, `Menu Diagnostics Interface`, `Diagnostics Snapshot Models`, `Configuration Coding Keys`?**
+  _High betweenness centrality (0.048) - this node is a cross-community bridge._
+- **Why does `SetupWindowViewSourceTests` connect `Setup Interface Source Tests` to `Inline Kokoro Installer`, `Setup Window Navigation`, `Prompt Catalog Tests`, `Setup Board Components`, `Voice Setup Experience`?**
+  _High betweenness centrality (0.032) - this node is a cross-community bridge._
+- **Are the 4 inferred relationships involving `AppModel` (e.g. with `KokoroSetupSnapshot` and `AgentVoiceFullConfig`) actually correct?**
+  _`AppModel` has 4 INFERRED edges - model-reasoned connections that need verification._
+- **Are the 30 inferred relationships involving `AgentVoiceCLI` (e.g. with `.testAddsAgentVoiceHomeToEnvironment()` and `.testAddsCommonCliLookupPathsToEnvironment()`) actually correct?**
+  _`AgentVoiceCLI` has 30 INFERRED edges - model-reasoned connections that need verification._
 - **What connects `find-bun.sh script`, `PackageDescription`, `AgentVoiceCore` to the rest of the system?**
-  _354 weakly-connected nodes found - possible documentation gaps or missing edges._
-- **Should `Swift CLI Wrapper` be split into smaller, more focused modules?**
-  _Cohesion score 0.05283505154639175 - nodes in this community are weakly interconnected._
-- **Should `CLI Commands & Path Safety` be split into smaller, more focused modules?**
-  _Cohesion score 0.05326460481099656 - nodes in this community are weakly interconnected._
-- **Should `CLI Process Runner Tests` be split into smaller, more focused modules?**
-  _Cohesion score 0.09376890502117362 - nodes in this community are weakly interconnected._
+  _462 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **Should `Kokoro Setup Infrastructure` be split into smaller, more focused modules?**
+  _Cohesion score 0.05174190888476603 - nodes in this community are weakly interconnected._
